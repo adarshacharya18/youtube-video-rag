@@ -1,0 +1,128 @@
+{
+  "mermaid": [
+    {
+      "index": 1,
+      "header": "graph TB",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 2,
+      "header": "sequenceDiagram",
+      "errors": [
+        "Unescaped/unquoted target with parens in line: 'YouTube->>External API (YouTube): Resumable Chunked Upload (5MB Chunks)'",
+        "Unescaped/unquoted participant with parens in line: 'External API (YouTube)-->>YouTube: HTTP 200 OK (Video ID: \"yt-abc123xyz\")'",
+        "Unescaped/unquoted target with parens in line: 'YouTube->>External API (YouTube): Upload Thumbnail PNG'",
+        "Unescaped/unquoted participant with parens in line: 'External API (YouTube)-->>YouTube: HTTP 200 OK'"
+      ],
+      "passed": false
+    },
+    {
+      "index": 3,
+      "header": "graph LR",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 4,
+      "header": "graph TD",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 5,
+      "header": "graph LR",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 6,
+      "header": "graph TD",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 7,
+      "header": "graph LR",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 8,
+      "header": "graph TD",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 9,
+      "header": "graph TD",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 10,
+      "header": "graph TD",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "index": 11,
+      "header": "flowchart TD",
+      "errors": [],
+      "passed": true
+    }
+  ],
+  "python_errors": [
+    {
+      "block_idx": 17,
+      "line": 51,
+      "msg": "Function parameters cannot be parenthesized",
+      "text": "    async def get_voice_provider((self) -> VoiceProvider:\n"
+    }
+  ],
+  "yaml_errors": [],
+  "sql_errors": [],
+  "event_analysis": {
+    "table_topics": [
+      "script.approved",
+      "voice.synthesis.started",
+      "voice.synthesis.completed",
+      "animation.render.started",
+      "animation.render.completed",
+      "subtitles.generation.completed",
+      "video.assembly.completed",
+      "thumbnail.generation.completed",
+      "youtube.published",
+      "pipeline.failed"
+    ],
+    "seq_topics": [
+      "script.approved",
+      "voice.synthesis.completed",
+      "animation.render.completed",
+      "subtitles.generation.completed",
+      "video.assembly.completed",
+      "thumbnail.generation.completed",
+      "youtube.published",
+      "pipeline.completed"
+    ],
+    "required_missing": [
+      "media.voice.generated",
+      "media.animation.rendered",
+      "media.subtitles.generated",
+      "media.video.assembled",
+      "media.published"
+    ],
+    "missing_payload_dataclasses": [
+      "ScriptApprovedPayload",
+      "VoiceSynthesisStartedPayload",
+      "AudioRenderedPayload",
+      "AnimationRenderStartedPayload",
+      "RenderCompletePayload",
+      "SubtitleCompletePayload",
+      "VideoAssembledPayload",
+      "ThumbnailCompletePayload",
+      "YoutubePublishedPayload",
+      "PipelineFailedPayload"
+    ]
+  }
+}

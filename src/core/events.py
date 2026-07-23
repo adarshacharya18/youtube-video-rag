@@ -1,0 +1,108 @@
+"""
+Core Event Model.
+
+Defines the universal immutable Event envelope used by the central Event Bus.
+Provides strict type validation, tracing headers, and JSON serialization.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from enum import IntEnum
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+def _now() -> datetime:
+    """Returns a timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
+
+
+def _uuid() -> str:
+    """Generates a standard UUIDv4 string."""
+    return str(uuid.uuid4())
+
+
+class EventPriority(IntEnum):
+    """
+    Strict integer priorities for the Event Bus queues.
+    Lower number = Higher execution priority in asyncio.PriorityQueue.
+    """
+    CRITICAL = 0
+    HIGH = 1
+    NORMAL = 2
+    LOW = 3
+
+
+class Event(BaseModel):
+    """
+    The immutable envelope carrying all messages across the Event Bus.
+    Uses Pydantic for zero-cost validation and serialization.
+    """
+    
+    # Mathematically lock the object from mutations after instantiation
+    model_config = ConfigDict(frozen=True)
+
+    # ==========================================
+    # Identifiers & Routing
+    # ==========================================
+    event_id: str = Field(default_factory=_uuid, description="Unique ID for this exact message.")
+    topic: str = Field(..., description="The routing topic (e.g., 'plugin.core.scraper.started')")
+    
+    # ==========================================
+    # Tracing & Telemetry (OpenTelemetry Standard)
+    # ==========================================
+    trace_id: str = Field(
+        default_factory=_uuid, 
+        description="Distributed trace ID spanning an entire workflow across multiple events."
+    )
+    correlation_id: Optional[str] = Field(
+        default=None, 
+        description="Links this event directly to a previous parent event."
+    )
+    
+    # ==========================================
+    # Contextual Origins
+    # ==========================================
+    pipeline_id: Optional[str] = None
+    workflow_id: Optional[str] = None
+    plugin_id: Optional[str] = None
+    
+    # ==========================================
+    # Delivery Mechanics
+    # ==========================================
+    timestamp: datetime = Field(default_factory=_now)
+    priority: EventPriority = Field(default=EventPriority.NORMAL)
+    version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    retry_count: int = Field(default=0, ge=0, description="How many times the Bus has attempted delivery.")
+    
+    # ==========================================
+    # Content
+    # ==========================================
+    payload: dict[str, Any] = Field(
+        default_factory=dict, 
+        description="The actual business data (e.g., video URL, error stack trace)."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, 
+        description="Extraneous headers (e.g., server IP, memory usage)."
+    )
+
+    def with_retry(self) -> "Event":
+        """
+        Creates a new immutable copy of this event with the retry_count incremented.
+        Because the model is frozen, the Event Bus calls this to generate a new instance
+        before pushing it back into the queue for a retry attempt.
+        """
+        data = self.model_dump()
+        data["retry_count"] += 1
+        return Event(**data)
+
+    def to_json(self) -> str:
+        """Serializes the event for SQLite persistence or network transmission."""
+        return self.model_dump_json()
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "Event":
+        """Deserializes a strict JSON string back into the frozen Pydantic model."""
+        return cls.model_validate_json(json_str)
