@@ -1,0 +1,239 @@
+{
+  "total": 18,
+  "passed": 14,
+  "failed": 4,
+  "benchmark_metrics": {
+    "overall_mean_ms": 0.754,
+    "overall_p50_ms": 0.759,
+    "overall_p95_ms": 1.269,
+    "overall_p99_ms": 1.432,
+    "per_fixture": {
+      "reverse_linked_list.md": {
+        "mean_ms": 0.691,
+        "p50_ms": 0.676,
+        "p95_ms": 0.746,
+        "p99_ms": 1.067,
+        "max_ms": 1.64
+      },
+      "varied_code_headers_problem.md": {
+        "mean_ms": 0.502,
+        "p50_ms": 0.5,
+        "p95_ms": 0.527,
+        "p99_ms": 0.632,
+        "max_ms": 0.776
+      },
+      "messy_html_problem.md": {
+        "mean_ms": 1.27,
+        "p50_ms": 1.244,
+        "p95_ms": 1.428,
+        "p99_ms": 1.486,
+        "max_ms": 1.7
+      },
+      "binary_tree_level_order.md": {
+        "mean_ms": 0.804,
+        "p50_ms": 0.785,
+        "p95_ms": 0.865,
+        "p99_ms": 1.479,
+        "max_ms": 1.594
+      },
+      "missing_optional_fields.md": {
+        "mean_ms": 0.347,
+        "p50_ms": 0.345,
+        "p95_ms": 0.357,
+        "p99_ms": 0.404,
+        "max_ms": 0.536
+      },
+      "two_sum.md": {
+        "mean_ms": 0.908,
+        "p50_ms": 0.902,
+        "p95_ms": 0.951,
+        "p99_ms": 1.028,
+        "max_ms": 1.387
+      }
+    }
+  },
+  "results": [
+    {
+      "test_name": "Latency Benchmark (<5ms)",
+      "status": "PASS",
+      "details": "Overall P50: 0.759ms, P95: 1.269ms, Mean: 0.754ms (Target: < 5ms)",
+      "metrics": {
+        "overall_mean_ms": 0.754,
+        "overall_p50_ms": 0.759,
+        "overall_p95_ms": 1.269,
+        "overall_p99_ms": 1.432,
+        "per_fixture": {
+          "reverse_linked_list.md": {
+            "mean_ms": 0.691,
+            "p50_ms": 0.676,
+            "p95_ms": 0.746,
+            "p99_ms": 1.067,
+            "max_ms": 1.64
+          },
+          "varied_code_headers_problem.md": {
+            "mean_ms": 0.502,
+            "p50_ms": 0.5,
+            "p95_ms": 0.527,
+            "p99_ms": 0.632,
+            "max_ms": 0.776
+          },
+          "messy_html_problem.md": {
+            "mean_ms": 1.27,
+            "p50_ms": 1.244,
+            "p95_ms": 1.428,
+            "p99_ms": 1.486,
+            "max_ms": 1.7
+          },
+          "binary_tree_level_order.md": {
+            "mean_ms": 0.804,
+            "p50_ms": 0.785,
+            "p95_ms": 0.865,
+            "p99_ms": 1.479,
+            "max_ms": 1.594
+          },
+          "missing_optional_fields.md": {
+            "mean_ms": 0.347,
+            "p50_ms": 0.345,
+            "p95_ms": 0.357,
+            "p99_ms": 0.404,
+            "max_ms": 0.536
+          },
+          "two_sum.md": {
+            "mean_ms": 0.908,
+            "p50_ms": 0.902,
+            "p95_ms": 0.951,
+            "p99_ms": 1.028,
+            "max_ms": 1.387
+          }
+        }
+      }
+    },
+    {
+      "test_name": "Huge Markdown (10KB)",
+      "status": "PASS",
+      "details": "Size: 0.01MB, Duration: 1.17ms, Error: None",
+      "metrics": {
+        "size_mb": 0.01,
+        "duration_ms": 1.17,
+        "success": true,
+        "error": null
+      }
+    },
+    {
+      "test_name": "Huge Markdown (100KB)",
+      "status": "PASS",
+      "details": "Size: 0.10MB, Duration: 11.23ms, Error: None",
+      "metrics": {
+        "size_mb": 0.1,
+        "duration_ms": 11.23,
+        "success": true,
+        "error": null
+      }
+    },
+    {
+      "test_name": "Huge Markdown (1000KB)",
+      "status": "PASS",
+      "details": "Size: 0.98MB, Duration: 111.52ms, Error: None",
+      "metrics": {
+        "size_mb": 0.98,
+        "duration_ms": 111.52,
+        "success": true,
+        "error": null
+      }
+    },
+    {
+      "test_name": "Huge Markdown (5000KB)",
+      "status": "PASS",
+      "details": "Size: 4.88MB, Duration: 528.76ms, Error: None",
+      "metrics": {
+        "size_mb": 4.88,
+        "duration_ms": 528.76,
+        "success": true,
+        "error": null
+      }
+    },
+    {
+      "test_name": "Huge Markdown (10000KB)",
+      "status": "PASS",
+      "details": "Size: 9.76MB, Duration: 1050.79ms, Error: None",
+      "metrics": {
+        "size_mb": 9.76,
+        "duration_ms": 1050.79,
+        "success": true,
+        "error": null
+      }
+    },
+    {
+      "test_name": "Unicode & Emoji Normal Parse",
+      "status": "PASS",
+      "details": "Title: '\ud83d\ude80 Pathfinding in \ud83c\udf10 Multiverse Matrix \ud83e\udd16\ud83d\udd25', Tags: ['\ud83c\udf33 Tree', '\ud83d\udd78\ufe0f Graph', '\ud835\udcaa(N log N) Algorithm', '\u7b97\u6cd5', '\u691c\u7d22']",
+      "metrics": {}
+    },
+    {
+      "test_name": "Pure Emoji Title Handling",
+      "status": "FAIL",
+      "details": "ValueError (Slug Derivation Bug): Problem slug is required and could not be derived from title",
+      "metrics": {}
+    },
+    {
+      "test_name": "Math HTML Tags Preservation (<sup>/<sub>)",
+      "status": "FAIL",
+      "details": "CRITICAL DATA CORRUPTION DETECTED! '10<sup>5</sup>' stripped to '105'! Details: Description parsed: 'Description\\n\\nGiven an integer n, calculate 105 + 23 and xi + yj.\\nAlso compute x^2 + y^2 = z^2.'. Constraints: ['1 <= n <= 109', 'Complexity must be O(N2)']",
+      "metrics": {}
+    },
+    {
+      "test_name": "Nested Lists (5 levels)",
+      "status": "PASS",
+      "details": "Duration: 0.38ms, Constraints extracted: 9",
+      "metrics": {}
+    },
+    {
+      "test_name": "Nested Lists (10 levels)",
+      "status": "FAIL",
+      "details": "Section Header Lost / Exception: Accepted solution code is required and cannot be empty",
+      "metrics": {}
+    },
+    {
+      "test_name": "XSS / Malicious HTML Tag Stripping",
+      "status": "PASS",
+      "details": "Description: 'Description\\n\\nProblem containing  and  and .'",
+      "metrics": {}
+    },
+    {
+      "test_name": "Unclosed Code Fence at EOF",
+      "status": "PASS",
+      "details": "Accepted Code: 'class Solution:\\n    def solve(self, s: str) -> str:\\n        return s[::-1]', Lang: python",
+      "metrics": {}
+    },
+    {
+      "test_name": "Mixed Language Preference (CODE section over Description)",
+      "status": "PASS",
+      "details": "Lang: 'python', Code: 'class Solution:\\n    def solve(self) -> int:\\n        return 42'",
+      "metrics": {}
+    },
+    {
+      "test_name": "Code Fence without Language Tag (Default Python)",
+      "status": "PASS",
+      "details": "Lang: 'python'",
+      "metrics": {}
+    },
+    {
+      "test_name": "Missing H1 Heading",
+      "status": "FAIL",
+      "details": "ValueError expected (No H1 title): Problem title is required and cannot be empty",
+      "metrics": {}
+    },
+    {
+      "test_name": "Invalid Difficulty Enum ('Extreme')",
+      "status": "PASS",
+      "details": "Correctly rejected with ValueError: Unknown difficulty: 'Extreme'",
+      "metrics": {}
+    },
+    {
+      "test_name": "Problem Number Stripped from Title",
+      "status": "PASS",
+      "details": "Num: 456, Title: 'Problem Title With Number In H1'",
+      "metrics": {}
+    }
+  ]
+}
