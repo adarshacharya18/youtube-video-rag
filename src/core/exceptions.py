@@ -49,6 +49,16 @@ class ValidationError(FatalError):
     pass
 
 
+class PipelineValidationError(ValidationError):
+    """Raised when data fails strict pipeline schema validation."""
+    pass
+
+
+class PipelineStageError(FatalError):
+    """Raised when a specific pipeline stage fails execution."""
+    pass
+
+
 class NetworkError(RetryableError):
     """Raised for timeouts or transient TCP/HTTP connection issues."""
     pass

@@ -7,7 +7,9 @@ to enable strict typing and DI resolution without forcing concrete
 classes into rigid inheritance hierarchies.
 """
 
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 # Generic type variables for inputs, outputs, and standard entities
 T = TypeVar("T")
@@ -16,14 +18,30 @@ T_contra = TypeVar("T_contra", contravariant=True)
 
 
 # ==========================================
-# 1. Pipeline Module
+# 1. Pipeline Module & Result
 # ==========================================
+@dataclass
+class BasePipelineResult(Generic[T]):
+    """
+    Standardized result object returned by pipeline stages and modules.
+    Encapsulates outcome, output payload, error context, and execution metadata.
+    """
+
+    success: bool
+    data: T | None = None
+    error: Exception | None = None
+    error_message: str | None = None
+    execution_time_ms: float = 0.0
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 @runtime_checkable
 class PipelineModule(Protocol[T_contra, T_co]):
     """
     A core component of the Pipes and Filters architecture.
     Takes an input payload (T_contra) and produces an output payload (T_co).
     """
+
     def execute(self, payload: T_contra) -> T_co:
         ...
 

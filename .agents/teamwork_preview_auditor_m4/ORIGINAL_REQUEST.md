@@ -1,12 +1,22 @@
-## 2026-07-23T12:07:53Z
-You are auditor_m4 in working directory /home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_auditor_m4.
-Perform a complete forensic integrity audit of:
-`/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase15/01_Platform_Evolution_Architecture.md`
+## 2026-07-24T05:32:16Z
+<USER_REQUEST>
+You are Forensic Auditor for Phase 01: Initial Setup & Global Architecture.
 
-Auditing checks:
-1. Static analysis grep for forbidden terms/concepts: `async`, `await`, `EventBus`, `PluginManager`, `Container`, `DI container`, `Async loops`, `HealthCheck`, `Module Lifecycle`, `DeadLetter`.
-2. Check for authentic, genuine implementations (no placeholders, no dummy code, no hardcoded test outputs).
-3. Verify fulfillment of R1 (Subsystems Integration), R2 (Experimentation & Safe Upgrades), R3 (Analytics & State Ledger), R4 (Mermaid Diagrams & CLI Guidance).
-4. Verify exact output location: `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase15/01_Platform_Evolution_Architecture.md`.
+Your working directory for metadata: `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_auditor_m4`
+Project root: `/home/adarsh/Documents/Youtube-Channel`
 
-Write your audit report to /home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_auditor_m4/audit_report.md, handoff report to handoff.md, and send a summary message back to parent with your final verdict (CLEAN vs INTEGRITY VIOLATION).
+Task:
+Perform a full Forensic Integrity Audit on all Phase 01 work products:
+1. Examine `src/core/base.py`, `src/core/exceptions.py`, `src/core/config.py`, `src/core/logger.py`, `src/core/__init__.py`.
+2. Examine `PromptBook/Phase01/01_Global_Rules.md` and `PromptBook/Phase01/02_Synchronous_Batch_Pipeline_Architecture.md`.
+3. Examine `requirements.txt`, `pyproject.toml`, and test files `tests/core/test_config.py`, `tests/core/test_base.py`, `tests/core/test_exceptions.py`, `tests/core/test_logger.py`.
+4. Perform systematic integrity checks:
+   - Check for hardcoded test values or cheat/shortcut logic in core Python modules.
+   - Check for facade implementations or fake classes.
+   - Check for forbidden async event bus or dynamic DI container logic.
+   - Verify static typing, PEP 8 compliance, and structlog usage.
+   - Run `.venv/bin/pytest tests/core/test_config.py` and `.venv/bin/pytest tests/core/` directly to verify test authenticity.
+5. Determine verdict: CLEAN vs INTEGRITY VIOLATION.
+6. Write your full forensic report to `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_auditor_m4/handoff.md`. Include a `progress.md` in your directory.
+Send a message to orchestrator with your verdict and findings summary upon completion.
+</USER_REQUEST>

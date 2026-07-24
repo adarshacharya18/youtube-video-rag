@@ -10,10 +10,21 @@ import sys
 import typer
 from rich.console import Console
 
+from contextlib import contextmanager
+from typing import Generator
+
 from src.core.config import load_config
 from src.core.exceptions import PipelineError
-from src.core.logger import get_logger
-from src.core.lifecycle import application_lifecycle
+from src.core.logger import configure_logging, get_logger
+
+
+@contextmanager
+def application_lifecycle() -> Generator[None, None, None]:
+    """Synchronous batch pipeline application lifecycle context manager."""
+    cfg = load_config()
+    configure_logging(cfg)
+    yield
+
 
 
 # Initialize Typer App and Rich Console

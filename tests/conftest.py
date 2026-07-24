@@ -1,8 +1,8 @@
 """
 Global pytest fixtures and configuration.
 
-Provides temporary environments, mock DI containers, data factories,
-and test utilities across the entire test suite.
+Provides temporary environments, data factories, and test utilities 
+across the test suite.
 """
 
 import os
@@ -13,8 +13,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.core.config import PipelineConfig, load_config
-from src.core.container import Container
-from src.core.lifecycle import build_container
 
 # Force testing environment so .env.testing is loaded automatically
 os.environ["ENVIRONMENT"] = "testing"
@@ -45,12 +43,6 @@ def test_config(temp_data_dir: Path) -> PipelineConfig:
     })
 
 
-@pytest.fixture
-def test_container(test_config: PipelineConfig) -> Container:
-    """Returns a completely fresh, isolated DI Container for each test."""
-    return build_container(test_config)
-
-
 # ==========================================
 # 2. Mock Services & Utilities
 # ==========================================
@@ -67,8 +59,6 @@ def mock_logger(mocker: Any) -> MagicMock:
 # ==========================================
 # 3. Data Factories
 # ==========================================
-# Note: As domain models are implemented in Phase 4, these factories 
-# will be updated to return actual strongly-typed dataclass instances.
 
 @pytest.fixture
 def mock_problem_factory() -> Callable[..., dict[str, Any]]:

@@ -1,79 +1,145 @@
-# Handoff Report — PromptBook Architecture Exploration
-
-**Agent:** explorer_m1_1  
-**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_explorer_m1_1`  
-**Report Path:** `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_explorer_m1_1/analysis_subsystems.md`  
-**Date:** 2026-07-23  
-**Handoff Type:** Hard Handoff (Task Complete)  
-
----
+# Milestone 1 Phase 01: Initial Setup & Global Architecture — Handoff Report
 
 ## 1. Observation
 
-- **Analyzed Documentation Files:**
-  - `PromptBook/02_Project_Architecture.md` (2109 lines) — Master Architecture Specification (Canonical).
-  - `PromptBook/09_Plugin_SDK.md` (252 lines) — Designed Plugin SDK interfaces.
-  - `PromptBook/10_Event_Driven_Architecture.md` (218 lines) — Asynchronous Event-Driven Architecture spec.
-  - `PromptBook/11_Workflow_Engine.md` (222 lines) — Generic Workflow Engine spec.
-  - `PromptBook/12_Event_Schemas.md` (235 lines) — Event schema dataclass definitions.
+### 1.1 Directory & Scaffolding Status
+- **Project Root**: `/home/adarsh/Documents/Youtube-Channel`
+- Directories checked:
+  - `src/` (EXISTS) — Contains 20 subdirectories (`animation/`, `assembly/`, `cli/`, `core/`, `evolution/`, `ingestion/`, `media/`, `memory/`, `models/`, `ops/`, `orchestrator/`, `organization/`, `plugins/`, `rag/`, `scraper/`, `script/`, `tags/`, `voice/`, `workflow/`, `youtube/`).
+  - `tests/` (EXISTS) — Contains unit and integration test directories (`core/`, `integration/`, `media/`, `plugins/`, `test_animation/`, `test_assembly/`, `test_core/`, `test_memory/`, `test_models/`, `test_orchestrator/`, `test_rag/`, `test_scraper/`, `test_script/`, `test_tags/`, `test_voice/`, `test_workflow/`, `test_youtube/`, `conftest.py`).
+  - `scripts/` (EXISTS) — Contains `ci.sh`, `deploy.py`, `release.py`.
+  - `PromptBook/` (EXISTS) — Contains master specifications (`00_Project_Context.md` through `13_Build_Prompts.md`, `01_Global_Rules.md`, `02_Project_Architecture.md`, and subfolders `Phase01/` to `Phase15/`).
 
-- **Observed Subsystem Definitions (`02_Project_Architecture.md`, Section 3 & 4):**
-  - Module 0: Pipeline Orchestrator (`src/orchestrator/`)
-  - Module 1: Problem Scraper (`src/scraper/`)
-  - Module 2: Tag Explorer (`src/tags/`)
-  - Module 3: RAG Knowledge Engine (`src/rag/`)
-  - Module 4: Script Generator (`src/script/`)
-  - Module 5: Voice Generation (`src/voice/`)
-  - Module 6: Manim Animation Engine (`src/animation/`)
-  - Module 7: Video Assembly (`src/assembly/`)
-  - Module 8: YouTube Upload (`src/youtube/`)
-  - Module 9: Memory System (`src/memory/`)
-  - Shared Core Services (`src/core/`) and Domain Models (`src/models/`)
+### 1.2 Configuration Files Status
+- `pytest.ini` (EXISTS at root):
+  ```ini
+  [pytest]
+  addopts = --strict-markers --cov=src --cov-report=term-missing -v
+  testpaths = tests
+  ```
+- `.env` (EXISTS at root): Contains `GEMINI_API_KEY`, `LEETCODE_SESSION`, `YOUTUBE_CLIENT_SECRETS_PATH`.
+- `pyproject.toml` (MISSING) — No poetry/flit/setuptools `pyproject.toml` exists at project root.
+- `requirements.txt` (MISSING) — No standard pip requirements file exists at project root.
+- `setup.py` / `setup.cfg` (MISSING) — No setup script exists.
 
-- **Observed v2.0 Operational Model (`02_Project_Architecture.md`, Section 2 & 11):**
-  - Single Composition Root in `src/__main__.py` (Section 11.2, lines 1603–1640) wiring concrete implementations to protocols.
-  - Deterministic Pipes and Filters sequential execution model driven by `PipelineOrchestrator` (Section 2.2 & 3.10).
-  - Step-by-step synchronous function calls with immutable dataclass DTO arguments and outputs.
+### 1.3 Python Environment Status
+- Command executed: `python3 -c "import sys, pydantic, pydantic_settings, loguru, structlog, pytest; ..."`
+- Python version: `3.13.7` (`/usr/bin/python3`)
+- Installed status:
+  - `pydantic`: **NOT INSTALLED**
+  - `pydantic-settings`: **NOT INSTALLED**
+  - `loguru`: **NOT INSTALLED**
+  - `structlog`: **NOT INSTALLED**
+  - `pytest`: **NOT INSTALLED**
+  - Standard library `logging`: **AVAILABLE**
 
-- **Observed Excluded Concepts (`02_Project_Architecture.md`, Section 17):**
-  - Section 17.2: "Avoided: Async/Await Throughout"
-  - Section 15 & 17.1: "Decision 1: Sequential Pipeline Over Event-Driven Architecture" / "Avoided: Microservices"
-  - Section 17.8: "Avoided: Plugin Discovery / Dynamic Loading"
-  - Section 11.3 & 17.7: "No DI framework" / "Avoided: Global Singletons"
-  - Section 17: No task queues, no dead letter queues, no async loops.
+### 1.4 Core Source Inspection
+1. `src/core/config.py`:
+   - Utilizes Pydantic V2 (`pydantic.Field`, `pydantic.SecretStr`, `pydantic_settings.BaseSettings`, `pydantic_settings.SettingsConfigDict`).
+   - Defines sub-configs: `ScraperConfig`, `RAGConfig`, `GeminiConfig`, `YouTubeConfig`, aggregated under `PipelineConfig`.
+   - Uses `env_nested_delimiter="__"` and `.model_dump()` / `.model_validate()`.
+
+2. `src/core/base.py`:
+   - Uses `typing.Protocol` with `@runtime_checkable`.
+   - Defines standard interfaces: `PipelineModule[T_contra, T_co]`, `Service`, `Repository[T]`, `Provider[T_co]`, `Factory[T_co]`, `Command`, `Configuration`, `Lifecycle`, `Validator[T_contra]`.
+
+3. `src/core/exceptions.py`:
+   - Central exception hierarchy inheriting from `PipelineError`.
+   - Classifies operational errors into `RetryableError` (transient, e.g. `NetworkError`, `RateLimitError`, `EmbeddingError`) and `FatalError` (unrecoverable, e.g. `ConfigurationError`, `ValidationError`, `AuthenticationError`, `ProblemNotFoundError`, `IndexNotFoundError`, `KnowledgeConflictError`).
+   - Includes module-specific sub-exceptions (`ScraperError`, `TagExplorerError`, `RAGError`, `ScriptGenerationError`, `VoiceGenerationError`, `AnimationError`, `AssemblyError`, `YouTubeUploadError`).
+
+4. `src/core/logger.py`:
+   - Configures `structlog` and stdlib `logging` with JSON output (`RotatingFileHandler`), colored console output, context variable binding (`pipeline_id`), and execution timing context manager (`log_execution_time`).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Premise 1:** The user request requires identifying subsystem boundaries, documenting the v2.0 synchronous batch-pipeline operation, and explaining forbidden legacy concepts.
-2. **Step 1 (Subsystems):** Examining `02_Project_Architecture.md` shows 7 distinct functional subsystems spanning 10 pipeline modules (`src/orchestrator/`, `src/scraper/`, `src/tags/`, `src/rag/`, `src/script/`, `src/voice/`, `src/animation/`, `src/assembly/`, `src/youtube/`, `src/memory/`, `src/core/`, `src/models/`). Each subsystem exposes a single-responsibility `@runtime_checkable` `typing.Protocol` contract operating on frozen dataclasses (`@dataclass(frozen=True)`).
-3. **Step 2 (v2.0 Pipeline):** Section 2, 3.10, and 11.2 demonstrate that v2.0 runs as a synchronous batch pipeline. Wiring occurs exclusively in the single Composition Root (`src/__main__.py`). Execution progresses deterministically step-by-step through direct synchronous protocol method calls, using file-based checkpoints (`data/checkpoints/`) for crash recovery.
-4. **Step 3 (Forbidden Concepts):** Early specs (`09`–`12`) introduced asynchronous pub/sub patterns (`EventBus`), dynamic lifecycle management (`PluginManager`, `HealthCheck`), and queue mechanisms (`DeadLetter queue`). Section 17 of canonical specification `02_Project_Architecture.md` explicitly rejects these concepts because they introduce unnecessary indirection, state complexity, and overhead for single-machine processing. The v2.0 design replaces them with clean synchronous protocols, explicit composition root injection, domain exceptions, and checkpoint persistence.
+1. **Scaffolding Logic**: `src/`, `tests/`, `scripts/`, and `PromptBook/` are already structured and populated with module code and tests. No manual creation of these directories is needed. However, missing `pyproject.toml` / `requirements.txt` means dependency tracking is currently unmanaged.
+2. **Environment & Dependency Logic**: `src/core/config.py` and `src/core/logger.py` rely heavily on `pydantic-settings` (v2) and `structlog`. Running the project currently fails with `ModuleNotFoundError` because these packages are not installed in the environment. Creating a virtual environment or installing required packages (`pydantic>=2.0`, `pydantic-settings>=2.0`, `structlog`, `pytest`, `pytest-cov`, `google-genai`, `chromadb`, etc.) is an immediate prerequisite for execution.
+3. **Core Modules Architecture Logic**:
+   - `src/core/config.py` already follows Pydantic V2 patterns (`BaseSettings`, `SettingsConfigDict`). It needs minor extensions to cover Kokoro TTS parameters, Manim resolution/fps settings, and memory DB paths.
+   - `src/core/base.py` provides pure structural protocols adhering to Dependency Inversion. Module interfaces in `src/models/protocols.py` should cleanly inherit or reference these base protocols.
+   - `src/core/exceptions.py` cleanly separates retryable vs fatal errors. Enhancing exception instances with structured context dictionaries (`slug`, `step`, `details`) will improve telemetry and memory logging.
+4. **Global Rules & Architecture Specs Logic**:
+   - `01_Global_Rules.md` effectively sets engineering standards (dataclasses, typing, complete implementations, structlog logging). It should be updated to mandate virtualenv lockfiles and strict type hint validation.
+   - `02_Synchronous_Batch_Pipeline_Architecture.md` should document the end-to-end batch lifecycle, checkpoint persistence, crash recovery, and resource isolation for single-invocation batch execution.
 
 ---
 
 ## 3. Caveats
 
-- **Scope:** Investigation focused strictly on documentation under `PromptBook/` (`02`, `09`, `10`, `11`, `12`).
-- **Assumptions:** Document `02_Project_Architecture.md` has status "Canonical" (line 8) and overrides preliminary designs in `09`–`12`.
-- **Unexplored Areas:** Implementation code in `src/` (if any exists) was not modified or executed as this was a read-only architectural exploration.
+- Investigation was strictly read-only; no code files outside `.agents/` were modified.
+- System dependencies (such as system `ffmpeg` binary version, Kokoro TTS OpenVINO model weights, and Manim rendering backends) were checked at code level but not executed via hardware acceleration benchmarks.
 
 ---
 
-## 4. Conclusion
+## 4. Conclusion & Recommendations
 
-The PromptBook platform architecture is defined by seven clean subsystems communicating via structural subtyping (`typing.Protocol`) and immutable dataclass contracts. The v2.0 runtime is a synchronous batch pipeline managed by a single composition root and a deterministic orchestrator. All legacy asynchronous/event-driven concepts (`async/await`, `EventBus`, `PluginManager`, `Container`, `HealthCheck`, `DeadLetter queue`) are explicitly prohibited in favor of simple, testable, and robust synchronous architecture patterns.
+### 4.1 Recommendations for `src/core/config.py`
+- Maintain the Pydantic V2 architecture (`BaseSettings`, `SettingsConfigDict`).
+- Expand `PipelineConfig` to include sub-configurations for:
+  - `VoiceConfig`: Kokoro TTS model path, voice sample reference path (`reference.wav`), sample rate (24000), OpenVINO device target (`CPU`/`NPU`).
+  - `AnimationConfig`: Resolution (`1920x1080`), FPS (`30`), theme (`dark`), output directory (`data/animation`).
+  - `AssemblyConfig`: FFmpeg CRF (`18`), audio codec (`aac`), target LUFS (`-14`).
+  - `MemoryConfig`: Memory storage path (`data/memory/memory.json`).
+- Ensure all sensitive fields remain wrapped in `SecretStr`.
 
-The complete analysis report has been published to `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_explorer_m1_1/analysis_subsystems.md`.
+### 4.2 Recommendations for `src/core/base.py`
+- Retain `@runtime_checkable` `Protocol` definitions.
+- Maintain `PipelineModule[T_contra, T_co]` as the core filter interface in the Pipes & Filters pattern.
+- Ensure all concrete pipeline stage wrappers implement `PipelineModule` with strict input/output dataclass contracts.
+
+### 4.3 Recommendations for `src/core/exceptions.py`
+- Preserve the `RetryableError` vs `FatalError` dual operational taxonomy.
+- Add structured context fields to `PipelineError`:
+  ```python
+  class PipelineError(Exception):
+      def __init__(self, message: str, slug: str | None = None, details: dict[str, Any] | None = None):
+          super().__init__(message)
+          self.slug = slug
+          self.details = details or {}
+  ```
+- Ensure exception propagation in the orchestrator categorizes errors into `RetryableError` (triggering stage retry/backoff) and `FatalError` (aborting run and marking checkpoint as failed).
+
+### 4.4 Recommendations for `01_Global_Rules.md`
+- Keep existing production code rules (no placeholders, dataclasses, typing, structlog logging, pytest).
+- Add rule: **Dependency Management** — All dependencies must be explicitly pinned in `pyproject.toml` or `requirements.txt`.
+- Add rule: **Pipes & Filters Isolation** — Pipeline modules MUST NOT directly import or invoke other pipeline modules; communication occurs exclusively via typed dataclass contracts in `src/models/`.
+
+### 4.5 Recommendations for `02_Synchronous_Batch_Pipeline_Architecture.md`
+- Document the 9-stage sequential flow: `Scraper` → `Tags` → `RAG` → `Script` → `Voice` → `Manim` → `Assembly` → `YouTube` → `Memory`.
+- Document Checkpoint & State Policy:
+  - Each completed stage serializes its contract dataclass to `data/checkpoints/{slug}/{stage_name}.json`.
+  - Re-invoking the pipeline checks existing checkpoint files; valid existing checkpoints are loaded to skip duplicate work.
+- Document Resource Lifecycle:
+  - Release heavy resources (e.g. OpenVINO TTS session, Manim scene memory) immediately after stage execution completes.
 
 ---
 
 ## 5. Verification Method
 
-1. **Inspect Report File:**
-   - Confirm `/home/adarsh/Documents/Youtube-Channel/.agents/teamwork_preview_explorer_m1_1/analysis_subsystems.md` exists and contains all three required sections.
-2. **Cross-Check Section References:**
-   - Verify `02_Project_Architecture.md` Section 3 (Module Responsibilities), Section 7 (Interface Philosophy), Section 11 (Dependency Injection / Composition Root), and Section 17 (Things Explicitly Avoided).
-3. **Invalidation Conditions:**
-   - If `02_Project_Architecture.md` is replaced by an async/event-driven core architecture spec, the conclusions regarding forbidden terms would be invalidated.
+To independently verify environment status and validate future implementation:
+
+1. **Verify Python Environment & Missing Dependencies**:
+   ```bash
+   python3 -c "import pydantic; print(pydantic.__version__)"
+   python3 -c "import pydantic_settings; print(pydantic_settings.__version__)"
+   python3 -c "import structlog; print(structlog.__version__)"
+   python3 -m pytest --version
+   ```
+   *Expected outcome currently*: `ModuleNotFoundError` for pydantic, structlog, pytest until installed in virtualenv.
+
+2. **Verify Core Module Importability (after installing dependencies)**:
+   ```bash
+   python3 -c "from src.core.config import load_config; print(load_config())"
+   python3 -c "from src.core.base import PipelineModule; print(PipelineModule)"
+   python3 -c "from src.core.exceptions import PipelineError, RetryableError, FatalError; print(PipelineError)"
+   ```
+   *Expected outcome*: Successful instantiation of default `PipelineConfig` and protocol/exception classes.
+
+3. **Run Existing Core Unit Tests (after installing pytest)**:
+   ```bash
+   pytest tests/test_core/ -v
+   ```
+   *Expected outcome*: All core tests pass cleanly with term-missing coverage report.
