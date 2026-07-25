@@ -1,28 +1,38 @@
-# Phase 03: RAG & Knowledge Organization — Project Plan
+# Phase 05 Implementation Plan: Core Data Models & Schemas
 
-## Architecture & Scope
-Phase 03 implements the Retrieval-Augmented Generation (RAG) and Knowledge Organization layer for the Automated DSA Educational YouTube Video Pipeline.
-It builds an embedding engine with chunking strategies tailored for code vs text, integrates local ChromaDB vector store persistence, documents the RAG architecture in `PromptBook/Phase03/01_RAG_Architecture.md`, and provides comprehensive test suites in `tests/rag/test_vector_store.py`.
+## Objective
+Implement Phase 05 data models (`VideoMetadata`, `EducationalPlan`, `RenderSegment`) using Pydantic V2 `BaseModel`, ensuring 1-to-1 alignment with the Phase 04 SQLite State Ledger schema, strict semantic validation, comprehensive validation tests (`tests/models/test_validation.py`), and detailed documentation (`PromptBook/Phase05/01_Data_Models.md`).
 
-## Milestones
+## Subtasks & Milestones
 
-| # | Milestone Name | Scope & Deliverables | Dependencies | Status |
-|---|----------------|----------------------|--------------|--------|
-| M1 | Exploration & Context Analysis | Explore repository, inspect existing problem models, dependencies (`chromadb`, `openai`, `pytest`), and formulate implementation strategy | None | IN_PROGRESS |
-| M2 | Core Implementation & Documentation | Implement `src/core/rag/embedder.py`, `src/core/rag/vector_store.py`, `PromptBook/Phase03/01_RAG_Architecture.md`, and `tests/rag/test_vector_store.py` | M1 | PLANNED |
-| M3 | Review & Adversarial Challenge | Independent code review by 2 Reviewers; empirical verification & stress-testing by 2 Challengers | M2 | PLANNED |
-| M4 | Forensic Integrity Audit | Forensic integrity audit by Auditor (`teamwork_preview_auditor`) to ensure authentic implementation without shortcuts or hardcoded outputs | M3 | PLANNED |
+### Milestone 1: Survey & Requirements Mining
+- Spawn Explorers (`teamwork_preview_explorer` / `teamwork_preview_spec_miner`) to investigate:
+  1. `src/core/orchestrator/state_ledger.py` and any existing state ledger schemas / migrations / DB tables from Phase 04.
+  2. Existing codebase structure in `src/core/` and `tests/`.
+  3. Precise field definitions, data types, constraints, and 1-to-1 ledger mapping requirements for `VideoMetadata`, `EducationalPlan`, and `RenderSegment`.
 
-## Interface Contracts & Data Models
-- `src/core/rag/embedder.py`:
-  - `Chunk`: Dataclass containing chunk_id, text/code content, chunk_type ("text" | "code"), metadata, parent_id.
-  - `CodeChunker`: Splits code preserving function signatures, class boundaries, control flow blocks, and comments.
-  - `TextChunker`: Splits text preserving paragraph boundaries, markdown headers, and sentence integrity.
-  - `EmbeddingEngine`: Interface & implementation supporting OpenAI `text-embedding-3-small` with local/mock fallback mode when API key is missing or in offline test environment.
-- `src/core/rag/vector_store.py`:
-  - `ChromaVectorStore`: Local ChromaDB vector store wrapper utilizing `chromadb.PersistentClient` (or ephemeral client for tests).
-  - Methods: `add_problem(problem: ScrapedProblem)`, `add_chunks(chunks: List[Chunk])`, `query(query_text: str, top_k: int = 5, where: Optional[Dict] = None)`, `delete_collection()`, `get_stats()`.
-- `PromptBook/Phase03/01_RAG_Architecture.md`:
-  - Detailed documentation of text vs code chunking strategies, embedding dimensions, ChromaDB schema, distance metrics, query pipeline, metadata indexing, and evaluation.
-- `tests/rag/test_vector_store.py`:
-  - Tests inserting synthetic DSA problems, embedding, querying semantic matches, metadata filtering (e.g. difficulty, tags), and persistence verification.
+### Milestone 2: Implementation of Core Pydantic Models & Schemas
+- Spawn Worker (`teamwork_preview_worker`) to implement:
+  1. `src/core/models/video.py` — `VideoMetadata` model with resolution validation (e.g. 1080p, 4K, valid dimensions), title/description non-empty checks, fps checks, etc.
+  2. `src/core/models/plan.py` — `EducationalPlan` model representing educational topic, target audience, script outline, code snippets, section breakdown, etc.
+  3. `src/core/models/assets.py` — `RenderSegment` model (and related asset models) with positive duration validation, asset paths, timing offsets, segment types, etc.
+  4. Ensure all models use Pydantic V2 features (`@field_validator`, `@model_validator`, `Field`, etc.) and align 1-to-1 with State Ledger schema.
+
+### Milestone 3: Test Suite & Validation Hardening
+- Spawn Worker / Test Writer (`teamwork_preview_worker`) to implement:
+  1. `tests/models/test_validation.py` testing positive cases, missing fields, malformed JSON, invalid types, negative/zero durations, unsupported resolutions, empty strings.
+  2. Verify all tests pass with `pytest`.
+
+### Milestone 4: Documentation & Data Contracts
+- Spawn Worker (`teamwork_preview_worker`) to create:
+  1. `PromptBook/Phase05/01_Data_Models.md` documenting all Pydantic models, validation rules, field descriptions, and explicit 1-to-1 mapping with Phase 04 SQLite State Ledger schema.
+
+### Milestone 5: Verification, Review, Challenger & Forensic Audit Gate
+- Spawn Reviewers (`teamwork_preview_reviewer`) to review code quality, schema alignment, and typing.
+- Spawn Challengers (`teamwork_preview_challenger`) to stress test models with edge cases and malformed inputs.
+- Spawn Forensic Auditor (`teamwork_preview_auditor`) to run static analysis and integrity check.
+- Gate approval check.
+
+## Verification Commands
+- `pytest tests/models/`
+- `pytest` (full suite)
