@@ -26,4 +26,18 @@ Scaffold the `PromptBook/Phase01/` documentation outlining the high-level Synchr
 
 ### Documentation & Structure
 - [ ] `PromptBook/Phase01/01_Global_Rules.md` exists and contains explicit guidelines for PEP 8, static typing, and structural logging.
-- [ ] The global folder structure (`src/`, `tests/`, `scripts/`, `PromptBook/`) has been successfully scaffolded.
+
+
+## 2026-07-25T10:51:44Z
+
+Implement Phase 03: RAG & Knowledge Organization for the Automated DSA Educational YouTube Video Pipeline.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Orchestrator directory: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator
+
+Requirements summary:
+1. `src/core/rag/embedder.py`: Implement embedding engine supporting optimal chunking strategies tailored for code vs text to preserve algorithmic context (using OpenAI text-embedding-3-small or local alternative / mock).
+2. `src/core/rag/vector_store.py`: Implement ChromaDB local vector store to persist embeddings locally using ChromaDB as underlying vector database.
+3. `PromptBook/Phase03/01_RAG_Architecture.md`: Document chunking strategy (text vs code) and ChromaDB retrieval architecture.
+4. `tests/rag/test_vector_store.py`: Implement tests to insert dummy DSA problems, execute semantic retrieval queries, and validate matches. `pytest tests/rag/test_vector_store.py` must pass.
+

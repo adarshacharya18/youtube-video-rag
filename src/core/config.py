@@ -42,6 +42,11 @@ class RAGConfig(BaseSettings):
     knowledge_base_dir: Path = Field(default=Path("data/knowledge_base"))
     collection_name: str = Field(default="dsa_knowledge")
     top_k: int = Field(default=10, ge=1, le=50)
+    openai_api_key: SecretStr = Field(default=SecretStr(""))
+    embedding_model: str = Field(default="text-embedding-3-small")
+    embedding_dim: int = Field(default=1536)
+    use_mock_embedder: bool = Field(default=False)
+
 
 
 class GeminiConfig(BaseSettings):
