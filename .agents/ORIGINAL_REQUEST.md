@@ -58,3 +58,34 @@ Do not ask for permission before running terminal commands, unless the command i
 ### Documentation
 - [ ] `PromptBook/Phase03/01_RAG_Architecture.md` exists and details the chunking strategy (text vs. code) and ChromaDB retrieval architecture.
 
+## 2026-07-25T15:03:32Z
+
+Implement Phase 04: Runtime Architecture & State Ledger for the Automated DSA Educational YouTube Video Pipeline. Enforce strict pipeline idempotency using an SQLite State Ledger to track execution status and ensure the ability to resume crashed runs.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. State Ledger Implementation
+Implement `src/core/orchestrator/state_ledger.py` utilizing the standard library `sqlite3` to track the status (e.g. `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`) of every video generation step. You must use pure `sqlite3` for minimal overhead and explicitly configure PRAGMA statements (like WAL) for concurrency.
+
+### R2. Idempotency and Recovery Logic
+The ledger must ensure thread-safe and crash-safe transactional integrity. Interrupted processes must be able to securely query their exact state from disk and resume execution accurately.
+
+### R3. Runtime Architecture Documentation
+Document the state machine and recovery logic in `PromptBook/Phase04/01_Runtime_Architecture.md`, strictly enforcing the Synchronous Batch-Pipeline paradigm.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Running `pytest tests/orchestrator/test_state_ledger.py` executes successfully. The test suite MUST programmatically simulate an artificial crash and prove that the system can read its last known state from the SQLite disk file and resume operations successfully.
+- [ ] `src/core/orchestrator/state_ledger.py` exists and implements the status tracking logic utilizing the standard `sqlite3` library.
+
+### Documentation
+- [ ] `PromptBook/Phase04/01_Runtime_Architecture.md` exists and clearly documents the State Ledger schema, recovery logic, and strict adherence to the Synchronous Batch-Pipeline paradigm.
+
+
