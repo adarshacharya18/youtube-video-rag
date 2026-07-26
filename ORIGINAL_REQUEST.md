@@ -88,3 +88,34 @@ Do not ask for permission before running terminal commands, unless the command i
 
 ### Documentation
 - [ ] `PromptBook/Phase05/01_Data_Models.md` exists and clearly documents the Pydantic schemas and their 1-to-1 mapping with the Phase 04 State Ledger.
+
+## 2026-07-26T04:11:31Z
+
+Implement Phase 06: LLM Provider Abstraction for the Automated DSA Educational YouTube Video Pipeline. Create a unified, resilient Python interface wrapping external LLMs (OpenAI, Anthropic) that enforces strict structured output using the Pydantic models defined in Phase 05.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Unified Provider Interface via LangChain
+Implement `src/core/llm/provider.py` defining the interface. Implement the concrete classes `src/core/llm/openai_client.py` and `src/core/llm/anthropic_client.py`. You must utilize LangChain's `BaseChatModel` and `with_structured_output` as the underlying abstraction engine to avoid reinventing the wheel.
+
+### R2. Resiliency & Structured Output
+The clients must gracefully handle rate limits and API failures via built-in retry/backoff logic. They must seamlessly integrate with the Phase 05 Pydantic models to guarantee identically structured output regardless of the active provider.
+
+### R3. Abstraction Strategy Documentation
+Document the provider strategy, retry logic, and fallback mechanisms in `PromptBook/Phase06/01_LLM_Abstraction.md`.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Running `pytest tests/llm/test_providers.py` executes successfully. The test suite MUST use mocked API responses for both OpenAI and Anthropic, and strictly assert that both providers return identical Pydantic objects based on the Phase 05 schemas.
+- [ ] `src/core/llm/provider.py`, `openai_client.py`, and `anthropic_client.py` exist and successfully leverage LangChain's structured output abstraction.
+
+### Documentation
+- [ ] `PromptBook/Phase06/01_LLM_Abstraction.md` exists and clearly documents the LangChain abstraction strategy and resiliency configurations.
+

@@ -70,6 +70,71 @@ class YouTubeConfig(BaseSettings):
     client_secret_file: Path = Field(default=Path("config/client_secrets.json"))
 
 
+class OpenAIConfig(BaseSettings):
+    """Configuration for OpenAI LLM provider."""
+
+    api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="OpenAI API secret key"
+    )
+    default_model: str = Field(
+        default="gpt-4o",
+        description="Default OpenAI model identifier"
+    )
+    temperature: float = Field(
+        default=0.0, ge=0.0, le=2.0,
+        description="Sampling temperature for text generation"
+    )
+    max_retries: int = Field(
+        default=3, ge=0,
+        description="Maximum retry attempts for transient errors"
+    )
+    timeout_seconds: float = Field(
+        default=60.0, ge=1.0,
+        description="HTTP request timeout in seconds"
+    )
+    organization: str | None = Field(
+        default=None,
+        description="Optional OpenAI Organization ID"
+    )
+
+
+class AnthropicConfig(BaseSettings):
+    """Configuration for Anthropic LLM provider."""
+
+    api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Anthropic API secret key"
+    )
+    default_model: str = Field(
+        default="claude-3-5-sonnet-20240620",
+        description="Default Anthropic model identifier"
+    )
+    temperature: float = Field(
+        default=0.0, ge=0.0, le=1.0,
+        description="Sampling temperature for text generation"
+    )
+    max_retries: int = Field(
+        default=3, ge=0,
+        description="Maximum retry attempts for transient errors"
+    )
+    timeout_seconds: float = Field(
+        default=60.0, ge=1.0,
+        description="HTTP request timeout in seconds"
+    )
+
+
+class LLMConfig(BaseSettings):
+    """Root configuration aggregator for LLM providers."""
+
+    default_provider: str = Field(
+        default="openai",
+        description="Default LLM provider name ('openai' or 'anthropic')"
+    )
+    openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
+    anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
+
+
 class PipelineConfig(BaseSettings):
     """
     Root configuration object spanning the entire pipeline.
@@ -88,6 +153,7 @@ class PipelineConfig(BaseSettings):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",

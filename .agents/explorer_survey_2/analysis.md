@@ -1,280 +1,341 @@
-# Phase 04 Survey Analysis: Test Suite Patterns, Execution & SQLite Crash Simulation
+# Phase 06 Survey Analysis: LLM Provider Abstraction, LangChain Integration & Resiliency Strategy
 
 ## 1. Executive Summary
 
-This report presents a comprehensive investigation into the existing test infrastructure of the Automated DSA Educational YouTube Video Pipeline repository (`/home/adarsh/Documents/Youtube-Channel/`). It establishes the testing patterns, fixture conventions, pytest configuration, execution commands, and a complete programmatic strategy for simulating SQLite artificial crashes and validating crash recovery in pytest for Phase 04 (`StateLedger`).
+This report provides a comprehensive architectural investigation and design specification for **Phase 06: LLM Provider Abstraction** of the Automated DSA Educational YouTube Video Pipeline.
 
-Key findings:
-- **Test Runner & Virtual Environment**: Tests must be executed using `./.venv/bin/pytest` as pytest is installed inside the project's virtual environment.
-- **Current Passing Test Scope**: Core infrastructure (`tests/core/`), Phase 02 Ingestion (`tests/ingestion/test_parser.py`), and Phase 03 RAG (`tests/rag/test_vector_store.py`, `tests/rag/test_embedder.py`) total 43 passing tests.
-- **Target Test File Path**: As mandated by `ORIGINAL_REQUEST.md` (Phase 04 acceptance criteria), the state ledger test suite must be located at `tests/orchestrator/test_state_ledger.py` and executed via `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py`.
-- **SQLite Crash Simulation Strategy**: A disk-backed SQLite database using pytest's `tmp_path` fixture (`tmp_path / "state_ledger.db"`) paired with step-level disconnection/exception injection or OS-level `SIGKILL` child process termination provides complete programmatic crash simulation and idempotency validation.
+The goal of Phase 06 is to build a unified, resilient Python interface wrapping external Large Language Models (OpenAI and Anthropic) using **LangChain's `BaseChatModel`** and **`with_structured_output`**. This layer enforces strict structured output generation utilizing the Phase 05 Pydantic V2 data models (`VideoMetadata`, `EducationalPlan`, `RenderSegment`).
+
+Key findings and architectural decisions:
+1. **LangChain Engine**: Both `ChatOpenAI` and `ChatAnthropic` inherit from `BaseChatModel` and implement `.with_structured_output(schema)`. When passed a Pydantic V2 `BaseModel` class, LangChain configures provider-native tool/function calling and returns a `RunnableSequence` that deserializes the LLM JSON response into a fully validated Pydantic model instance.
+2. **Pydantic V2 Validation Rules**: All custom `@field_validator` and `@model_validator` logic defined in Phase 05 (such as non-whitespace constraints, finite float validations, slug regex enforcement, resolution dimension alignment, and total duration math) run automatically when LangChain instantiates the model. If LLM output violates constraints, Pydantic raises a `ValidationError`.
+3. **Resiliency Strategy**: We recommend a **Dual-Layer Resiliency Pattern**:
+   - **Layer 1 (Transport & Rate Limits)**: Utilizes `tenacity` exponential backoff with jitter to handle HTTP 429 Rate Limits, 5xx server errors, and connection timeouts.
+   - **Layer 2 (Semantic Schema Validation)**: Catches Pydantic `ValidationError` and re-prompts or falls back to a secondary provider model if output parsing repeatedly fails.
+4. **Provider Abstraction & Fallback**: Abstract base class `LLMProvider` in `src/core/llm/provider.py`, concrete implementations `OpenAIClient` (`src/core/llm/openai_client.py`) and `AnthropicClient` (`src/core/llm/anthropic_client.py`), with a composite `FallbackLLMProvider` for high-availability provider failover.
+5. **Testing Strategy**: Acceptance criteria require `pytest tests/llm/test_providers.py` to run offline using mocked API responses (`unittest.mock`), asserting identical Pydantic V2 objects from both OpenAI and Anthropic clients.
 
 ---
 
-## 2. Existing Test Suite Architecture & Patterns
+## 2. LangChain `BaseChatModel` & Structured Output Deep-Dive
 
-### 2.1 Pytest Configuration Files
-1. **`pytest.ini`** (Root directory):
-   ```ini
-   [pytest]
-   addopts = --strict-markers --cov=src --cov-report=term-missing -v
-   testpaths = tests
-   markers =
-       unit: Fast, isolated unit tests that do not touch the filesystem or network.
-       integration: Tests that wire multiple modules together or hit the local filesystem.
-       e2e: Full end-to-end pipeline execution tests.
-       performance: Slow execution tests profiling time/memory (e.g. video rendering).
-   ```
-2. **`pyproject.toml`** (Root directory):
-   ```toml
-   [tool.pytest.ini_options]
-   testpaths = ["tests"]
-   pythonpath = ["."]
-   addopts = "-v --tb=short"
-   ```
-   *Note*: `pytest.ini` takes precedence over `pyproject.toml` when pytest runs.
+### 2.1 How `with_structured_output` Works in LangChain
 
-### 2.2 Global Fixtures (`tests/conftest.py`)
-- **`os.environ["ENVIRONMENT"] = "testing"`**: Explicitly forces test environment configuration on import.
-- **`temp_data_dir(tmp_path: Path) -> Path`**: Creates an isolated temporary directory `tmp_path / "data"`.
-- **`test_config(temp_data_dir: Path) -> PipelineConfig`**: Returns a deterministic `PipelineConfig` instance re-routing data directory to `temp_data_dir`.
-- **`mock_logger(mocker: Any) -> MagicMock`**: Patches `src.core.logger.get_logger` via `pytest-mock` to prevent terminal noise.
-- **`mock_problem_factory() -> Callable[..., dict[str, Any]]`**: Generates synthetic problem dictionaries for tests.
+`BaseChatModel.with_structured_output(schema, *, method=..., include_raw=...)` is LangChain's standard mechanism for enforcing structured responses from LLMs.
 
-### 2.3 Existing Module Test Patterns
+- **Signature**:
+  ```python
+  def with_structured_output(
+      self,
+      schema: Union[Dict, Type[BaseModel]],
+      *,
+      method: Optional[str] = None,
+      include_raw: bool = False,
+      **kwargs: Any,
+  ) -> Runnable[LanguageModelInput, Union[Dict, BaseModel]]:
+  ```
+- **Return Value**: Returns a `RunnableSequence` (or `RunnableBinding`) that binds the LLM to tool calling / structured output parsing and yields an instantiated Pydantic object when `.invoke(prompt)` is called.
 
-| Test Suite Module | Test Files | Fixture & Mocking Strategy | Assertion Style |
+#### Provider Differences:
+1. **`ChatOpenAI` (`langchain-openai`)**:
+   - **Default Method**: Function / Tool calling (`method="function_calling"`) or OpenAI JSON Schema Structured Outputs (`method="json_schema"`).
+   - **JSON Schema Mode (`strict=True`)**: OpenAI supports strict schema adherence at the API level, ensuring output JSON strictly matches the generated JSON Schema.
+2. **`ChatAnthropic` (`langchain-anthropic`)**:
+   - **Default Method**: Claude Tool Calling (`method="max_tokens"` / tool binding). Claude outputs a tool call named after the Pydantic schema, containing structured arguments.
+   - **Parsing**: LangChain automatically extracts the tool call arguments and passes them to Pydantic for validation.
+
+### 2.2 Compatibility & Validation with Phase 05 Pydantic V2 Models
+
+Phase 05 defined strict Pydantic V2 models in `src/core/models/`:
+- `VideoMetadata` (`video.py`): Field validators for non-whitespace string, slug pattern `^[a-z0-9-]+$`, FPS allowed set `{24,25,30,50,60,120}`, tag length limits, and `@model_validator` for resolution dimension alignment (`720p`, `1080p`, `4K`).
+- `EducationalPlan` (`plan.py`): Non-finite float validation (`math.isfinite`), non-empty learning objectives, duplicate `section_id` checks, and `@model_validator` enforcing section duration sum matching `estimated_total_duration` within 0.1s tolerance.
+- `RenderSegment` (`assets.py`): Asset reference requirements, valid segment types, non-finite float checks, and `end_time > start_time` invariant.
+
+#### Execution Pipeline when LLM Responds:
+```
+LLM Raw Response (JSON Tool Call)
+       │
+       ▼
+LangChain Output Parser (PydanticOutputParser / JsonOutputKeyToolsParser)
+       │
+       ▼
+Pydantic V2 model_validate / Schema Instantiation
+       │
+       ├──> Field Validators (@field_validator)
+       └──> Model Validators (@model_validator)
+       │
+       ├──> SUCCESS: Valid Pydantic Instance returned
+       └──> FAILURE: Raises pydantic.ValidationError or OutputParserException
+```
+
+#### Key Observation on Parsing Errors:
+When an LLM produces output that violates a Phase 05 constraint (e.g., generating `estimated_total_duration = 30.0` but section durations sum to `45.0`), Pydantic raises `pydantic.ValidationError`. This exception is caught by our resiliency wrapper to trigger a re-prompt or provider fallback.
+
+### 2.3 `include_raw=True` Option
+When `include_raw=True` is set on `with_structured_output`:
+- `chain.invoke(prompt)` returns a dictionary:
+  ```python
+  {
+      "raw": AIMessage(...),           # Raw LLM message
+      "parsed": VideoMetadata(...),    # Parsed Pydantic model (or None if failed)
+      "parsing_error": Exception(...) # Captured exception (or None if succeeded)
+  }
+  ```
+- This is useful for detailed logging into the `StateLedger` (storing raw token usage, latency, or raw message content alongside parsed outputs).
+
+---
+
+## 3. Resiliency, Retry/Backoff & Provider Strategy
+
+### 3.1 Failure Modes & Exception Taxonomy
+
+LLM API calls encounter distinct operational failure categories:
+
+| Error Category | Specific Exceptions | Classification | Action Strategy |
 | :--- | :--- | :--- | :--- |
-| **Core (`tests/core/`)** | `test_base.py`, `test_config.py`, `test_exceptions.py`, `test_logger.py` | Pure unit tests, `tmp_path`, `mocker` for logger patching | Standard `assert`, `pytest.raises` |
-| **Ingestion (`tests/ingestion/`)** | `test_parser.py` | Markdown/HTML fixtures in `tests/fixtures/ingestion/` (`load_fixture()`) | Dataclass validation, immutability checks (`FrozenInstanceError`), entity unescaping checks |
-| **RAG (`tests/rag/`)** | `test_vector_store.py`, `test_embedder.py` | Ephemeral `ChromaVectorStore(is_test=True)` and `MockEmbedder()` | Dataclass serialization, embedding chunk count, metadata filter verification, delete operations |
+| **Transient Network / HTTP 5xx** | `httpx.TimeoutException`, `httpx.ConnectError`, OpenAI `APIConnectionError`, Anthropic `InternalServerError` | `RetryableError` / `NetworkError` | Exponential backoff with jitter (1s - 60s, max 5 attempts) |
+| **Rate Limits (HTTP 429)** | OpenAI `RateLimitError`, Anthropic `RateLimitError` | `RetryableError` / `RateLimitError` | Exponential backoff + jitter (respecting `retry-after` header if present) |
+| **Authentication & Auth (401/403)** | OpenAI `AuthenticationError`, Anthropic `AuthenticationError` | `FatalError` / `AuthenticationError` | Immediately fail execution. Do NOT retry. |
+| **Invalid Prompt / 400 Bad Request** | OpenAI `BadRequestError`, Anthropic `BadRequestError` | `FatalError` | Halt execution. Do NOT retry. |
+| **Semantic Schema Validation** | `pydantic.ValidationError`, `OutputParserException` | `RetryableValidationError` | Re-prompt with error message or trigger fallback model/provider (max 2-3 attempts). |
 
----
+### 3.2 Retry Implementation Options: LangChain `.with_retry()` vs `tenacity`
 
-## 3. Test Execution Commands
-
-Since pytest is installed in the local `.venv`, tests must be run using `./.venv/bin/pytest`.
-
-### 3.1 Standard Test Execution Commands
-- **Run all active phase tests (Core, Ingestion, RAG)**:
-  ```bash
-  ./.venv/bin/pytest tests/core/ tests/ingestion/ tests/rag/
-  ```
-- **Run Phase 01 Core tests**:
-  ```bash
-  ./.venv/bin/pytest tests/core/
-  ```
-- **Run Phase 02 Ingestion tests**:
-  ```bash
-  ./.venv/bin/pytest tests/ingestion/test_parser.py
-  ```
-- **Run Phase 03 RAG tests**:
-  ```bash
-  ./.venv/bin/pytest tests/rag/test_vector_store.py tests/rag/test_embedder.py
-  ```
-- **Run Phase 04 State Ledger target test suite**:
-  ```bash
-  ./.venv/bin/pytest tests/orchestrator/test_state_ledger.py
-  ```
-
-### 3.2 Useful Pytest Flags
-- `-v`: Verbose output.
-- `--tb=short`: Short tracebacks for quick debugging.
-- `-k "test_pattern"`: Filter tests by pattern (e.g. `./.venv/bin/pytest -k "crash"`).
-- `-m unit`: Run only unit-marked tests.
-- `--cov=src/core/orchestrator`: Generate code coverage report for the orchestrator module.
-
----
-
-## 4. Programmatic SQLite Crash Simulation & Recovery Validation
-
-### 4.1 Fundamentals of SQLite Ledger Persistence in Phase 04
-To satisfy Requirement R1 and R2 of Phase 04:
-- The ledger tracks step execution statuses: `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`.
-- Standard `sqlite3` must be used with explicit PRAGMAs:
-  - `PRAGMA journal_mode=WAL;` (Write-Ahead Logging for concurrency and crash resistance)
-  - `PRAGMA synchronous=NORMAL;` (Optimal durability for WAL)
-  - `PRAGMA busy_timeout=5000;` (Wait up to 5s if table is locked)
-  - `PRAGMA foreign_keys=ON;`
-- **Crucial Rule**: Crash simulation tests CANNOT use `:memory:`. They MUST use a file-backed SQLite database stored on disk (e.g., `db_path = tmp_path / "test_ledger.db"`).
-
----
-
-### 4.2 Programmatic Crash Simulation & Recovery Techniques
-
-#### Strategy A: Instance Re-instantiation / Process Restart Simulation (Recommended Primary Pattern)
-Simulates an abrupt process termination between pipeline steps.
-
-**Workflow**:
-1. Instantiate `ledger_1 = StateLedger(db_path)`.
-2. Register tasks/pipeline steps (`step_1`, `step_2`, `step_3`).
-3. Mark `step_1` as `IN_PROGRESS` -> `COMPLETED`.
-4. Mark `step_2` as `IN_PROGRESS`.
-5. **Simulate Crash**: Abruptly close or drop `ledger_1` (without completing `step_2` or `step_3`).
-6. **Simulate Process Restart**: Instantiate `ledger_2 = StateLedger(db_path)` pointing to the *same* `db_path`.
-7. **Verify Recovery**:
-   - `ledger_2.get_step_status("step_1")` returns `COMPLETED`.
-   - `ledger_2.get_step_status("step_2")` returns `IN_PROGRESS` or `FAILED` (interrupted).
-   - `ledger_2.get_uncompleted_steps()` starts execution at `step_2`, skipping `step_1` entirely.
-8. Resume pipeline to completion and assert all steps are `COMPLETED`.
-
-#### Strategy B: Exception / Fault Injection Mid-Execution
-Simulates an unhandled application exception during a step transition.
-
-**Workflow**:
-1. Run a pipeline loop using `StateLedger(db_path)`.
-2. Step 1 completes cleanly.
-3. During Step 2, raise `RuntimeError("Simulated Power Loss / API Outage")` inside a `pytest.raises` block.
-4. Verify that step 2 is marked `FAILED` or remaining in `IN_PROGRESS` with recorded error details.
-5. Create a new `StateLedger(db_path)` instance, call `ledger.resume()`, verify step 1 is skipped, step 2 is retried, and the run finishes cleanly.
-
-#### Strategy C: True OS Process Termination via `multiprocessing` / `SIGKILL`
-Simulates a hard operating system crash (e.g., `kill -9` or power failure) while writing to SQLite WAL.
-
-**Workflow**:
-1. Define a target worker function that opens `StateLedger(db_path)`, begins writing step state changes, and signals a `multiprocessing.Event`.
-2. In the main pytest thread, start the worker process (`multiprocessing.Process`).
-3. Once the event is set (worker is mid-operation), call `proc.kill()` (`SIGKILL`).
-4. Join the process to ensure it is dead.
-5. Instantiate `StateLedger(db_path)` in the main test thread.
-6. Verify SQLite automatically recovers the WAL file without database corruption and state queries accurately reflect the last committed transaction.
-
----
-
-### 4.3 Proposed Pytest Code Structure for `tests/orchestrator/test_state_ledger.py`
-
-Below is the concrete blueprint to be provided to Implementer 1 for `tests/orchestrator/test_state_ledger.py`:
-
+#### Option A: LangChain Built-in `.with_retry()`
 ```python
-"""
-Tests for SQLite State Ledger & Crash Recovery (Phase 04).
-"""
+chain = llm.with_structured_output(VideoMetadata).with_retry(
+    stop_after_attempt=3,
+    wait_exponential_jitter=True,
+    retry_if_exception_type=(NetworkError, RateLimitError),
+)
+```
+- **Pros**: Declarative, chain-native, built into `langchain-core`.
+- **Cons**: Limited hooks for detailed logging per attempt to `structlog` or `StateLedger`; harder to inject prompt feedback on `ValidationError`.
 
-import pytest
-from pathlib import Path
-import sqlite3
-import multiprocessing
-import time
+#### Option B: `tenacity` Library Wrapper (Recommended)
+```python
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
 
-from src.core.orchestrator.state_ledger import StateLedger, LedgerStatus
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    retry=retry_if_exception_type((TransientError, RateLimitError)),
+    before_sleep=log_retry_attempt,
+    reraise=True,
+)
+def _invoke_with_retry(chain, prompt):
+    return chain.invoke(prompt)
+```
+- **Pros**: Industry-standard resiliency library; full control over wait algorithms (jitter, multiplier); custom `before_sleep` callbacks for structured logging; clean integration with custom exception handling.
+- **Cons**: Requires explicit function wrapping.
 
+### 3.3 Recommended Dual-Layer Resiliency Architecture
 
-@pytest.fixture
-def ledger_db_path(tmp_path: Path) -> Path:
-    """Provides a file-backed SQLite database path for persistent recovery tests."""
-    return tmp_path / "state_ledger.db"
+```
+                       User Prompt / Schema Request
+                                    │
+                                    ▼
+                ┌──────────────────────────────────────┐
+                │   Layer 2: Semantic Retry & Fallback │
+                │   (Catches Pydantic ValidationError, │
+                │    re-prompts or switches provider)   │
+                └──────────────────┬───────────────────┘
+                                   │
+                                   ▼
+                ┌──────────────────────────────────────┐
+                │   Layer 1: Transport & Rate Limit    │
+                │   (Tenacity: Handles HTTP 429, 5xx,  │
+                │    Timeouts with Backoff + Jitter)   │
+                └──────────────────┬───────────────────┘
+                                   │
+                                   ▼
+                ┌──────────────────────────────────────┐
+                │    LangChain BaseChatModel Client    │
+                │   (ChatOpenAI / ChatAnthropic)       │
+                └──────────────────────────────────────┘
+```
 
+### 3.4 Provider Abstraction & Fallback Mechanics
 
-@pytest.fixture
-def ledger(ledger_db_path: Path) -> StateLedger:
-    """Initializes a fresh StateLedger on disk."""
-    return StateLedger(db_path=ledger_db_path)
+#### 1. Core Interface (`src/core/llm/provider.py`):
+```python
+from abc import ABC, abstractmethod
+from typing import Type, TypeVar
+from pydantic import BaseModel
 
+T = TypeVar("T", bound=BaseModel)
 
-def test_ledger_initialization_and_pragma(ledger_db_path: Path):
-    """Verifies SQLite database creation and WAL PRAGMA configuration."""
-    ledger = StateLedger(db_path=ledger_db_path)
-    assert ledger_db_path.exists()
+class LLMProvider(ABC):
+    """Abstract interface for LLM providers enforcing structured output."""
+
+    @abstractmethod
+    def generate_structured(
+        self,
+        prompt: str,
+        output_schema: Type[T],
+        system_prompt: str | None = None,
+    ) -> T:
+        """Generate a validated Pydantic model instance from prompt."""
+        pass
+```
+
+#### 2. Concrete OpenAI Client (`src/core/llm/openai_client.py`):
+```python
+from langchain_openai import ChatOpenAI
+from src.core.llm.provider import LLMProvider
+
+class OpenAIClient(LLMProvider):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o", temperature: float = 0.7):
+        self.llm = ChatOpenAI(api_key=api_key, model=model_name, temperature=temperature)
+
+    def generate_structured(self, prompt: str, output_schema: Type[T], system_prompt: str | None = None) -> T:
+        chain = self.llm.with_structured_output(output_schema)
+        # Apply tenacity backoff & execution
+        return execute_with_resiliency(chain, prompt, system_prompt)
+```
+
+#### 3. Concrete Anthropic Client (`src/core/llm/anthropic_client.py`):
+```python
+from langchain_anthropic import ChatAnthropic
+from src.core.llm.provider import LLMProvider
+
+class AnthropicClient(LLMProvider):
+    def __init__(self, api_key: str, model_name: str = "claude-3-5-sonnet-20241022", temperature: float = 0.7):
+        self.llm = ChatAnthropic(api_key=api_key, model=model_name, temperature=temperature)
+
+    def generate_structured(self, prompt: str, output_schema: Type[T], system_prompt: str | None = None) -> T:
+        chain = self.llm.with_structured_output(output_schema)
+        # Apply tenacity backoff & execution
+        return execute_with_resiliency(chain, prompt, system_prompt)
+```
+
+#### 4. Composite Fallback Client (`FallbackLLMProvider`):
+```python
+class FallbackLLMProvider(LLMProvider):
+    def __init__(self, primary: LLMProvider, secondary: LLMProvider):
+        self.primary = primary
+        self.secondary = secondary
+
+    def generate_structured(self, prompt: str, output_schema: Type[T], system_prompt: str | None = None) -> T:
+        try:
+            return self.primary.generate_structured(prompt, output_schema, system_prompt)
+        except Exception as e:
+            logger.warning("Primary LLM provider failed, failing over to secondary", error=str(e))
+            return self.secondary.generate_structured(prompt, output_schema, system_prompt)
+```
+
+### 3.5 Integration with System Configuration (`src/core/config.py`)
+
+Extend `PipelineConfig` in `src/core/config.py` to include LLM configuration models:
+```python
+class LLMConfig(BaseSettings):
+    """Configuration for LLM Provider Abstraction (Phase 06)."""
     
-    # Inspect PRAGMA mode directly via standard sqlite3
-    conn = sqlite3.connect(ledger_db_path)
-    cursor = conn.cursor()
-    journal_mode = cursor.execute("PRAGMA journal_mode;").fetchone()[0]
-    assert journal_mode.lower() == "wal"
-    conn.close()
-
-
-def test_step_lifecycle_transitions(ledger: StateLedger):
-    """Tests normal step status transitions: PENDING -> IN_PROGRESS -> COMPLETED."""
-    run_id = "run-001"
-    step_name = "parse_markdown"
-
-    ledger.init_run(run_id=run_id, steps=[step_name])
-    assert ledger.get_status(run_id, step_name) == LedgerStatus.PENDING
-
-    ledger.mark_in_progress(run_id, step_name)
-    assert ledger.get_status(run_id, step_name) == LedgerStatus.IN_PROGRESS
-
-    ledger.mark_completed(run_id, step_name, result_metadata={"items": 1})
-    assert ledger.get_status(run_id, step_name) == LedgerStatus.COMPLETED
-
-
-def test_simulated_crash_and_resumption(ledger_db_path: Path):
-    """
-    Simulates process crash mid-pipeline and verifies idempotency & resumption.
-    """
-    run_id = "video-two-sum"
-    steps = ["scrape", "rag_embed", "script_gen", "render_video"]
-
-    # 1. Process Run 1: Completes step 1, starts step 2, crashes before step 3
-    ledger1 = StateLedger(db_path=ledger_db_path)
-    ledger1.init_run(run_id, steps)
-    
-    ledger1.mark_completed(run_id, "scrape", result_metadata={"slug": "two-sum"})
-    ledger1.mark_in_progress(run_id, "rag_embed")
-    
-    # SIMULATED CRASH: Close process handle 1 without completing remaining steps
-    del ledger1
-
-    # 2. Process Run 2: Boot new instance pointing to exact same database file on disk
-    ledger2 = StateLedger(db_path=ledger_db_path)
-    
-    # 3. Check recovery state
-    assert ledger2.get_status(run_id, "scrape") == LedgerStatus.COMPLETED
-    assert ledger2.is_step_completed(run_id, "scrape") is True
-    
-    uncompleted = ledger2.get_pending_or_interrupted_steps(run_id)
-    assert "scrape" not in uncompleted
-    assert uncompleted[0] == "rag_embed"
-
-    # 4. Resume execution from interrupted step
-    ledger2.mark_completed(run_id, "rag_embed")
-    ledger2.mark_completed(run_id, "script_gen")
-    ledger2.mark_completed(run_id, "render_video")
-    
-    assert ledger2.is_run_completed(run_id) is True
-
-
-def _crash_worker(db_path: str, run_id: str):
-    """Worker process that writes to ledger and gets killed mid-way."""
-    ledger = StateLedger(db_path=Path(db_path))
-    ledger.init_run(run_id, ["step1", "step2"])
-    ledger.mark_completed(run_id, "step1")
-    ledger.mark_in_progress(run_id, "step2")
-    time.sleep(10)  # Intentionally hang so parent can SIGKILL
-
-
-def test_hard_sigkill_process_crash_recovery(ledger_db_path: Path):
-    """
-    Simulates OS SIGKILL crash using multiprocessing child process.
-    """
-    run_id = "sigkill-test-run"
-    p = multiprocessing.Process(target=_crash_worker, args=(str(ledger_db_path), run_id))
-    p.start()
-    
-    time.sleep(0.5)  # Let child process initialize DB and write step1
-    
-    # HARD CRASH SIMULATION
-    p.kill()
-    p.join()
-
-    # Re-open ledger in main test thread
-    ledger = StateLedger(db_path=ledger_db_path)
-    assert ledger.get_status(run_id, "step1") == LedgerStatus.COMPLETED
-    assert ledger.get_status(run_id, "step2") in (LedgerStatus.IN_PROGRESS, LedgerStatus.PENDING)
+    primary_provider: str = Field(default="openai", description="openai | anthropic")
+    openai_api_key: SecretStr = Field(default=SecretStr(""))
+    openai_model: str = Field(default="gpt-4o")
+    anthropic_api_key: SecretStr = Field(default=SecretStr(""))
+    anthropic_model: str = Field(default="claude-3-5-sonnet-20241022")
+    max_retries: int = Field(default=3, ge=1)
+    timeout_seconds: int = Field(default=30, ge=5)
+    enable_fallback: bool = Field(default=True)
 ```
 
 ---
 
-## 5. Summary Recommendations for Phase 04 Implementation
+## 4. PromptBook Documentation Requirements (`PromptBook/Phase06/01_LLM_Abstraction.md`)
 
-1. **Module & Test Directory Creation**:
-   - Source: `src/core/orchestrator/state_ledger.py`
-   - Test: `tests/orchestrator/test_state_ledger.py` (ensure directory `tests/orchestrator` is created).
-2. **Standard Library `sqlite3` Compliance**:
-   - Use standard library `sqlite3` only.
-   - Enforce WAL mode (`PRAGMA journal_mode=WAL;`).
-   - Use parameter binding (`?`) for all SQL queries to ensure thread-safety and query safety.
-3. **Execution Command**:
-   - Verify with `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py`.
+The file `PromptBook/Phase06/01_LLM_Abstraction.md` must be created to document Phase 06 architecture. It should be structured into the following mandatory sections:
+
+1. **Title & Document Metadata**: Phase 06 LLM Provider Abstraction Architecture & Resiliency Specification.
+2. **Unified Interface Architecture**:
+   - Class diagrams (Mermaid) showing `LLMProvider` interface, `OpenAIClient`, `AnthropicClient`, and `FallbackLLMProvider`.
+   - Explanations of how `BaseChatModel` and `with_structured_output` form the foundation.
+3. **Structured Output & Schema Enforcement**:
+   - Integration with Phase 05 Pydantic V2 models (`VideoMetadata`, `EducationalPlan`, `RenderSegment`).
+   - Detailed breakdown of Pydantic validation rules and failure handling.
+4. **Resiliency & Retry Strategy**:
+   - Detailed specification of `tenacity` retry configuration (exponential backoff parameters, max attempts, jitter policy).
+   - Rate limit (HTTP 429) handling and HTTP 5xx error recovery.
+5. **Provider Fallback Mechanics**:
+   - Step-by-step sequence diagram (Mermaid) illustrating primary provider attempt -> retry loop -> failover to secondary provider -> validated Pydantic object returned.
+6. **Testing & Offline Verification**:
+   - Unit testing patterns for `tests/llm/test_providers.py` using `unittest.mock`.
+   - Code snippets showing how to mock OpenAI and Anthropic clients to return identical Pydantic V2 schema instances.
+7. **Acceptance Criteria Traceability Matrix**:
+   - Mapping requirements R1-R4 to concrete implementation files and pytest assertions.
+
+---
+
+## 5. Verification & Testing Strategy for Implementer
+
+### 5.1 Test Suite File Structure
+- Test file: `tests/llm/test_providers.py`
+- Executable: `./.venv/bin/pytest tests/llm/test_providers.py`
+
+### 5.2 Mocking Strategy Blueprint (`tests/llm/test_providers.py`)
+To satisfy acceptance criteria without requiring real API keys:
+1. Mock `ChatOpenAI` and `ChatAnthropic` `with_structured_output` using `unittest.mock.MagicMock` / `pytest-mock`.
+2. Construct deterministic Phase 05 model instances (`sample_video_metadata`, `sample_educational_plan`, `sample_render_segment`).
+3. Assert that both `OpenAIClient.generate_structured(...)` and `AnthropicClient.generate_structured(...)` return identical Pydantic V2 model instances.
+4. Test rate limit retry simulation (mocking transient failure on 1st call, success on 2nd call).
+5. Test fallback provider triggering when primary provider raises an unrecoverable exception.
+
+```python
+"""Unit tests for LLM provider abstraction and structured output in Phase 06."""
+
+from unittest.mock import MagicMock, patch
+import pytest
+from src.core.llm.openai_client import OpenAIClient
+from src.core.llm.anthropic_client import AnthropicClient
+from src.core.models.video import VideoMetadata, VideoResolution, TargetPlatform, PrivacyStatus
+
+@pytest.fixture
+def expected_video_metadata():
+    return VideoMetadata(
+        title="Two Sum Algorithm",
+        description="Complete guide to solving Two Sum in Python.",
+        slug="two-sum-algorithm",
+        resolution=VideoResolution.R_1080P,
+        fps=30,
+        tags=["python", "leetcode"],
+        target_platform=TargetPlatform.YOUTUBE,
+    )
+
+def test_openai_and_anthropic_return_identical_pydantic_objects(expected_video_metadata):
+    # Mock OpenAI
+    with patch("src.core.llm.openai_client.ChatOpenAI") as mock_openai_cls:
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = expected_video_metadata
+        mock_openai_cls.return_value.with_structured_output.return_value = mock_chain
+        
+        openai_client = OpenAIClient(api_key="mock-key")
+        result_openai = openai_client.generate_structured("prompt", VideoMetadata)
+
+    # Mock Anthropic
+    with patch("src.core.llm.anthropic_client.ChatAnthropic") as mock_anthropic_cls:
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = expected_video_metadata
+        mock_anthropic_cls.return_value.with_structured_output.return_value = mock_chain
+        
+        anthropic_client = AnthropicClient(api_key="mock-key")
+        result_anthropic = anthropic_client.generate_structured("prompt", VideoMetadata)
+
+    # Assert identical Pydantic objects
+    assert result_openai == result_anthropic == expected_video_metadata
+```
+
+---
+
+## 6. Target Files Summary for Phase 06 Implementation
+
+| Target File Path | Purpose / Description |
+| :--- | :--- |
+| `src/core/llm/__init__.py` | Package initialization for LLM module. |
+| `src/core/llm/provider.py` | Abstract interface `LLMProvider` and composite `FallbackLLMProvider`. |
+| `src/core/llm/openai_client.py` | `OpenAIClient` concrete implementation using `ChatOpenAI` and `with_structured_output`. |
+| `src/core/llm/anthropic_client.py` | `AnthropicClient` concrete implementation using `ChatAnthropic` and `with_structured_output`. |
+| `src/core/exceptions.py` | Addition of LLM operational exceptions (`LLMProviderError`, `LLMRateLimitError`, `LLMValidationError`). |
+| `src/core/config.py` | Addition of `LLMConfig` to `PipelineConfig`. |
+| `PromptBook/Phase06/01_LLM_Abstraction.md` | Architectural documentation and resiliency specification. |
+| `tests/llm/test_providers.py` | Pytest suite validating structured output and resiliency via mocked responses. |
