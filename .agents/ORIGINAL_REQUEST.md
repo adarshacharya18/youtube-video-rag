@@ -178,5 +178,36 @@ Do not ask for permission before running terminal commands, unless the command i
 ### Documentation
 - [ ] `PromptBook/Phase08/01_Workflow_Engine.md` exists and contains high-quality Mermaid sequence diagrams detailing the fault-tolerant execution flow.
 
+## 2026-07-29T12:11:44Z
+
+Implement Phase 09: Plugin SDK for the Automated DSA Educational YouTube Video Pipeline. Build an SDK utilizing Python `entry_points` that allows third-party developers to seamlessly inject custom `Node` implementations into the Workflow Engine without altering core code.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Secure Plugin SDK
+Create `src/sdk/plugin_base.py` defining a restricted `PluginNode` interface for external developers. The plugin must only be allowed to accept inputs and return outputs. The core Workflow Engine must handle reading/writing the actual SQLite ledger to prevent malicious database access by third-party plugins.
+
+### R2. Dynamic Plugin Loader
+Implement `src/core/workflow/plugin_loader.py` to dynamically discover, load, and instantiate external plugins using `importlib.metadata` entry points. The loader must enforce that the discovered classes strictly inherit from the restricted `PluginNode`.
+
+### R3. SDK Documentation
+Document how developers should structure their Python packages, define their entry points, and adhere to the restricted plugin lifecycle in `PromptBook/Phase09/01_Plugin_SDK.md`.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Running `pytest tests/workflow/test_plugin_loader.py` executes successfully. The test suite MUST safely mock `importlib.metadata.entry_points()` to point to a dummy Python class, verifying that the core pipeline can securely discover, validate, and instantiate the mock external plugin without writing temp files to disk.
+- [ ] `src/sdk/plugin_base.py` and `src/core/workflow/plugin_loader.py` exist and explicitly deny direct SQLite ledger access to external plugins.
+
+### Documentation
+- [ ] `PromptBook/Phase09/01_Plugin_SDK.md` exists and clearly documents the `importlib.metadata` entry point strategy and the restricted `PluginNode` interface.
+
+
 
 

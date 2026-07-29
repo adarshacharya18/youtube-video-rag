@@ -1,48 +1,83 @@
-# Handoff Report — Phase 08 Test Suite & Testing Patterns Survey
+# Handoff Report — Phase 09 Plugin SDK & Entry Point Mocking Strategy
 
 ## 1. Observation
-- **Repository Test Suite Execution**:
-  Ran `pytest tests/core tests/models tests/llm tests/orchestrator` via terminal. Result: `87 passed in 2.48s`.
-- **Existing Test Files**:
-  - `tests/conftest.py`: Lines 18-44 set `ENVIRONMENT="testing"`, fixture `temp_data_dir`, and fixture `test_config`.
-  - `tests/orchestrator/test_state_ledger.py`: Lines 168-193 demonstrate step failure tracking via `ledger.record_step_failure(step_id, error_msg, error_details)`, confirming that calling `record_step_failure` transitions both step execution status and parent pipeline run status to `StepStatus.FAILED`.
-  - `tests/models/test_validation.py`: Demonstrates Pydantic V2 model validation error testing using `with pytest.raises(ValidationError):`.
-  - `tests/llm/test_providers.py`: Demonstrates API exception mocking via `unittest.mock.patch` and `.side_effect`.
-- **Directory Inspection**:
-  Searched repository using `find_by_name` for `workflow`. Result: `src/core/workflow/` and `tests/workflow/` do **not** exist yet.
+
+### 1.1 Requirements & Specifications
+- `ORIGINAL_REQUEST.md` (lines 181–210):
+  - R1: Create `src/sdk/plugin_base.py` defining restricted `PluginNode` interface for third-party developers (accept inputs, return outputs; no direct SQLite ledger access).
+  - R2: Implement `src/core/workflow/plugin_loader.py` using `importlib.metadata` entry points to discover, load, and validate plugins (must strictly inherit from `PluginNode`).
+  - R3: Document SDK structure and plugin lifecycle in `PromptBook/Phase09/01_Plugin_SDK.md`.
+  - Acceptance Criteria: `pytest tests/workflow/test_plugin_loader.py` MUST safely mock `importlib.metadata.entry_points()` to point to a dummy Python class, verifying discovery/validation without writing temp files to disk.
+
+### 1.2 Python Environment & `importlib.metadata` Execution Output
+- Environment: Python 3.13.7 (`python3 --version` returned `Python 3.13.7`).
+- `importlib.metadata.entry_points(group=...)` returning `importlib.metadata.EntryPoints` object:
+  ```python
+  eps = importlib.metadata.entry_points(group='console_scripts')
+  # Output: <class 'importlib.metadata.EntryPoints'>
+  ```
+- `EntryPoint` attributes: `.name`, `.value`, `.group`, `.load()`. Calling `.load()` returns the attribute/class reference.
+
+### 1.3 Pre-existing Core Code Structure
+- `src/core/workflow/node.py`:
+  - Abstract class `Node` with `@property def name(self) -> str` and `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`.
+- `src/core/workflow/engine.py`:
+  - `WorkflowEngine(nodes: Sequence[Node], ledger: StateLedger)`. Calls `node.execute(run_id, self.ledger)` sequentially for each `Node`.
+- `tests/workflow/test_engine.py`:
+  - Existing suite testing fault tolerance and idempotency with 100% pass rate.
 
 ---
 
 ## 2. Logic Chain
-1. **Observation**: `pytest tests/core tests/models tests/llm tests/orchestrator` runs 87 tests cleanly using WAL-mode SQLite state ledger, Pydantic V2 model validations, and mocked API provider calls.
-2. **Observation**: `tests/orchestrator/test_state_ledger.py` proves `StateLedger.record_step_failure()` correctly sets `step_executions.status` and `pipeline_runs.status` to `StepStatus.FAILED`.
-3. **Observation**: Neither `src/core/workflow/` nor `tests/workflow/` exists in the repository.
-4. **Reasoning**: Implementation of Phase 08 requires creating `src/core/workflow/node.py` (`Node` abstract class) and `src/core/workflow/engine.py` (`WorkflowEngine`), alongside `tests/workflow/test_engine.py`.
-5. **Reasoning**: To fulfill acceptance criteria ("The test suite MUST use mock nodes that intentionally throw exceptions, explicitly verifying that the engine catches them, prevents application crash, and correctly updates the mock SQLite ledger to 'FAILED'"), `test_engine.py` must construct mock `Node` instances that raise exceptions in `.execute()`. `WorkflowEngine` must wrap node invocation in `try...except Exception as e`, call `ledger.record_step_failure()`, capture the error without crashing python, and halt workflow execution.
+
+1. **Observation**: `WorkflowEngine` accepts a sequence of `Node` instances where `execute(run_id, ledger)` receives `StateLedger`. `ORIGINAL_REQUEST.md` R1 explicitly requires denying plugins direct access to `StateLedger`.
+   **Inference**: `PluginNode` in `src/sdk/plugin_base.py` must define an isolated method `process(self, inputs: dict[str, Any]) -> dict[str, Any]`. An adapter `PluginNodeAdapter(Node)` in `src/core/workflow/plugin_loader.py` must implement `execute(run_id, ledger)` to read inputs from `ledger` and pass them into `plugin.process(inputs)`, shielding third-party plugin code from `StateLedger`.
+
+2. **Observation**: Python 3.10+ deprecated dictionary lookup `entry_points()["group"]` in favor of keyword query `importlib.metadata.entry_points(group="dsa.plugins")` or `.select(group="dsa.plugins")`.
+   **Inference**: `PluginLoader` in `src/core/workflow/plugin_loader.py` must use `importlib.metadata.entry_points(group=self.group)` to maintain future-proof Python 3.10+ / 3.13 compatibility.
+
+3. **Observation**: R2 requires validating that discovered plugin classes strictly inherit from `PluginNode`. Calling `entry_point.load()` returns the uninstantiated class or function.
+   **Inference**: `PluginLoader.load_and_validate()` must verify `isinstance(loaded_obj, type)` and `issubclass(loaded_obj, PluginNode)` before instantiating or wrapping in `PluginNodeAdapter`. If validation fails, it must raise `PluginValidationError`. If loading module/attr fails, it must raise `PluginLoadError`.
+
+4. **Observation**: Acceptance Criteria prohibits writing temp files or `.dist-info` directories to disk during test execution in `tests/workflow/test_plugin_loader.py`.
+   **Inference**: `tests/workflow/test_plugin_loader.py` must use `unittest.mock.patch('importlib.metadata.entry_points')` to return in-memory `MagicMock(spec=importlib.metadata.EntryPoint)` instances configured with `load.return_value = DummyPluginClass`.
 
 ---
 
 ## 3. Caveats
-- `src/core/workflow/node.py` and `src/core/workflow/engine.py` have not yet been implemented by the implementation agent.
-- Assumed `Node.execute()` receives `(self, run_id: str, ledger: StateLedger)` and reads inputs directly from `ledger.get_completed_steps(run_id)`.
+
+- **Caveat 1**: Third-party plugin dependencies must be pre-installed in the Python environment where the workflow engine runs; `importlib.metadata` only discovers entry points for packages present in Python's `site-packages` / `sys.path`.
+- **Caveat 2**: Entry point group naming convention should be standardized as `"dsa.plugins"` across documentation and code.
+- **Caveat 3**: No caveats regarding Python version compatibility since Python 3.13.7 is active and `importlib.metadata` behavior was directly verified via interactive execution.
 
 ---
 
 ## 4. Conclusion
-The repository has an established, high-performing pytest architecture (`87 passed in 2.48s`) utilizing `tmp_path`, WAL-mode SQLite ledgers, `unittest.mock.patch`, and explicit Exception assertions. For Phase 08:
-1. `src/core/workflow/node.py` and `src/core/workflow/engine.py` will establish the fault-tolerant batch workflow engine.
-2. `tests/workflow/test_engine.py` must be created containing fixtures (`workflow_ledger`), concrete mock nodes (`SuccessfulMockNode`, `FailingMockNode`), and explicit tests verifying exception recovery, ledger `FAILED` state updates, and idempotency.
+
+1. **`src/sdk/plugin_base.py`**: Define `PluginNode(ABC)` with abstract property `name` and abstract method `process(inputs: dict[str, Any]) -> dict[str, Any]`.
+2. **`src/core/workflow/plugin_loader.py`**: Define `PluginNodeAdapter(Node)`, `PluginLoader` class with methods `discover_entry_points()`, `load_and_validate()`, `load_plugins()`, and custom exception hierarchy (`PluginError`, `PluginLoadError`, `PluginValidationError`).
+3. **`tests/workflow/test_plugin_loader.py`**: Construct isolated pytest suite using `unittest.mock.patch` for `importlib.metadata.entry_points` to verify valid discovery, non-PluginNode validation rejection, module load failure handling, and `WorkflowEngine` execution without disk I/O.
+4. **`PromptBook/Phase09/01_Plugin_SDK.md`**: Document `pyproject.toml` entry point syntax `[project.entry-points."dsa.plugins"]` and restricted plugin lifecycle.
 
 ---
 
 ## 5. Verification Method
-1. Inspect survey output and detailed analysis in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`.
-2. Run existing test suite to verify baseline health:
+
+To verify the Phase 09 implementation once created by the implementer:
+
+1. **Run Pytest Suite**:
    ```bash
-   pytest tests/core tests/models tests/llm tests/orchestrator
+   pytest tests/workflow/test_plugin_loader.py -v
    ```
-3. Once Phase 08 source and test files are implemented, run:
+   *Expected outcome*: All unit tests pass cleanly in memory without creating temporary files or `.dist-info` directories.
+
+2. **Run Entire Workflow Test Suite**:
    ```bash
-   pytest tests/workflow/test_engine.py
+   pytest tests/workflow/ -v
    ```
-   **Invalidation Conditions**: If `pytest tests/workflow/test_engine.py` fails, if unhandled exceptions crash the python engine process, or if the SQLite ledger state is not updated to `FAILED` upon node failure.
+   *Expected outcome*: Both `test_engine.py` and `test_plugin_loader.py` pass without errors.
+
+3. **Verify File Existence**:
+   - `src/sdk/plugin_base.py` exists and contains `PluginNode`.
+   - `src/core/workflow/plugin_loader.py` exists and contains `PluginLoader` & `PluginNodeAdapter`.
+   - `PromptBook/Phase09/01_Plugin_SDK.md` exists and contains SDK documentation.

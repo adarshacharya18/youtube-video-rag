@@ -1,13 +1,18 @@
+# Progress Tracker — Phase 09: Plugin SDK
+
 ## Current Status
-Last visited: 2026-07-25T20:56:25Z
+Last visited: 2026-07-29T17:48:15Z
 
 ## Iteration Status
-Current iteration: 2 / 32
+Current iteration: 1 / 32
 
 ## Checklist
-- [x] Initialized Project Orchestrator state and workspace files
-- [x] Milestone 1: Survey & Requirements Mining (Exploration of state_ledger.py & schema complete by 3 Explorers)
-- [x] Milestone 2: Core Data Models Implementation (`src/core/models/__init__.py`, `video.py`, `plan.py`, `assets.py`)
-- [x] Milestone 3: Validation Test Suite (`tests/models/test_validation.py` + StateLedger roundtrip + float/list edge cases)
-- [x] Milestone 4: Data Contract Documentation (`PromptBook/Phase05/01_Data_Models.md`)
-- [x] Milestone 5: Verification, Review, Challenger & Forensic Audit Gate (Iteration 2 Gate Passed: 2 Reviewers APPROVE, 2 Challengers APPROVE, Forensic Auditor CLEAN)
+- [x] Orchestrator state initialized (.agents/orchestrator files created)
+- [x] Step 0: Survey codebase via 3 Explorers
+- [x] Step 1: Decompose & Plan (`PROJECT.md`)
+- [x] Step 2: Implementation (Worker)
+  - [x] M1: Plugin SDK (`src/sdk/plugin_base.py`) & Plugin Loader (`src/core/workflow/plugin_loader.py`)
+  - [x] M2: SDK Documentation (`PromptBook/Phase09/01_Plugin_SDK.md`)
+  - [x] M3: Verification Test Suite (`tests/workflow/test_plugin_loader.py`)
+- [x] Step 3: Verification (2 Reviewers: APPROVE, 2 Challengers: APPROVE, 1 Forensic Auditor: CLEAN)
+- [x] Step 4: Final Gate & Handoff

@@ -1,143 +1,270 @@
-# Phase 08 Workflow Engine Documentation Survey & Specification Analysis
+# Technical Analysis & Architectural Survey: Phase 09 Plugin SDK
 
-## 1. Executive Summary
+## Executive Summary
 
-This report delivers a comprehensive survey of documentation standards across `PromptBook/` (specifically Phases 01, 05, 06, and 07) and defines the exact requirements and structure for `PromptBook/Phase08/01_Workflow_Engine.md` to satisfy **Requirement R3** and the **Acceptance Criteria** for **Phase 08 (The Workflow Engine)**.
+Phase 09 introduces an extensible, secure **Plugin SDK** for the Automated DSA Educational YouTube Video Pipeline. Utilizing Python's native `importlib.metadata` `entry_points` mechanism, external developers can build and distribute standalone Python packages containing custom pipeline nodes. These custom nodes can be dynamically discovered and injected into the Phase 08 `WorkflowEngine` without modifying core codebase files.
 
-### Key Survey Findings:
-1. **Directory State**: `PromptBook/Phase08/` directory exists. However, `PromptBook/Phase08/01_Workflow_Engine.md` does **not** exist yet. It must be authored as part of Phase 08 implementation.
-2. **Prior Art Conventions**: Architectural deliverables in `PromptBook/` adhere to a consistent 6-to-7 section template featuring executive summaries, class/interface blueprints, Mermaid diagrams (`graph TD` and `sequenceDiagram`), exception matrices, state persistence contracts, and Pytest verification guides.
-3. **Core Architectural Alignment**: Phase 08 documentation must formally specify the **Synchronous Batch-Pipeline** execution model, where `Node` instances in `src/core/workflow/node.py` interact exclusively with the `StateLedger` (SQLite WAL mode) via a `run_id`, guaranteeing true pipeline idempotency without passing in-memory state objects down the chain.
+To prevent third-party plugins from corrupting the system state or attempting unauthorized database modifications, Phase 09 enforces a **Restricted Plugin Execution Model**. External plugins inherit from a restricted `PluginNode` interface (`src/sdk/plugin_base.py`) that strictly exposes a pure functional `process(inputs: dict[str, Any]) -> dict[str, Any]` interface. External plugins are explicitly denied direct access to the `StateLedger` (SQLite database). Instead, the core pipeline uses an adapter (`PluginNodeAdapter` in `src/core/workflow/plugin_loader.py`) to handle ledger state retrieval, input extraction, output recording, and idempotency tracking on behalf of the plugin.
 
 ---
 
-## 2. PromptBook Directory Structure & Prior Docs Survey
+## 1. Required Documentation Specification: `PromptBook/Phase09/01_Plugin_SDK.md`
 
-### 2.1 Directory Structure Overview
-The `PromptBook/` repository root contains phase-indexed directories (`Phase01/` through `Phase15/`) as well as foundational root-level architectural documents (`01_Global_Rules.md`, `02_Project_Architecture.md`, `11_Workflow_Engine.md`, etc.).
+`PromptBook/Phase09/01_Plugin_SDK.md` must be created to serve as the definitive specification and developer manual for the Phase 09 Plugin SDK. It should contain the following 6 core sections:
 
-#### Key Deliverables in Examined Phases:
-- **Phase 01 (`PromptBook/Phase01/`)**:
-  - `01_Global_Rules.md`: Global PEP 8, static typing, and structural logging standards.
-  - `02_Synchronous_Batch_Pipeline_Architecture.md`: Defines explicit architectural guarantees (synchronous sequential execution, no dynamic DI, no complex async event buses).
-  - `05_Error_Handling.md`: Centralized exception hierarchy (`PipelineError`, `RetryableError`, `FatalError`) and graceful degradation flowcharts.
-- **Phase 05 (`PromptBook/Phase05/`)**:
-  - `01_Data_Models.md`: Documents Pydantic V2 schemas (`VideoMetadata`, `EducationalPlan`, `RenderSegment`) and 1-to-1 SQLite State Ledger mapping reference.
-- **Phase 06 (`PromptBook/Phase06/`)**:
-  - `01_LLM_Abstraction.md`: Resilient LLM provider abstraction (`BaseLLMProvider`, `OpenAIClient`, `AnthropicClient`), exponential backoff retry flow chart, exception translation matrix.
-- **Phase 07 (`PromptBook/Phase07/`)**:
-  - `01_Prompt_Library.md`: Centralized Jinja2 prompt loader engine (`PromptLoader`), versioning hierarchy, StrictUndefined mode, CoT prompt engineering guidelines.
-- **Phase 08 (`PromptBook/Phase08/`)**:
-  - Contains initial placeholder files (`01_Persistence_Architecture.md`, `02_Storage_Manager.md`, etc.).
-  - **Missing Target File**: `01_Workflow_Engine.md` must be created to document the node abstraction, fault-tolerant execution engine, sequence diagrams, and test suite.
+### Section 1: Executive Summary & Architectural Overview
+- **Goal**: Explain how third-party plugins extend the video generation pipeline seamlessly.
+- **Architectural Diagram**: ASCII or Mermaid sequence showing `WorkflowEngine` -> `PluginNodeAdapter` -> `PluginNode` -> `StateLedger`.
+- **Isolation Principle**: Detail why direct `StateLedger` access is denied to third-party code and how the core engine acts as a secure intermediary.
 
----
+### Section 2: Package Structure & Entry Point Configuration
+- **Standard Package Layout**: Show directory tree for external plugin packages.
+- **`pyproject.toml` Entry Points**:
+  ```toml
+  [project.entry-points."youtube_pipeline.plugins"]
+  custom_analyzer = "my_plugin_package.module:CustomAnalyzerNode"
+  ```
+- **`setup.py` Entry Points (Legacy support)**:
+  ```python
+  from setuptools import setup
 
-## 3. Documentation Conventions & Styling Standards
+  setup(
+      name="my_plugin_package",
+      version="0.1.0",
+      entry_points={
+          "youtube_pipeline.plugins": [
+              "custom_analyzer = my_plugin_package.module:CustomAnalyzerNode",
+          ],
+      },
+  )
+  ```
+- **Group Naming Standard**: `youtube_pipeline.plugins`.
 
-From surveying `Phase01`, `Phase05`, `Phase06`, and `Phase07`, the following mandatory documentation standards must be observed:
+### Section 3: Restricted Plugin Lifecycle (`PluginNode`)
+- **Location**: `src/sdk/plugin_base.py`.
+- **Class Contract**: `PluginNode(ABC)` with abstract property `name` and abstract method `process(inputs: dict[str, Any]) -> dict[str, Any]`.
+- **Input Payload Guarantee**: `inputs` contains read-only dictionary of prior step outputs (`inputs["prior_outputs"]`), pipeline `run_id`, problem `slug`, and pipeline execution metadata.
+- **Output Payload Requirement**: Returns a serializable JSON-compatible dictionary payload to be written to `StateLedger` by `WorkflowEngine`.
 
-### 3.1 Structure & Heading Hierarchy
-1. **Document Title**: Top-level `# Phase 08: Workflow Engine Architecture`.
-2. **Numbered Sections**: `# 1. Executive Summary & Architecture Overview`, `# 2. Node Abstraction & Idempotency Strategy`, etc.
-3. **Section Dividers**: Major sections separated by horizontal rules (`---`).
-4. **Subsections**: Use `##` and `###` with bolded parameter names and typed code blocks.
+### Section 4: Dynamic Discovery & Adapter Pattern (`PluginLoader`)
+- **Location**: `src/core/workflow/plugin_loader.py`.
+- **Discovery Mechanism**: `importlib.metadata.entry_points(group="youtube_pipeline.plugins")`.
+- **Type Validation**: Enforces `issubclass(cls, PluginNode)` and raises `PluginValidationError` for non-compliant classes.
+- **Adapter Mechanism**: `PluginNodeAdapter(Node)` wraps `PluginNode` to implement core `Node.execute(run_id, ledger)` interface without exposing `ledger` to `PluginNode`.
 
-### 3.2 Mermaid Diagram Conventions
-- **Flow/Component Diagrams**: Use `graph TD` or `graph LR` with clear component boxes and directional arrows.
-- **Sequence Diagrams**:
-  - Header: `sequenceDiagram`.
-  - Participant declarations with aliases:
-    ```mermaid
-    sequenceDiagram
-        participant E as WorkflowEngine
-        participant N as Node (Ingest/Plan/Script/Render)
-        participant L as StateLedger (SQLite)
-    ```
-  - Message Types:
-    - `->>` for synchronous method invocation (`E->>L: record_step_start(run_id, step_name)`).
-    - `-->>` for return payload / execution result.
-    - `--x` or `alt / else` blocks for exception handling and failure recording (`E->>L: record_step_failure(...)`).
-  - Notes: `Note over E, L:` to highlight ledger state changes (`IN_PROGRESS`, `COMPLETED`, `FAILED`).
+### Section 5: Step-by-Step Developer Tutorial
+- Concrete walkthrough creating a custom plugin node (e.g. `NotionExporterNode` or `CodeMetricsNode`), installing it in editable mode (`pip install -e .`), and running it via `WorkflowEngine`.
 
-### 3.3 Node Lifecycle & Execution Flow Explanations
-Node lifecycle docs must explicitly detail state transitions in the SQLite State Ledger:
-- `PENDING` -> Initial state of pipeline run.
-- `IN_PROGRESS` -> Recorded via `ledger.record_step_start(run_id, step_name, input_payload)`.
-- `COMPLETED` -> Recorded via `ledger.record_step_completion(step_execution_id, output_payload)`.
-- `FAILED` -> Recorded via `ledger.record_step_failure(step_execution_id, error_message, error_details)`.
-
-### 3.4 Error Handling & Resiliency Details
-Docs must feature a Markdown **Exception Mapping Matrix** table containing:
-- Exception Source / Trigger.
-- Operational Classification (`RetryableError` vs `FatalError`).
-- Ledger Action (`record_step_failure`).
-- System Behavior (Halt sequence without process crash, preserve state for resumption).
+### Section 6: Testing & Verification Strategy
+- Outlining `pytest tests/workflow/test_plugin_loader.py` test suite, unit tests, isolation assertions, and `importlib.metadata` entry point mocking.
 
 ---
 
-## 4. Required Content Blueprint for `PromptBook/Phase08/01_Workflow_Engine.md`
+## 2. Component Design & Code Contracts
 
-To satisfy **Requirement R3** and the **Phase 08 Acceptance Criteria**, `PromptBook/Phase08/01_Workflow_Engine.md` must be constructed according to the following 7-part specification:
+### 2.1 Restricted Plugin Base (`src/sdk/plugin_base.py`)
 
-### 4.1 Section Breakdown & Detailed Contents
+```python
+"""
+Restricted Plugin Base Interface for Phase 09 Plugin SDK.
 
-#### Section 1: Executive Summary & Workflow Engine Architecture Overview
-- High-level overview of the Phase 08 Workflow Engine.
-- Reinforce adherence to the Synchronous Batch-Pipeline pattern (no async event buses, no dynamic DI).
-- Explain the key objectives: fault-tolerance, idempotency, state-ledger-only state passing, and crash safety.
+Defines the PluginNode interface for external developers. External plugins
+are explicitly isolated from direct SQLite StateLedger access.
+"""
 
-#### Section 2: Strict Node Abstraction & Idempotency Strategy (`src/core/workflow/node.py`)
-- Abstract base class definition `Node(ABC)`:
-  - `@abstractmethod def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`
-  - `name: str` attribute for identifying step in ledger.
-- Idempotency contract:
-  - Nodes inspect `ledger.get_completed_steps(run_id)` before executing heavy compute/LLM/render tasks.
-  - If node step is already `COMPLETED`, node returns stored output payload without re-running.
-  - Strict prohibition of in-memory object passing down the pipeline chain; all inputs/outputs serialized via Pydantic V2 `.model_dump(mode="json")` to SQLite ledger.
+from abc import ABC, abstractmethod
+from typing import Any
 
-#### Section 3: Fault-Tolerant Workflow Engine Mechanics (`src/core/workflow/engine.py`)
-- `WorkflowEngine` class design:
-  - Initialization with `StateLedger` instance.
-  - `run_pipeline(pipeline_run_id: str, nodes: list[Node]) -> dict[str, Any]`
-- Execution Loop logic:
-  - Wraps each `node.execute()` in a try/except block.
-  - Records step start (`record_step_start`).
-  - On success: records step completion (`record_step_completion`).
-  - On failure (`except Exception as exc`): catches exception, calls `ledger.record_step_failure(step_execution_id, str(exc), ...)`.
-  - Prevents application crash, halts downstream node execution, and returns structured run result with status `FAILED`.
 
-#### Section 4: SQLite State Ledger Data Contract & Schema Mapping
-- 1-to-1 integration with Phase 04 `StateLedger` (`src/core/orchestrator/state_ledger.py`).
-- Tables updated: `pipeline_runs` and `step_executions`.
-- State transitions table detailing how `pipeline_run_id` and `step_execution_id` are updated at each node phase.
+class PluginNode(ABC):
+    """
+    Restricted Base Class for external third-party plugin nodes.
 
-#### Section 5: High-Quality Mermaid Sequence Diagrams
-Must include at least 3 distinct Mermaid diagrams:
-1. **Successful Workflow Execution Sequence**: End-to-end execution of Ingest -> Plan -> Script -> Render nodes with StateLedger status updates.
-2. **Fault-Tolerant Error Handling Sequence**: Node exception caught by WorkflowEngine, `record_step_failure` invoked, ledger updated to `FAILED`, process halts gracefully without application crash.
-3. **Pipeline Resumption & Idempotency Flow**: Re-running engine on a previously failed or partially completed `run_id`, skipping already `COMPLETED` nodes.
+    Plugins accept an inputs dictionary (containing prior step outputs and run metadata)
+    and return an output dictionary payload. Direct access to StateLedger or database
+    connections is strictly prohibited.
+    """
 
-#### Section 6: Exception Taxonomy & Operational Failure Matrix
-- Table detailing error scenarios (e.g. Node execution error, Ledger write failure, invalid payload schema).
-- Operational classification (`RetryableError` vs `FatalError`).
-- Impact on engine and SQLite State Ledger.
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        Unique name identifier for the plugin node step.
 
-#### Section 7: Verification & Test Guide
-- Execution command: `pytest tests/workflow/test_engine.py`.
-- Test architecture explanation:
-  - Verifying mock nodes throwing exceptions update state ledger to `FAILED`.
-  - Verifying application does not crash.
-  - Verifying state-ledger-only state passing.
+        Returns:
+            str: Unique step identifier (e.g., 'custom_metrics', 'notion_sync').
+        """
+        pass
+
+    @abstractmethod
+    def process(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Execute isolated plugin processing logic.
+
+        Args:
+            inputs: Read-only dictionary containing prior step outputs, run_id, slug,
+                    and pipeline execution metadata.
+
+        Returns:
+            dict[str, Any]: Dictionary payload to be persisted into StateLedger.
+
+        Raises:
+            Exception: If plugin execution fails.
+        """
+        pass
+```
+
+### 2.2 Adapter Pattern & Plugin Loader (`src/core/workflow/plugin_loader.py`)
+
+```python
+"""
+Dynamic Plugin Loader and Adapter for Phase 09 Plugin SDK.
+
+Discovers external plugin nodes via importlib.metadata entry points, validates inheritance
+from PluginNode, and wraps them in PluginNodeAdapter for WorkflowEngine compatibility.
+"""
+
+import importlib.metadata
+from typing import Any, Sequence
+
+from src.core.exceptions import PipelineError
+from src.core.logger import get_logger
+from src.core.orchestrator.state_ledger import StateLedger
+from src.core.workflow.node import Node
+from src.sdk.plugin_base import PluginNode
+
+logger = get_logger(__name__)
+
+ENTRY_POINT_GROUP = "youtube_pipeline.plugins"
+
+
+class PluginValidationError(PipelineError):
+    """Raised when an external plugin fails validation (e.g. does not inherit from PluginNode)."""
+    pass
+
+
+class PluginNodeAdapter(Node):
+    """
+    Adapter wrapping a restricted PluginNode inside a core Workflow Node interface.
+
+    Handles StateLedger reading and writing on behalf of the plugin, enforcing
+    isolation boundaries so third-party plugins cannot manipulate SQLite state directly.
+    """
+
+    def __init__(self, plugin: PluginNode) -> None:
+        if not isinstance(plugin, PluginNode):
+            raise PluginValidationError(
+                f"Expected PluginNode instance, got {type(plugin).__name__}"
+            )
+        self.plugin = plugin
+
+    @property
+    def name(self) -> str:
+        return self.plugin.name
+
+    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
+        run_record = self.get_run_record(run_id, ledger)
+        completed_outputs = self.get_completed_step_outputs(run_id, ledger)
+
+        inputs = {
+            "run_id": run_id,
+            "slug": run_record.slug,
+            "prior_outputs": completed_outputs,
+            "status": run_record.status.value if hasattr(run_record.status, "value") else str(run_record.status),
+        }
+
+        # Invoke restricted plugin process method without providing ledger instance
+        return self.plugin.process(inputs)
+
+
+class PluginLoader:
+    """
+    Dynamic discoverer and loader for external workflow plugins using entry points.
+    """
+
+    def __init__(self, group: str = ENTRY_POINT_GROUP) -> None:
+        self.group = group
+
+    def discover_entry_points(self) -> Sequence[importlib.metadata.EntryPoint]:
+        """Discover entry points for the configured group."""
+        eps = importlib.metadata.entry_points()
+        if hasattr(eps, "select"):
+            return list(eps.select(group=self.group))
+        elif isinstance(eps, dict):
+            return eps.get(self.group, [])
+        return [ep for ep in eps if ep.group == self.group]
+
+    def load_plugins((self) -> list[Node]:
+        """
+        Discover, validate, instantiate, and adapt external plugin nodes.
+
+        Returns:
+            list[Node]: List of PluginNodeAdapter instances wrapped as core Node objects.
+
+        Raises:
+            PluginValidationError: If a discovered plugin class does not inherit from PluginNode.
+        """
+        entry_points = self.discover_entry_points()
+        loaded_nodes: list[Node] = []
+
+        for ep in entry_points:
+            logger.info("Loading plugin entry point", ep_name=ep.name, value=ep.value)
+            try:
+                plugin_cls = ep.load()
+            except Exception as e:
+                logger.error("Failed to load plugin entry point", ep_name=ep.name, error=str(e))
+                raise PluginValidationError(f"Could not load entry point '{ep.name}': {e}") from e
+
+            if not isinstance(plugin_cls, type) or not issubclass(plugin_cls, PluginNode):
+                logger.error("Invalid plugin class hierarchy", ep_name=ep.name, cls=str(plugin_cls))
+                raise PluginValidationError(
+                    f"Plugin class '{plugin_cls}' from entry point '{ep.name}' must inherit from PluginNode."
+                )
+
+            try:
+                plugin_instance = plugin_cls()
+            except Exception as e:
+                logger.error("Failed to instantiate plugin", ep_name=ep.name, error=str(e))
+                raise PluginValidationError(f"Could not instantiate plugin '{ep.name}': {e}") from e
+
+            adapter = PluginNodeAdapter(plugin_instance)
+            loaded_nodes.append(adapter)
+            logger.info("Successfully loaded plugin node", step_name=adapter.name)
+
+        return loaded_nodes
+```
 
 ---
 
-## 5. Verification & Acceptance Audit
+## 3. Acceptance Criteria for Phase 09
 
-To verify completeness of `PromptBook/Phase08/01_Workflow_Engine.md` during implementation:
+### Criteria 1: Verification & Testing
+- **AC 1.1**: Running `pytest tests/workflow/test_plugin_loader.py` executes cleanly and passes all test cases.
+- **AC 1.2**: `test_plugin_loader.py` safely mocks `importlib.metadata.entry_points()` to supply synthetic mock `PluginNode` classes without creating temporary files or installing external pip packages.
+- **AC 1.3**: The test suite proves that when `WorkflowEngine` executes a pipeline containing an adapted external plugin, prior step outputs are passed to `process(inputs)`, and returned outputs are persisted into SQLite `StateLedger`.
+- **AC 1.4**: The test suite verifies that invalid plugin classes (classes not inheriting from `PluginNode`) are rejected with `PluginValidationError`.
+- **AC 1.5**: The test suite verifies that exceptions raised inside plugin `process()` are gracefully caught by `WorkflowEngine`, updating the step and run status in `StateLedger` to `FAILED`.
 
-| Requirement / Criterion | Verification Standard | Status |
-|---|---|---|
-| R3 Architectural Documentation | File `PromptBook/Phase08/01_Workflow_Engine.md` exists and details engine mechanics, node lifecycle, and sequence diagrams. | Pending Implementation |
-| Acceptance Criteria Diagram Check | File contains high-quality Mermaid sequence diagrams (`sequenceDiagram`) detailing fault-tolerant execution flow. | Pending Implementation |
-| Acceptance Criteria Code Parity | File documents `src/core/workflow/node.py` and `src/core/workflow/engine.py` API contracts matching `pytest tests/workflow/test_engine.py`. | Pending Implementation |
+### Criteria 2: Implementation & Decoupling
+- **AC 2.1**: `src/sdk/plugin_base.py` exists and defines `PluginNode(ABC)` with `name` property and `process(inputs: dict[str, Any]) -> dict[str, Any]` signature.
+- **AC 2.2**: `src/core/workflow/plugin_loader.py` exists, implementing `PluginNodeAdapter` and `PluginLoader`.
+- **AC 2.3**: `PluginNode` explicitly denies direct SQLite ledger access. No `StateLedger` parameter or reference is passed to `PluginNode.process()`.
+
+### Criteria 3: Documentation
+- **AC 3.1**: `PromptBook/Phase09/01_Plugin_SDK.md` exists and details:
+  1. Package structure & `setup.py` / `pyproject.toml` entry points configuration under `youtube_pipeline.plugins`.
+  2. Restricted `PluginNode` lifecycle and isolation boundary rationale.
+  3. `PluginLoader` discovery mechanism via `importlib.metadata` and `PluginNodeAdapter` design.
+  4. End-to-end tutorial for third-party plugin authors.
+
+---
+
+## 4. Verification Steps Matrix
+
+| Target | Command / Check | Expected Result | Invalidation Condition |
+| --- | --- | --- | --- |
+| Unit Tests | `pytest tests/workflow/test_plugin_loader.py` | 100% tests pass, discovery & execution verified | Any failing test or mock error |
+| Regression | `pytest tests/workflow/test_engine.py` | 100% core engine tests pass | Core engine regression |
+| Class Hierarchy | Inspection of `src/sdk/plugin_base.py` | `PluginNode` ABC present, no `ledger` parameters in `process` | `StateLedger` parameter added to `process()` |
+| Entry Point Discovery | Mocking `importlib.metadata.entry_points` | Discovers, validates, instantiates, and adapts plugin | Loader accepts non-`PluginNode` classes |
+| Documentation | Inspection of `PromptBook/Phase09/01_Plugin_SDK.md` | Complete documentation matching all 6 required sections | Missing file or missing entry point config sections |

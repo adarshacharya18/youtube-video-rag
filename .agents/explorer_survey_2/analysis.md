@@ -1,180 +1,277 @@
-# Phase 08: Workflow Engine Test Suite & Testing Patterns Analysis Report
+# Phase 09 Technical Analysis: Plugin SDK, Dynamic Plugin Loader, & In-Memory Entry Point Mocking
 
 ## Executive Summary
-This report presents a thorough survey of the existing test suite, testing conventions, pytest configuration, SQLite StateLedger integration, and design specifications for **Phase 08: The Workflow Engine**. 
 
-Currently, `src/core/workflow/` and `tests/workflow/` do not exist. To fulfill Phase 08 requirements and acceptance criteria, `src/core/workflow/` must implement `node.py` (abstract `Node` base class) and `engine.py` (fault-tolerant execution engine). The test suite `tests/workflow/test_engine.py` must verify fault-tolerant execution, idempotency, and explicit exception catching where failing mock nodes intentionally raise exceptions and trigger SQLite StateLedger updates to `FAILED`.
+Phase 09 introduces an extensible Plugin SDK allowing third-party developers to inject custom pipeline processing nodes into the Workflow Engine via Python `entry_points` without altering core source code.
+
+This technical analysis covers three core pillars:
+1. **Python 3.10+ `importlib.metadata.entry_points()` Mechanics**: Modern entry point selection API, PEP 621 packaging standards, and entry point object lifecycle.
+2. **Restricted Plugin SDK & Plugin Loader Architecture**: Designing `PluginNode` in `src/sdk/plugin_base.py`, state ledger isolation, dynamic loading/validation in `src/core/workflow/plugin_loader.py`, and adapting `PluginNode` to core `Node` via `PluginNodeAdapter`.
+3. **In-Memory Pytest Mocking Strategy**: Safely mocking `importlib.metadata.entry_points()` in `tests/workflow/test_plugin_loader.py` without writing temporary files, `.dist-info` directories, or modifying disk state.
 
 ---
 
-## 1. Existing Test Suite Structure & Organization
+## 1. Python `importlib.metadata.entry_points()` Behavior (Python 3.10+)
 
-### 1.1 Directory Structure
-The repository test suite is located in `tests/`, structured as follows:
+### 1.1 API Evolution across Python Versions
+- **Python < 3.10 (Legacy)**: `importlib.metadata.entry_points()` returned a standard Python dictionary mapping group names (`str`) to tuples/lists of `EntryPoint` objects (`dict[str, tuple[EntryPoint, ...]]`).
+- **Python 3.10+ (Modern Standard)**:
+  - `entry_points()` returns an `importlib.metadata.EntryPoints` collection (a tuple-like sequence of `EntryPoint` instances).
+  - Dict-based key access `entry_points()["group_name"]` is **deprecated** and produces `DeprecationWarning` or errors.
+  - The standard parameter-based query `importlib.metadata.entry_points(group="dsa.plugins")` returns an `EntryPoints` collection filtered to the specified group.
+  - Alternatively, `importlib.metadata.entry_points().select(group="dsa.plugins")` can be called.
+
+### 1.2 EntryPoint Object Attributes & Methods
+An `importlib.metadata.EntryPoint` instance represents a registered entry point with the following key interface:
+
+| Attribute / Method | Type | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `.name` | `str` | Registered name of the entry point | `"custom_cleaner"` |
+| `.value` | `str` | Object reference target string | `"my_package.module:CustomPluginClass"` |
+| `.group` | `str` | Group namespace category | `"dsa.plugins"` |
+| `.module` | `str` | Module path component of value | `"my_package.module"` |
+| `.attr` | `str` | Object name within module | `"CustomPluginClass"` |
+| `.load()` | `Callable` | Imports target module and returns attribute | `CustomPluginClass` |
+
+### 1.3 How Entry Points Work for External Packages
+Third-party packages register plugins in their `pyproject.toml` using PEP 621 entry points standard:
+
+```toml
+[project.entry-points."dsa.plugins"]
+custom_summarizer = "dsa_ext_plugin.nodes:SummarizerPlugin"
+custom_evaluator = "dsa_ext_plugin.nodes:EvaluatorPlugin"
 ```
-tests/
-├── conftest.py                   # Root pytest configuration and global fixtures
-├── core/                         # Base, Config, Exception, Logger tests
-│   ├── test_base.py
-│   ├── test_config.py
-│   ├── test_exceptions.py
-│   └── test_logger.py
-├── models/                       # Pydantic V2 models & validation tests
-│   └── test_validation.py
-├── llm/                          # LLM provider & Jinja2 prompt loader tests
-│   ├── test_providers.py
-│   └── test_prompt_loader.py
-├── orchestrator/                 # SQLite StateLedger tests
-│   └── test_state_ledger.py
-├── ingestion/                    # Parser tests
-│   └── test_parser.py
-├── integration/                  # End-to-end pipeline tests
-│   └── test_end_to_end_pipeline.py
-└── fixtures/                     # Test sample files (Markdown, HTML, JSON)
-```
 
-### 1.2 Pytest Configuration
-- **`pytest.ini`**:
-  - `addopts = --strict-markers --cov=src --cov-report=term-missing -v`
-  - `testpaths = tests`
-  - Custom markers: `unit`, `integration`, `e2e`, `performance`.
-- **`pyproject.toml`**:
-  - Sets `pythonpath = ["."]`.
-  - Configures `addopts = "-v --tb=short"`.
+When installed via `pip install .` or `pip install -e .`, python build backends write entry point metadata into `.dist-info/entry_points.txt`. `importlib.metadata` reads these metadata files at runtime without executing package code until `.load()` is invoked.
 
 ---
 
-## 2. Test Suite Conventions, Fixtures & Mocking Patterns
+## 2. Architecture & Design of Plugin SDK & Plugin Loader
 
-### 2.1 Global Fixtures (`tests/conftest.py`)
-- **Environment Pinning**: `os.environ["ENVIRONMENT"] = "testing"` executed automatically on import.
-- **`temp_data_dir`**: Isolated temporary directory created via `tmp_path / "data"`.
-- **`test_config`**: Returns deterministic `PipelineConfig` instance re-routed to `temp_data_dir`.
-- **`mock_logger`**: Mocks `src.core.logger.get_logger` via `pytest-mock` (`mocker`).
-- **`mock_problem_factory`**: Factory fixture generating dummy problem payload dictionaries.
+### 2.1 Restricted Plugin Interface (`src/sdk/plugin_base.py`)
+To protect database integrity and maintain pipeline security, third-party plugins **must never** have direct access to the SQLite `StateLedger` or raw database connections.
 
-### 2.2 Core Testing Conventions
-1. **Strict Type Hinting**: All test functions use explicit return types (`-> None`).
-2. **Isolation & Persistence**: Disk operations use pytest's built-in `tmp_path` fixture to guarantee zero state leakage across test runs.
-3. **SQLite WAL Verification**: Tests verify SQLite `PRAGMA journal_mode=WAL;`, `synchronous=NORMAL;`, `foreign_keys=ON;`, and `busy_timeout=5000;`.
-4. **Mocking External APIs**:
-   - `unittest.mock.patch` and `MagicMock` are used extensively to mock LangChain LLM clients (`ChatOpenAI`, `ChatAnthropic`).
-   - Exceptions (`RateLimitError`, `NetworkError`, `AuthenticationError`, `ValidationError`) are intentionally simulated using `.side_effect`.
-5. **Pydantic V2 Validation Testing**: Tests feed valid data and malformed JSON (missing fields, wrong types, non-finite floats, empty/whitespace strings) asserting `pytest.raises(ValidationError)`.
-
----
-
-## 3. Workflow Engine Integration with SQLite StateLedger
-
-### 3.1 `StateLedger` Architecture (`src/core/orchestrator/state_ledger.py`)
-The Workflow Engine interacts directly with `StateLedger`. Key methods and data structures include:
-
-- **Statuses (`StepStatus`)**: `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`.
-- **Run Creation**: `ledger.create_run(slug: str, metadata: dict | None) -> str` (returns `pipeline_run_id`).
-- **Step Execution Start**: `ledger.record_step_start(pipeline_run_id, step_name, input_payload) -> str` (returns `step_execution_id` and transitions run status to `IN_PROGRESS`).
-- **Step Execution Completion**: `ledger.record_step_completion(step_execution_id, output_payload)`.
-- **Step Execution Failure**: `ledger.record_step_failure(step_execution_id, error_message, error_details)`.
-  - Automatically updates `step_executions.status = 'FAILED'`.
-  - Automatically updates parent `pipeline_runs.status = 'FAILED'`.
-- **State Lookup**: `ledger.get_completed_steps(pipeline_run_id) -> dict[str, StepExecutionRecord]` (enables pipeline idempotency by identifying already executed steps).
-
----
-
-## 4. Phase 08 Requirements & Architecture Overview
-
-### 4.1 Required Components
-1. **`src/core/workflow/node.py`**:
-   - Base abstract class `Node` (or `BaseNode`).
-   - Property `name: str` identifying the step (e.g. `"ingest"`, `"plan"`, `"script"`, `"render"`).
-   - Method `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]` (or `run(...)`).
-   - Nodes **must not** accept or return in-memory state down the pipeline chain; they communicate strictly by reading prior step outputs from `ledger` using `run_id` and writing new outputs to `ledger`.
-
-2. **`src/core/workflow/engine.py`**:
-   - Class `WorkflowEngine`.
-   - Method `run(self, run_id: str, nodes: list[Node]) -> dict[str, Any]`.
-   - Iterates through `nodes`:
-     - Checks idempotency: if step is already `COMPLETED` in `ledger.get_completed_steps(run_id)`, skips execution.
-     - Calls `step_id = ledger.record_step_start(run_id, node.name, input_payload)`.
-     - Wraps `node.execute(run_id, ledger)` in a `try...except Exception as e` block.
-     - On Success: calls `ledger.record_step_completion(step_id, output_payload)`.
-     - On Exception:
-       - Catches `e`.
-       - Calls `ledger.record_step_failure(step_id, error_message=str(e), error_details={"exception_type": type(e).__name__})`.
-       - Prevents application crash (does not let unhandled exception propagate out of engine execution).
-       - Halts subsequent node execution and returns workflow summary with status `FAILED`.
-
----
-
-## 5. Test Suite Specifications for `tests/workflow/test_engine.py`
-
-### 5.1 Test Fixtures
-`tests/workflow/test_engine.py` should define or import the following fixtures:
 ```python
-@pytest.fixture
-def workflow_ledger(tmp_path: Path) -> StateLedger:
-    """Provides a fresh isolated SQLite StateLedger instance for workflow testing."""
-    db_path = tmp_path / "test_workflow_ledger.db"
-    ledger = StateLedger(db_path)
-    yield ledger
-    ledger.close()
+"""
+Plugin SDK Interface for Third-Party Pipeline Node Extensions.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+
+class PluginNode(ABC):
+    """
+    Restricted Abstract Base Class for external plugin nodes.
+    
+    External plugins inherit from PluginNode. They receive input dictionaries
+    and return output dictionaries. They do NOT receive direct access to
+    StateLedger or run_id.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        Unique name identifier for the plugin node.
+        
+        Returns:
+            str: Unique plugin step name (e.g., 'custom_summarizer').
+        """
+        pass
+
+    @abstractmethod
+    def process(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Execute isolated plugin processing logic.
+        
+        Args:
+            inputs: Dictionary payload containing prior step outputs or run parameters.
+            
+        Returns:
+            dict[str, Any]: Plugin processing output payload dictionary.
+        """
+        pass
 ```
 
-### 5.2 Concrete Mock Nodes for Testing
+### 2.2 Core Node Adapter (`PluginNodeAdapter`)
+To execute `PluginNode` within `WorkflowEngine` (which expects `Node` instances), an internal `PluginNodeAdapter` class wraps the `PluginNode`:
+
 ```python
-class SuccessfulMockNode(Node):
-    def __init__(self, name: str, output_data: dict[str, Any] | None = None):
-        self.name = name
-        self.output_data = output_data or {"status": "success", "node": name}
+from src.core.orchestrator.state_ledger import StateLedger
+from src.core.workflow.node import Node
+from src.sdk.plugin_base import PluginNode
+
+class PluginNodeAdapter(Node):
+    """
+    Adapter connecting restricted PluginNode instances to core WorkflowEngine Node contract.
+    """
+
+    def __init__(self, plugin: PluginNode) -> None:
+        self.plugin = plugin
+
+    @property
+    def name(self) -> str:
+        return self.plugin.name
 
     def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        return self.output_data
-
-class FailingMockNode(Node):
-    def __init__(self, name: str, exception_to_raise: Exception | None = None):
-        self.name = name
-        self.exception_to_raise = exception_to_raise or RuntimeError(f"Simulated failure in node '{name}'")
-
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        raise self.exception_to_raise
+        # Collect prior step outputs from StateLedger securely on behalf of plugin
+        inputs = self.get_completed_step_outputs(run_id, ledger)
+        # Execute plugin logic in isolated context
+        return self.plugin.process(inputs)
 ```
 
-### 5.3 Mandatory Test Cases
+### 2.3 Dynamic Plugin Loader (`src/core/workflow/plugin_loader.py`)
+`PluginLoader` discovers entry points under group `"dsa.plugins"`, loads target classes, verifies inheritance from `PluginNode`, and wraps them in `PluginNodeAdapter`.
 
-#### Test Case 1: Acceptance Criteria Exception Handling Test (`test_engine_catches_exception_and_updates_ledger_failed`)
-- **Objective**: Verify requirement: "The test suite MUST use mock nodes that intentionally throw exceptions, explicitly verifying that the engine catches them, prevents application crash, and correctly updates the mock SQLite ledger to 'FAILED'."
-- **Setup**:
-  1. Create run `run_id = ledger.create_run(slug="failing-test-slug")`.
-  2. Instantiate Node 1 (`SuccessfulMockNode("ingest")`) and Node 2 (`FailingMockNode("plan", RuntimeError("LLM API Timeout"))`).
-  3. Instantiate Node 3 (`SuccessfulMockNode("script")`).
-- **Execution**: `engine.run(run_id, [node1, node2, node3])`.
-- **Assertions**:
-  1. Engine returns without raising an unhandled exception (prevents application crash).
-  2. Node 1 execution in ledger is `StepStatus.COMPLETED`.
-  3. Node 2 execution in ledger is `StepStatus.FAILED`.
-  4. Node 2 `error_message` in ledger matches `"LLM API Timeout"`.
-  5. Parent pipeline run status in ledger is `StepStatus.FAILED`.
-  6. Node 3 was **not** executed (pipeline halted upon Node 2 failure).
+```python
+import importlib.metadata
+from typing import Optional, Sequence
 
-#### Test Case 2: Successful End-to-End Execution (`test_engine_successful_workflow`)
-- **Objective**: Verify full sequence of successful nodes.
-- **Assertions**: All steps transition to `COMPLETED`, parent run status transitions to `COMPLETED` (or remains `IN_PROGRESS`/`COMPLETED`), ledger records output payloads.
+from src.core.exceptions import FatalError, PipelineStageError
+from src.core.logger import get_logger
+from src.core.workflow.node import Node
+from src.sdk.plugin_base import PluginNode
 
-#### Test Case 3: Idempotency & Resumption (`test_engine_skips_already_completed_nodes`)
-- **Objective**: Verify engine skips nodes already completed in ledger.
-- **Assertions**: Re-running workflow with completed nodes does not re-execute completed nodes.
+logger = get_logger(__name__)
 
-#### Test Case 4: State Communication via Ledger (`test_nodes_communicate_strictly_via_ledger`)
-- **Objective**: Verify nodes pass data exclusively via SQLite ledger lookups and `run_id`.
-- **Assertions**: Node 2 reads Node 1's output from `ledger.get_completed_steps(run_id)`.
+
+class PluginError(PipelineStageError):
+    """Base exception for plugin loader errors."""
+    pass
+
+
+class PluginLoadError(PluginError):
+    """Raised when an entry point fails to load (import error, missing attribute)."""
+    pass
+
+
+class PluginValidationError(PluginError):
+    """Raised when a discovered plugin class fails PluginNode inheritance validation."""
+    pass
+
+
+class PluginLoader:
+    """
+    Dynamic discoverer and validator for third-party WorkflowEngine plugins.
+    """
+
+    DEFAULT_GROUP = "dsa.plugins"
+
+    def __init__(self, group: str = DEFAULT_GROUP) -> None:
+        self.group = group
+
+    def discover_entry_points(() -> list[importlib.metadata.EntryPoint]:
+        """Query importlib.metadata for entry points matching configured group."""
+        try:
+            eps = importlib.metadata.entry_points(group=self.group)
+            return list(eps)
+        except Exception as e:
+            logger.error("Failed to query entry points", group=self.group, error=str(e))
+            return []
+
+    def load_and_validate(self, entry_point: importlib.metadata.EntryPoint) -> type[PluginNode]:
+        """
+        Load entry point and validate class inheritance.
+        
+        Raises:
+            PluginLoadError: If loading module or attribute fails.
+            PluginValidationError: If loaded object is not a subclass of PluginNode.
+        """
+        try:
+            plugin_cls = entry_point.load()
+        except Exception as e:
+            logger.error("Failed to load plugin entry point", name=entry_point.name, error=str(e))
+            raise PluginLoadError(f"Failed to load entry point '{entry_point.name}': {e}") from e
+
+        if not isinstance(plugin_cls, type) or not issubclass(plugin_cls, PluginNode):
+            logger.error("Plugin validation failed: does not inherit from PluginNode", name=entry_point.name)
+            raise PluginValidationError(
+                f"Plugin '{entry_point.name}' ({plugin_cls}) must be a class inheriting from PluginNode."
+            )
+
+        return plugin_cls
+
+    def load_plugins(self) -> list[Node]:
+        """
+        Discover, load, validate, and instantiate all plugins as Node adapters.
+        """
+        eps = self.discover_entry_points()
+        nodes: list[Node] = []
+
+        for ep in eps:
+            plugin_cls = self.load_and_validate(ep)
+            instance = plugin_cls()
+            nodes.append(PluginNodeAdapter(instance))
+
+        return nodes
+```
 
 ---
 
-## 6. Summary Matrix of Requirements & Test Verification
+## 3. Pytest In-Memory Mocking Strategy for `importlib.metadata.entry_points()`
 
-| Requirement | Module/File | Key Test Function | Verification Method |
-|---|---|---|---|
-| Abstract Node Interface | `src/core/workflow/node.py` | `test_node_abstraction` | Subclass `Node`, attempt direct instantiation (should raise TypeError) |
-| Fault-Tolerant Engine | `src/core/workflow/engine.py` | `test_engine_catches_exception_and_updates_ledger_failed` | Run `FailingMockNode`, assert process doesn't crash & ledger marked `FAILED` |
-| Ledger Data Isolation | `src/core/workflow/node.py` | `test_nodes_communicate_strictly_via_ledger` | Pass only `run_id` & `ledger` to `execute()`, assert no in-memory payload passed |
-| Workflow Idempotency | `src/core/workflow/engine.py` | `test_engine_skips_already_completed_nodes` | Pre-populate completed step in `StateLedger`, execute engine |
-| Pytest Command Execution | `tests/workflow/test_engine.py` | Full suite execution | `pytest tests/workflow/test_engine.py` exits 0 |
+### 3.1 Why Disk-Based Mocking (Temp Files / `.dist-info`) Must Be Avoided
+1. **Performance & Overhead**: Disk I/O during pytest execution slows test runs.
+2. **Flakiness & Cleanup**: Leftover metadata files or incomplete teardown pollute global site-packages or sys.path.
+3. **Environment Security**: Writing temp `.dist-info` files can pollute pytest cache or global virtual environments.
+
+### 3.2 In-Memory Mock Pattern with `unittest.mock.patch`
+Instead of creating files on disk, tests mock `importlib.metadata.entry_points` directly using `unittest.mock.patch` or pytest's `monkeypatch` fixture.
+
+#### Example Mock EntryPoint Setup
+```python
+from unittest.mock import MagicMock, patch
+import importlib.metadata
+import pytest
+
+from src.sdk.plugin_base import PluginNode
+from src.core.workflow.plugin_loader import PluginLoader, PluginValidationError, PluginLoadError
+
+
+class ValidDummyPlugin(PluginNode):
+    @property
+    def name(self) -> str:
+        return "valid_dummy"
+
+    def process(self, inputs: dict) -> dict:
+        return {"processed": True, "input_received": inputs}
+
+
+class InvalidDummyPlugin:
+    """Does not inherit from PluginNode."""
+    def name(self) -> str:
+        return "invalid"
+
+
+def create_mock_entry_point(name: str, target_class_or_fn: Any, group: str = "dsa.plugins"):
+    """Helper to construct mock EntryPoint instances in memory."""
+    mock_ep = MagicMock(spec=importlib.metadata.EntryPoint)
+    mock_ep.name = name
+    mock_ep.group = group
+    mock_ep.value = f"mock_module:{target_class_or_fn.__name__}"
+    mock_ep.load.return_value = target_class_or_fn
+    return mock_ep
+```
+
+### 3.3 Test Suite Scenarios for `tests/workflow/test_plugin_loader.py`
+
+| Test Case | Description | Expected Result |
+| :--- | :--- | :--- |
+| `test_plugin_loader_discovers_and_loads_valid_plugin` | Patch `entry_points` with `ValidDummyPlugin` mock. | `PluginLoader.load_plugins()` returns list containing `PluginNodeAdapter`, executable via `WorkflowEngine`. |
+| `test_plugin_loader_rejects_non_plugin_node_class` | Patch `entry_points` with `InvalidDummyPlugin` mock. | `load_and_validate()` raises `PluginValidationError`. |
+| `test_plugin_loader_rejects_function_or_primitive` | Patch `entry_points` returning a plain function. | `load_and_validate()` raises `PluginValidationError`. |
+| `test_plugin_loader_handles_entry_point_load_exception` | Mock `entry_point.load.side_effect = ImportError(...)`. | `load_and_validate()` catches exception and raises `PluginLoadError`. |
+| `test_plugin_loader_empty_entry_points` | Patch `entry_points` returning empty list `[]`. | `discover_plugins()` returns `[]` cleanly without error. |
+| `test_plugin_adapter_executes_in_workflow_engine` | Wire `PluginNodeAdapter(ValidDummyPlugin())` into `WorkflowEngine`. | Engine executes step, passes inputs, records outputs in SQLite `StateLedger`. |
+
+---
+
+## 4. Verification & Testing Plan
+
+1. **Verify Python 3.10+ Compatibility**:
+   Ensure `importlib.metadata.entry_points(group=...)` functions identically under Python 3.10, 3.11, 3.12, and 3.13.
+2. **Execute Full Workflow Test Suite**:
+   Run `pytest tests/workflow/test_plugin_loader.py` to confirm zero disk I/O and 100% in-memory plugin discovery mocking.
+3. **Verify Ledger Isolation**:
+   Confirm that `PluginNode.process(inputs)` has no `ledger` parameter, preventing external code from executing SQL on `StateLedger`.

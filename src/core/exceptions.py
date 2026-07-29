@@ -145,3 +145,20 @@ class AssemblyError(PipelineError):
 class YouTubeUploadError(PipelineError):
     """Base exception for the YouTube Uploader module."""
     pass
+
+
+# -- Module 9: Plugin SDK --
+class PluginError(PipelineError):
+    """Base exception for plugin SDK operations."""
+    pass
+
+
+class PluginLoadError(PluginError):
+    """Raised when an entry point fails to load or instantiate."""
+    pass
+
+
+class PluginValidationError(PluginError):
+    """Raised when a discovered plugin class fails validation."""
+    pass
+

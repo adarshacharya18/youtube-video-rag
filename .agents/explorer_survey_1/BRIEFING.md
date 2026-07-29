@@ -1,40 +1,35 @@
-# BRIEFING — 2026-07-29T11:56:45Z
+# BRIEFING — 2026-07-29T12:13:02Z
 
 ## Mission
-Survey the codebase for Phase 08 (The Workflow Engine), examining SQLite State Ledger, workflow structures, base classes, models, config, and exceptions.
+Investigate Phase 09 workflow architecture (Node, Engine, State Ledger) and design a restricted PluginNode interface in src/sdk/plugin_base.py.
 
 ## 🔒 My Identity
 - Archetype: Teamwork explorer
-- Roles: Explorer / Codebase Surveyor
+- Roles: Read-only investigator
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1
-- Original parent: f40d11c8-d7b3-4890-8907-9d50d3f027bf
-- Milestone: Phase 08 Survey
+- Original parent: 0c70dda5-c272-468b-84b8-07ad997aa5ec
+- Milestone: Phase 09 Survey
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement
-- Survey codebase for Phase 08 (Workflow Engine)
+- Read-only investigation — do NOT implement project source code
+- Restrict direct SQLite State Ledger access in PluginNode interface while allowing inputs and outputs
 
 ## Current Parent
-- Conversation ID: f40d11c8-d7b3-4890-8907-9d50d3f027bf
-- Updated: 2026-07-29T11:56:45Z
+- Conversation ID: 0c70dda5-c272-468b-84b8-07ad997aa5ec
+- Updated: 2026-07-29T12:13:02Z
 
 ## Investigation State
-- **Explored paths**:
-  - `src/core/orchestrator/state_ledger.py`
-  - `tests/orchestrator/test_state_ledger.py`
-  - `src/core/base.py`, `src/core/exceptions.py`, `src/core/config.py`
-  - `src/core/models/` (`video.py`, `plan.py`, `assets.py`)
-  - `src/core/workflow/` (verified absent)
-- **Key findings**:
-  - State Ledger implemented with WAL mode SQLite DB in `src/core/orchestrator/state_ledger.py`.
-  - `src/core/workflow/` is missing and needs creation (`node.py`, `engine.py`).
-  - Base classes, exceptions, Pydantic models, and config loaders exist and pass all 87 unit tests.
-- **Unexplored areas**: None (survey complete).
+- **Explored paths**: `src/core/workflow/node.py`, `src/core/workflow/engine.py`, `src/core/orchestrator/state_ledger.py`, `.agents/ORIGINAL_REQUEST.md`, `tests/workflow/test_engine.py`, `src/plugins/base.py`
+- **Key findings**: Identified direct `StateLedger` exposure risk in core `Node.execute()`. Designed restricted `PluginNode` interface for `src/sdk/plugin_base.py` with `process(inputs)` signature, paired with `PluginNodeAdapter` and `PluginLoader` in `src/core/workflow/plugin_loader.py`.
+- **Unexplored areas**: None for Phase 09 survey.
 
 ## Key Decisions Made
-- Documented full API, schema, PRAGMAs, and status rules of SQLite State Ledger.
-- Detailed requirements for `Node` and `WorkflowEngine` in `analysis.md` and `handoff.md`.
+- Formulated `PluginNode` (pure `process(inputs) -> outputs` interface) and `PluginNodeAdapter` (bridges `PluginNode` to `WorkflowEngine` & `StateLedger`).
+- Specified `PluginLoader` entry point discovery and inheritance validation strategy.
 
 ## Artifact Index
-- `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md` — Detailed survey findings and evidence
-- `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/handoff.md` — Summary handoff report
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/DISPATCH.md — Received task instructions
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/BRIEFING.md — Context and briefing
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/progress.md — Liveness heartbeat and progress
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md — Technical analysis of Phase 09 workflow & Plugin SDK
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/handoff.md — Handoff report for Phase 09 survey

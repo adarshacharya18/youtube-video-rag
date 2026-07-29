@@ -1,13 +1,13 @@
-# BRIEFING — 2026-07-29T17:37:10Z
+# BRIEFING — 2026-07-29T17:50:05Z
 
 ## Mission
-Implement Phase 08: The Workflow Engine for the Automated DSA Educational YouTube Video Pipeline. Build a robust, fault-tolerant execution engine that runs a sequence of "Nodes" (Ingest, Plan, Script, Render), strictly logging their success or failure to the SQLite State Ledger.
+Implement Phase 09: Plugin SDK for the Automated DSA Educational YouTube Video Pipeline. Build an SDK utilizing Python `entry_points` that allows third-party developers to seamlessly inject custom `Node` implementations into the Workflow Engine without altering core code.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/sentinel
-- Orchestrator: f40d11c8-d7b3-4890-8907-9d50d3f027bf
-- Victory Auditor: a385e55e-4331-4a75-ab5e-21525daac15e
+- Orchestrator: 0c70dda5-c272-468b-84b8-07ad997aa5ec
+- Victory Auditor: ee4fd7b7-f3ea-4035-8267-502e8b7a0227
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -15,13 +15,13 @@ Implement Phase 08: The Workflow Engine for the Automated DSA Educational YouTub
 - Monitor project orchestrator and progress via crons
 
 ## User Context
-- **Last user request**: Implement Phase 08: The Workflow Engine.
+- **Last user request**: Implement Phase 09: Plugin SDK.
 - **Pending clarifications**: none
 - **Delivered results**:
-  - `src/core/workflow/node.py` (Abstract Node class enforcing State Ledger idempotency via run_id)
-  - `src/core/workflow/engine.py` (Fault-tolerant WorkflowEngine with try/except error boundaries & ledger status logging)
-  - `PromptBook/Phase08/01_Workflow_Engine.md` (Architectural documentation & Mermaid sequence diagrams)
-  - `tests/workflow/test_engine.py` (Unit tests verifying failure catching & state ledger updating)
+  - `src/sdk/plugin_base.py` (Restricted PluginNode interface)
+  - `src/core/workflow/plugin_loader.py` (Dynamic PluginLoader & PluginNodeAdapter)
+  - `PromptBook/Phase09/01_Plugin_SDK.md` (SDK architecture & packaging guide)
+  - `tests/workflow/test_plugin_loader.py` (Unit & integration tests)
   - Victory Audit verdict: `VICTORY CONFIRMED`
 
 ## Project Status
@@ -33,9 +33,9 @@ Implement Phase 08: The Workflow Engine for the Automated DSA Educational YouTub
 - **Retry count**: 0
 
 ## Artifact Index
-- /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md — Verbatim user request record
-- /home/adarsh/Documents/Youtube-Channel/.agents/victory_auditor_phase08/audit_report.md — Victory Audit Report
-- /home/adarsh/Documents/Youtube-Channel/src/core/workflow/node.py — Abstract Node base class
-- /home/adarsh/Documents/Youtube-Channel/src/core/workflow/engine.py — Workflow execution engine
-- /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase08/01_Workflow_Engine.md — Workflow engine documentation
-- /home/adarsh/Documents/Youtube-Channel/tests/workflow/test_engine.py — Workflow engine unit tests
+- /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md — Verbatim user request record
+- /home/adarsh/Documents/Youtube-Channel/.agents/victory_auditor_phase09/audit.md — Victory Audit Report
+- /home/adarsh/Documents/Youtube-Channel/src/sdk/plugin_base.py — Restricted PluginNode base class
+- /home/adarsh/Documents/Youtube-Channel/src/core/workflow/plugin_loader.py — Plugin loader and adapter
+- /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase09/01_Plugin_SDK.md — Plugin SDK documentation
+- /home/adarsh/Documents/Youtube-Channel/tests/workflow/test_plugin_loader.py — Unit tests with in-memory entry points mocking
