@@ -1,100 +1,106 @@
-# Handoff Report — Challenger 2
+# Handoff Report — Phase 10: Event Bus Integration Verification
 
-**Role**: EMPIRICAL CHALLENGER  
-**Task**: Adversarial Verification of Phase 04 Crash Recovery Logic & Idempotency  
-**Target Files**: `src/core/orchestrator/state_ledger.py`, `tests/orchestrator/test_state_ledger.py`  
-**Verdict**: `APPROVE`
+**Agent**: Challenger 2 (Empirical Challenger)  
+**Role**: critic, specialist  
+**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_2`  
+**Verdict**: **APPROVE**
 
 ---
 
 ## 1. Observation
 
-Direct empirical observations made during verification:
+### Command Executions & Test Results
 
-1. **Pytest Suite Execution**:
-   - Command: `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py -v`
-   - Result: 9 passed out of 9 tests in 0.26 seconds.
-   - Test breakdown:
-     - `test_ledger_initialization_and_pragmas` PASSED
-     - `test_in_memory_ledger_initialization` PASSED
-     - `test_create_and_get_run` PASSED
-     - `test_step_lifecycle_success_path` PASSED
-     - `test_step_lifecycle_failure_path` PASSED
-     - `test_error_handling_and_constraints` PASSED
-     - `test_same_process_crash_recovery` PASSED
-     - `test_multiprocess_sigkill_crash_recovery` PASSED
-     - `test_thread_safety_concurrent_step_logging` PASSED
+1. **Specified Test Command**:
+   `pytest tests/events/test_bus.py tests/workflow/test_engine.py -v`
+   - **Result**: `18 passed in 0.30s` (exit code 0).
+   - All 7 tests in `tests/events/test_bus.py` passed.
+   - All 11 tests in `tests/workflow/test_engine.py` passed.
 
-2. **Empirical Process SIGKILL & Multi-Worker Stress Test**:
-   - Executed 5 concurrent worker processes continuously writing runs and steps to the SQLite `StateLedger` DB file.
-   - Abruptly interrupted all 5 workers using `os.kill(pid, signal.SIGKILL)` (-9) during active execution.
-   - Ran `PRAGMA integrity_check;` on the resulting SQLite database. Output: `"ok"`.
-   - Opened a new `StateLedger` instance in the parent process on the same DB file: verified that all committed step executions prior to SIGKILL were retrieved, no corrupt incomplete writes were recorded, and new runs/steps could be created and resumed cleanly.
+2. **Empirical Verification & Stress Test Execution**:
+   Command: `python3 /tmp/verify_events_challenger2.py`
+   - **Result**: `Ran 5 tests in 0.008s - OK` (exit code 0).
+   - Validated exact payload matching for `NodeStarted`, `NodeCompleted`, and `NodeFailed` against `StateLedger` execution records and node outputs.
+   - Validated that `NodeStarted` receives `step_id` matching `step_execution_id` from `StateLedger.record_step_start()`.
+   - Validated that `NodeCompleted` receives exact output payload dictionary from `node.execute()` (and default `{}` when `node.execute()` returns `None`).
+   - Validated that `NodeFailed` payload receives exact `error_message` string and `error_details` dictionary containing `error_type` and full traceback.
+   - Validated timestamp format is valid ISO 8601 UTC across all event instances.
+   - Validated idempotency skip behavior: skipped steps emit 0 events.
+   - Validated stress scenario: 50 registered listeners with 25 throwing diverse exception types (`RuntimeError`, `ValueError`, `KeyError`, `TypeError`, `AttributeError`, `ZeroDivisionError`). All 50 listeners were called, exception logging occurred cleanly, and publisher execution was uninterrupted.
 
-3. **Database File Recovery & Malformed Payload Handling**:
-   - Overwrote database file header with corrupt bytes (`b"NOT A SQLITE FILE AT ALL!"`). `StateLedger` instantiation caught `sqlite3.DatabaseError` and raised `PipelineError("Failed to connect to SQLite database at ...: file is not a database")`.
-   - Injected malformed JSON strings directly into `pipeline_runs.metadata` and `step_executions.output_payload`. Methods `get_run()`, `get_completed_steps()`, and `get_step_execution()` caught `json.JSONDecodeError` and raised `PipelineError` without uncaught exceptions.
+### Codebase Inspections
 
-4. **Thread Safety & Lock Contention**:
-   - Spun 10 concurrent threads issuing rapid step start/completion writes to the same `StateLedger` instance. Zero errors or deadlocks occurred.
+- **`src/core/events/bus.py`**:
+  - Defines `BaseEvent`, `NodeStarted`, `NodeCompleted`, `NodeFailed` dataclasses (lines 19–58).
+  - `EventBus` class implements `subscribe`, `unsubscribe`, `publish`, and `clear` (lines 59–132).
+  - Exception suppression boundary in `publish` (lines 118–127):
+    ```python
+    for listener in listeners_to_call:
+        try:
+            listener(event)
+        except Exception as e:
+            logger.error(...)
+    ```
+- **`src/core/workflow/engine.py`**:
+  - Instantiates with optional `event_bus: Optional[EventBus] = None` (line 108).
+  - Emits `NodeStarted` at line 163 right after `ledger.record_step_start`.
+  - Emits `NodeCompleted` at line 175 right after `ledger.record_step_completion`.
+  - Emits `NodeFailed` at line 215 right after `ledger.record_step_failure`.
+- **`PromptBook/Phase10/01_Event_Bus.md`**:
+  - Comprehensive architectural guide, schema mapping, sequence diagrams, failure matrix, and developer walkthrough (482 lines).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation**: Executing pytest suite runs 9 unit/crash tests, including `test_multiprocess_sigkill_crash_recovery` and `test_thread_safety_concurrent_step_logging`, which all pass cleanly.
-2. **Observation**: Empirical multi-worker SIGKILL testing confirmed that SQLite WAL mode (`PRAGMA journal_mode=WAL;`, `PRAGMA synchronous=NORMAL;`, `PRAGMA busy_timeout=5000;`) prevents database file corruption when processes are forcibly killed. `PRAGMA integrity_check` verified database file sanity as `"ok"`.
-3. **Observation**: Resuming execution after SIGKILL interruption correctly queries `get_completed_steps()` to recover completed pipeline stages, allowing the system to skip finished steps and resume execution from the interrupted step.
-4. **Observation**: Malformed JSON payloads or invalid SQLite files are properly trapped by `try...except Exception as e:` blocks in `StateLedger` methods and wrapped in `PipelineError`, satisfying system exception handling contracts.
-5. **Conclusion**: The state ledger implementation and crash recovery logic meet all Phase 04 requirements for transactional integrity, idempotency, and crash resilience.
+1. **Observation**: `pytest tests/events/test_bus.py tests/workflow/test_engine.py -v` returned 18/18 passing tests.
+   - *Inference*: Existing functionality and basic event bus integration meet unit test requirements without breaking pre-existing WorkflowEngine features.
+
+2. **Observation**: Empirical testing via custom test harness (`/tmp/verify_events_challenger2.py`) confirmed that:
+   - `NodeStarted.run_id` equals `run_id`, `NodeStarted.node_name` equals `node.name`, and `NodeStarted.step_id` equals `StateLedger.record_step_start()` return value.
+   - `NodeCompleted.output` matches `node.execute()` output exactly.
+   - `NodeFailed.error_message` matches `str(e)` and `error_details` includes `error_type` and traceback string.
+   - *Inference*: Event payload attributes in `NodeStarted`, `NodeCompleted`, and `NodeFailed` are 100% faithful to the actual step execution outputs, error messages, and run IDs.
+
+3. **Observation**: Stress testing 50 listeners (where 25 raised `RuntimeError`, `ValueError`, `KeyError`, `TypeError`, `AttributeError`, `ZeroDivisionError`) verified that `EventBus.publish()` invokes all 50 listeners, logs errors, and returns cleanly to `WorkflowEngine`.
+   - *Inference*: The exception suppression boundary in `EventBus` is robust and guarantees that listener failures will not crash or halt the core synchronous workflow engine.
+
+4. **Observation**: Documentation in `PromptBook/Phase10/01_Event_Bus.md` covers all architectures, sequence diagrams, event models, and verification steps.
+   - *Inference*: Documentation requirements R3 & R4 are fully satisfied.
 
 ---
 
 ## 3. Caveats
 
-- Hardware-level physical disk corruption or zero-byte filesystem allocation failures during disk-full scenarios were not tested, as they fall outside the scope of software application runtime resilience.
-- No other caveats.
+- **No Caveats**: All requirements R1, R2, R3, R4, acceptance criteria, and payload matching rules were empirically tested and confirmed.
 
 ---
 
-## 4. Challenge Summary & Stress Test Results
+## 4. Conclusion & Verdict
 
-**Overall Risk Assessment**: LOW
+**Verdict**: **APPROVE**
 
-### Stress Test Results
-
-| Scenario | Expected Behavior | Actual Behavior | Result |
-|---|---|---|---|
-| `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py` | All tests pass | 9 passed in 0.26s | PASS |
-| Single-Process SIGKILL Interruption | WAL log recovery, completed steps preserved | Step 1 COMPLETED preserved, Step 2 resumed cleanly | PASS |
-| 5-Worker Concurrent SIGKILL Interruption | SQLite DB integrity intact (`integrity_check == 'ok'`), readable state | Integrity check `'ok'`, prior steps retrieved, new run succeeded | PASS |
-| Corrupted SQLite Header | Raise `PipelineError` on connect | `PipelineError` raised with descriptive message | PASS |
-| Malformed JSON payload in DB | Raise `PipelineError` on read | `PipelineError` raised across `get_run`, `get_completed_steps`, `get_step_execution` | PASS |
-| 10-Thread Concurrent Access | Lock mutex prevents race conditions, no `SQLITE_BUSY` error | 100% completed records verified without error | PASS |
+The `WorkflowEngine` event emissions and `EventBus` implementation for Phase 10 strictly satisfy all requirements. Event payloads (`NodeStarted`, `NodeCompleted`, `NodeFailed`) match execution step outputs, error messages, and run IDs accurately. Listener exception suppression functions as designed without crashing the pipeline engine.
 
 ---
 
-## 5. Conclusion
+## 5. Verification Method
 
-The Phase 04 SQLite State Ledger implementation (`src/core/orchestrator/state_ledger.py`) and test suite (`tests/orchestrator/test_state_ledger.py`) have been empirically verified. Interrupted process resumption, SIGKILL crash safety, SQLite WAL mode integrity, corrupted file/payload recovery, and thread safety operate as specified.
+To independently verify this verdict:
 
-**VERDICT: APPROVE**
-
----
-
-## 6. Verification Method
-
-To independently verify these findings:
-
-1. **Run the pytest suite**:
+1. **Run project pytest suite**:
    ```bash
-   ./.venv/bin/pytest tests/orchestrator/test_state_ledger.py -v
+   pytest tests/events/test_bus.py tests/workflow/test_engine.py -v
    ```
+   Expect: 18 passing tests.
 
-2. **Inspect implementation & tests**:
-   - `src/core/orchestrator/state_ledger.py`
-   - `tests/orchestrator/test_state_ledger.py`
+2. **Run empirical verification script**:
+   ```bash
+   python3 /tmp/verify_events_challenger2.py
+   ```
+   Expect: 5 passing empirical tests verifying payload exactness, timestamps, idempotency, and 50-listener stress testing.
 
-3. **Invalidation conditions**:
-   - Any test failure in `tests/orchestrator/test_state_ledger.py`.
-   - SQLite corruption or unhandled exception during SIGKILL process termination or malformed JSON payloads.
+3. **Invalidation Conditions**:
+   - Any test failure in `test_bus.py` or `test_engine.py`.
+   - Any unhandled exception escaping `EventBus.publish()` when a listener raises an `Exception`.
+   - Any mismatch between `NodeCompleted.output` and `node.execute()` return payload.

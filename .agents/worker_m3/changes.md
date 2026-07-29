@@ -1,19 +1,21 @@
-# Changes Report — Phase 08 Workflow Engine Documentation
+# Changes Summary — Milestone 3 (SDK Documentation)
 
-## Created Files
-- `PromptBook/Phase08/01_Workflow_Engine.md`: Authored complete architectural documentation for Phase 08 Workflow Engine following the 7-part blueprint.
+## Summary of Changes
 
-## Summary of Contents in `01_Workflow_Engine.md`
-1. **Executive Summary & Architectural Overview**: Outlines the synchronous batch pipeline execution paradigm, core guarantees (synchronous model, state-ledger-only data passing, step idempotency, crash-safe fault tolerance).
-2. **Node Abstraction & Idempotency Strategy**: Documents `Node(ABC)` interface (`src/core/workflow/node.py`), abstract property `name` and method `execute(run_id, ledger)`, state ledger helper methods (`get_run_record`, `get_completed_step_outputs`, `get_step_output`), and strict prohibition of passing in-memory state objects across step boundaries.
-3. **Fault-Tolerant Engine Mechanics**: Documents `WorkflowEngine` and `EngineResult` (`src/core/workflow/engine.py`), execution loop logic, step idempotency skipping, try/except execution wrapper, error handling, process crash prevention, and `to_base_result()` conversion method.
-4. **SQLite State Ledger Integration & Status Lifecycle**: Documents `StateLedger` (`src/core/orchestrator/state_ledger.py`), `StepStatus` lifecycle (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`), and SQLite table schemas (`pipeline_runs`, `step_executions`).
-5. **High-Quality Mermaid Sequence Diagrams**: Includes 3 sequence diagrams (`sequenceDiagram` format):
-   - Sequence Diagram 1: Happy Path Execution (`IngestNode` -> `PlanNode` -> SQLite ledger updates -> `COMPLETED` EngineResult).
-   - Sequence Diagram 2: Exception Recovery / Fault-Tolerant Execution (`IngestNode` succeeds -> `FailingNode` crashes -> try/except catches exception -> SQLite ledger updated to `FAILED` via `record_step_failure` -> Engine returns `FAILED` EngineResult without process crash).
-   - Sequence Diagram 3: Pipeline Resumption & Step Skipping Flow (`IngestNode` skipped because already `COMPLETED` in SQLite -> `PlanNode` executes -> `COMPLETED` EngineResult).
-6. **Exception Failure Matrix & Error Mapping**: Markdown matrix mapping exception types (`PipelineStageError`, `PipelineError`, `RuntimeError`, `ValueError`, `KeyError`, `ValidationError`) to trigger scenarios, operational classifications (`FatalError` vs `RetryableError`), SQLite State Ledger status, and engine recovery actions.
-7. **Pytest Verification Guide & Test Suite Summary**: Comprehensive test guide documenting test execution (`pytest tests/workflow/test_engine.py`) and detailed breakdown of all unit tests in `tests/workflow/test_engine.py`.
+Created `PromptBook/Phase10/01_Event_Bus.md` detailing the SDK architecture, data contracts, and fault tolerance mechanisms for Phase 10 Event Bus Integration.
 
-## Verification Result
-- Ran `pytest tests/workflow/test_engine.py` — 8 passed in 0.23s with 100% test pass rate.
+### Files Created
+- `PromptBook/Phase10/01_Event_Bus.md`: Comprehensive SDK architecture manual for Phase 10 Event Bus Integration.
+
+### Documentation Content Overview
+1. **Executive Summary & Architectural Overview**: High-level in-memory Pub/Sub architecture, non-blocking synchronous dispatch, fault-tolerance design principles, and decoupling guarantees.
+2. **Event Models & Data Contracts**: Detailed specs for `BaseEvent` (with ISO 8601 UTC timestamping) and lifecycle event models `NodeStarted`, `NodeCompleted`, and `NodeFailed`, complete with schema mapping table.
+3. **Fault-Tolerant Pub/Sub Engine Mechanics**: Methods and internal implementation of `EventBus` (`subscribe`, `unsubscribe`, `publish`, `clear`), featuring exception isolation via `try...except Exception:` blocks and structured logging.
+4. **Workflow Engine Integration**: Details how `WorkflowEngine` accepts an optional `EventBus` in `__init__` and emits lifecycle events (`NodeStarted`, `NodeCompleted`, `NodeFailed`) at precise execution milestones without being impacted by listener failures.
+5. **Mermaid Sequence Diagrams**:
+   - Diagram 5.1: EventBus Subscription & Event Dispatch Architecture.
+   - Diagram 5.2: WorkflowEngine Lifecycle Event Emission (Happy Path & Failure Path).
+   - Diagram 5.3: Exception Suppression Boundary with Listener raising `RuntimeError`.
+6. **Exception Failure Matrix & Operational Rules**: Operational category, recovery action, and logging format for listener exceptions (`RuntimeError`, `ValueError`, `KeyError`, etc.).
+7. **Step-by-Step Developer Walkthrough & Code Examples**: Runnable code snippets for basic Pub/Sub, polymorphic monitoring, fault-tolerant error injection, and `WorkflowEngine` wiring.
+8. **Pytest Verification Guide**: Test execution commands and detailed matrix of unit tests in `tests/events/test_bus.py` and `tests/workflow/test_engine.py`.

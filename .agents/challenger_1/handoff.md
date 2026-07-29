@@ -1,51 +1,129 @@
-# Handoff Report — Challenger 1
+# Handoff Report — Phase 10 Event Bus Integration Verification
 
-## Verdict: APPROVE
+## 1. Observation
 
-### 1. Observation
-- **Unit & Recovery Test Executions**:
-  Command executed: `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py`
-  Output snippet: `9 passed in 0.25s`
-- **Empirical Stress Test Executions**:
-  Command executed: `./.venv/bin/pytest /home/adarsh/Documents/Youtube-Channel/.agents/challenger_1/stress_test_ledger.py -s -v`
-  Output snippet: `8 passed in 16.80s`
-- **Code Coverage**: 86% coverage on `src/core/orchestrator/state_ledger.py`.
-- **Target File Inspected**: `src/core/orchestrator/state_ledger.py` lines 70-88:
-  ```python
-  self._conn = sqlite3.connect(db_str, check_same_thread=False)
-  self._conn.row_factory = sqlite3.Row
-  self._conn.execute("PRAGMA journal_mode=WAL;")
-  self._conn.execute("PRAGMA synchronous=NORMAL;")
-  self._conn.execute("PRAGMA foreign_keys=ON;")
-  self._conn.execute("PRAGMA busy_timeout=5000;")
-  ```
-- **Observed Behaviors Across Stress Scenarios**:
-  - `test_high_thread_contention_single_instance`: 50 concurrent threads executing 1000 ledger operations finished in ~0.5s with zero errors and 100% record integrity.
-  - `test_high_thread_contention_multiple_instances`: 30 concurrent threads using independent connection instances pointing to the same SQLite disk file finished cleanly without locking errors.
-  - `test_multi_process_db_locks`: 12 worker processes concurrently executing writes to the same SQLite WAL file finished successfully with `busy_timeout=5000` queueing writes safely.
-  - `test_exclusive_lock_timeout`: Holding an exclusive transaction lock on disk forced `StateLedger` to wait the configured `busy_timeout` period (~5s) before raising a clear, wrapped `PipelineError("database is locked")`.
-  - `test_rapid_state_updates_and_scale`: 500 rapid sequential step lifecycle iterations completed at ~500 ops/sec.
-  - `test_large_payload_handling`: 2MB+ JSON payloads in metadata, input_payload, and output_payload were stored and retrieved without corruption.
-  - `test_invalid_payloads_and_types`: Parameterized SQL statements prevented SQL injection attempts (e.g. `'; DROP TABLE step_executions; --`); strings with null bytes (`\x00`) and non-dictionary JSON payloads were handled safely.
-  - `test_corrupted_json_in_database`: Directly injected malformed JSON strings into database tables triggered expected `PipelineError` exceptions when parsed by `get_run`, `get_step_execution`, or `get_completed_steps`.
-
-### 2. Logic Chain
-1. **Observation 1** shows that the official test suite (`test_state_ledger.py`) passes all 9 unit and recovery tests (including SIGKILL multi-process crash tests).
-2. **Observation 2 & 4** show that under severe thread contention (50 threads) and multi-process access (12 processes), `StateLedger` maintains internal thread-safety via `self._lock` and database transaction safety via SQLite `WAL` mode and `busy_timeout=5000`.
-3. **Observation 4** confirms that when SQLite encounters a hard lock timeout (> 5 seconds), `StateLedger` raises `PipelineError`, consistent with pipeline exception contracts (`src/core/exceptions.py`).
-4. **Observation 4** verifies that parameterized queries protect against SQL injection and corrupted database content raises appropriate `PipelineError` exceptions rather than unhandled standard library exceptions.
-5. Therefore, `StateLedger` in `src/core/orchestrator/state_ledger.py` is empirically robust, crash-safe, thread-safe, and ready for production use.
-
-### 3. Caveats
-- No caveats. All edge cases (thread contention, cross-process write locks, scale, invalid payloads, SIGKILL crash recovery, SQL injection attempts, corrupt database rows) were empirically tested and passed.
-
-### 4. Conclusion
-The implementation of `StateLedger` in `src/core/orchestrator/state_ledger.py` is fully verified and **APPROVED**.
-
-### 5. Verification Method
-To independently verify this assessment, execute:
+### Command Executed: Official Pytest Suite
 ```bash
-./.venv/bin/pytest tests/orchestrator/test_state_ledger.py
-./.venv/bin/pytest /home/adarsh/Documents/Youtube-Channel/.agents/challenger_1/stress_test_ledger.py -s -v
+pytest tests/events/test_bus.py tests/workflow/test_engine.py -v
 ```
-All 17 tests (9 core unit + 8 empirical stress tests) must pass.
+**Output Summary**:
+```
+======================== 18 passed, 8 warnings in 0.28s ========================
+```
+Files tested:
+- `tests/events/test_bus.py` (7 tests passed)
+- `tests/workflow/test_engine.py` (11 tests passed)
+
+### Empirical Edge Case Harness Execution
+Created and executed `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_1/verify_edge_cases.py` targeting 4 specific edge-case scenarios:
+
+1. **Multiple subscribers failing with different exception types**:
+   - Registered 4 listeners for `NodeStarted`: Listener A (`RuntimeError`), Listener B (`ValueError`), Listener C (`CustomException`), Listener D (Successful).
+   - Verbatim Output:
+     ```
+     2026-07-29 22:26:49 [error    ] EventBus listener raised an exception error='Runtime fail' event_type=NodeStarted listener=test_multiple_subscribers_differing_exceptions.<locals>.fail_runtime
+     2026-07-29 22:26:49 [error    ] EventBus listener raised an exception error='Value fail' event_type=NodeStarted listener=test_multiple_subscribers_differing_exceptions.<locals>.fail_value
+     2026-07-29 22:26:49 [error    ] EventBus listener raised an exception error='Custom fail' event_type=NodeStarted listener=test_multiple_subscribers_differing_exceptions.<locals>.fail_custom
+     SUCCESS: EventBus.publish() completed without raising exceptions.
+     SUCCESS: All 4 listeners (3 failing, 1 succeeding) were executed in order.
+     ```
+
+2. **Unsubscribe called during event delivery**:
+   - Registered 3 listeners: Listener 1 (unsubscribes itself during execution), Listener 2 (unsubscribes Listener 3 during execution), Listener 3 (normal target).
+   - Verbatim Output:
+     ```
+     Publishing event #1...
+     SUCCESS: Publish #1 finished without RuntimeError (e.g. dictionary changed during iteration).
+     Calls during event #1: ['listener_self_unsub', 'listener_unsub_other', 'listener_target']
+     Publishing event #2...
+     Calls during event #2: ['listener_unsub_other']
+     SUCCESS: Subsequent publish respected unsubscribes made during delivery.
+     ```
+
+3. **Unhandled or base event types**:
+   - Published unhandled `CustomUnregisteredEvent()` — 0 calls, 0 errors.
+   - Published `BaseEvent()` — delivered strictly to `BaseEvent` listeners, ignored by `NodeStarted` listeners.
+   - Published `NodeStarted()` — delivered to both `BaseEvent` superclass listeners and `NodeStarted` subscribers.
+   - Verbatim Output:
+     ```
+     Publishing unhandled event CustomUnregisteredEvent()...
+     SUCCESS: Unhandled event safely ignored.
+     Publishing BaseEvent()...
+     SUCCESS: BaseEvent delivered to BaseEvent listener, ignored by NodeStarted listener.
+     Publishing NodeStarted()...
+     SUCCESS: Derived event delivered to both BaseEvent subscriber (superclass matching) and NodeStarted subscriber.
+     ```
+
+4. **WorkflowEngine integration under listener crash pressure**:
+   - Workflow engine executed a node while 3 listeners raised `RuntimeError`, `ValueError`, and `CustomException` on `NodeStarted` and `NodeCompleted`.
+   - Verbatim Output:
+     ```
+     SUCCESS: WorkflowEngine completed successfully despite 3 crashing listeners with 3 different exception types.
+     ```
+
+### Codebase Inspection
+- `src/core/events/bus.py` (lines 108–127):
+  ```python
+  listeners_to_call: List[Callable[[Any], None]] = []
+  for sub_type, listeners in list(self._subscribers.items()):
+      try:
+          if isinstance(event, sub_type):
+              listeners_to_call.extend(listeners)
+      except TypeError:
+          if sub_type == type(event) or sub_type is Any:
+              listeners_to_call.extend(listeners)
+
+  for listener in listeners_to_call:
+      try:
+          listener(event)
+      except Exception as e:
+          logger.error(...)
+  ```
+- `PromptBook/Phase10/01_Event_Bus.md`: Document exists and contains sitemap, sequence diagrams, exception suppression matrix, and usage examples.
+
+---
+
+## 2. Logic Chain
+
+1. **Observation**: `EventBus.publish()` snapshots subscriber items via `list(self._subscribers.items())` and collects all target callables into `listeners_to_call` before invoking them. Each call `listener(event)` is enclosed in a `try...except Exception:` block.
+2. **Logic Step 1**: Because `listeners_to_call` is populated prior to invocation, calling `unsubscribe` inside a listener modifies `self._subscribers` without causing `RuntimeError: dictionary changed size during iteration`. Callables already in `listeners_to_call` execute for the current publish call, and subsequent publishes reflect the updated subscriber state.
+3. **Logic Step 2**: Because `except Exception as e:` catches all standard Python exception subclasses (`RuntimeError`, `ValueError`, `CustomException`, etc.), exceptions in one listener are isolated and logged without preventing the execution of remaining listeners or propagating to the caller (`WorkflowEngine`).
+4. **Logic Step 3**: Because `isinstance(event, sub_type)` checks class hierarchy, publishing `NodeStarted` triggers subscribers of both `NodeStarted` and superclass `BaseEvent`. Publishing unhandled event types produces an empty `listeners_to_call` list and returns cleanly without errors.
+5. **Logic Step 4**: `pytest tests/events/test_bus.py tests/workflow/test_engine.py -v` passed all 18 test cases cleanly, and empirical verification harness confirmed fault tolerance under stress.
+
+---
+
+## 3. Caveats
+
+- `except Exception:` in `EventBus.publish` intentionally does not catch `BaseException` subclasses like `SystemExit` or `KeyboardInterrupt`. This is standard Python design to permit normal process termination.
+- Event Bus is purely in-memory and synchronous. Thread-safety mechanisms (e.g. `threading.Lock`) are not currently implemented, matching the single-threaded synchronous nature of `WorkflowEngine`.
+
+---
+
+## 4. Conclusion & Explicit Verdict
+
+**Verdict**: **APPROVE**
+
+`EventBus` and `WorkflowEngine` meet all fault tolerance and architectural requirements specified in `ORIGINAL_REQUEST.md`. Empirical testing confirms robust exception isolation, re-entrant unsubscribing safety, polymorphic event routing, and complete test suite compliance.
+
+---
+
+## 5. Verification Method
+
+To independently verify these findings:
+
+1. **Run Unit Tests**:
+   ```bash
+   pytest tests/events/test_bus.py tests/workflow/test_engine.py -v
+   ```
+   *Expected Result*: All 18 tests pass with 0 failures.
+
+2. **Run Empirical Edge Case Harness**:
+   ```bash
+   python3 .agents/challenger_1/verify_edge_cases.py
+   ```
+   *Expected Result*: Exits with code 0 and outputs `=== ALL EMPIRICAL VERIFICATION TESTS PASSED SUCCESSFULLY ===`.
+
+3. **Invalidation Conditions**:
+   - Any listener exception propagating out of `EventBus.publish()`.
+   - Modifying subscribers during dispatch causing dictionary iteration errors.

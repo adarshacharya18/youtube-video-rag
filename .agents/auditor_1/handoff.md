@@ -1,96 +1,109 @@
-# Forensic Audit Report — Phase 04 State Ledger Implementation
+# Forensic Audit Report — Phase 10: Event Bus Integration
 
-**Work Product**: Phase 04 Runtime Architecture & State Ledger (`src/core/orchestrator/state_ledger.py`, `tests/orchestrator/test_state_ledger.py`, `PromptBook/Phase04/01_Runtime_Architecture.md`)  
-**Profile**: General Project  
-**Integrity Mode**: `development` (per `ORIGINAL_REQUEST.md`)  
-**Verdict**: **CLEAN**  
+**Work Product**: Phase 10 Event Bus Integration (`src/core/events/bus.py`, `src/core/workflow/engine.py`, `tests/events/test_bus.py`, `tests/workflow/test_engine.py`, `PromptBook/Phase10/01_Event_Bus.md`)
+**Profile**: General Project Integrity Audit (Development Mode)
+**Verdict**: CLEAN
 
 ---
 
 ## 1. Observation
 
-### 1.1 Source Code Analysis (`src/core/orchestrator/state_ledger.py`)
-- **Genuine SQLite Implementation**: Uses standard library `import sqlite3` (line 13). No third-party ORM or fake facade wrappers are present.
-- **Status Enums**: Defined via `StepStatus(str, Enum)` (lines 24-29) with states `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`. Aliases `PipelineStatus`, `RunStatus`, `Status` are provided for backwards/consumer compatibility (lines 33-35).
-- **Dataclasses**: Uses `@dataclass` for `PipelineRunRecord` (lines 38-46) and `StepExecutionRecord` (lines 49-61).
-- **Thread Safety**: Uses `self._lock = threading.Lock()` (line 72) wrapping all database operations (`init_db`, `create_run`, `get_run`, `get_run_by_slug`, `record_step_start`, `record_step_completion`, `record_step_failure`, `get_completed_steps`, `get_step_execution`, `close`).
-- **SQLite WAL Mode & PRAGMA Settings**: Explicitly configured upon connection initialization (lines 84-87):
-  ```python
-  self._conn.execute("PRAGMA journal_mode=WAL;")
-  self._conn.execute("PRAGMA synchronous=NORMAL;")
-  self._conn.execute("PRAGMA foreign_keys=ON;")
-  self._conn.execute("PRAGMA busy_timeout=5000;")
-  ```
-- **Transactional Integrity**: Uses context-managed transactions (`with self._conn:`) inside locked blocks to guarantee atomicity and rollback behavior on exception.
-- **No Hardcoded Outputs / Facades**: Every method (`create_run`, `record_step_start`, `record_step_completion`, `record_step_failure`, `get_completed_steps`, etc.) executes parameterized SQL queries directly against SQLite tables (`pipeline_runs`, `step_executions`).
+Direct code and test observations from forensic inspection and execution:
 
-### 1.2 Test Suite Execution (`tests/orchestrator/test_state_ledger.py`)
-Executed test command:
-```bash
-./.venv/bin/pytest tests/orchestrator/test_state_ledger.py
-```
-Output:
-```
-============================= test session starts ==============================
-platform linux -- Python 3.13.7, pytest-9.1.1, pluggy-1.6.0
-collected 9 items
+1. **`src/core/events/bus.py`**:
+   - `BaseEvent` generates real ISO 8601 UTC timestamps dynamically (`datetime.now(timezone.utc).isoformat()`).
+   - `NodeStarted`, `NodeCompleted`, and `NodeFailed` dataclasses implement genuine event schemas.
+   - `EventBus` maintains active subscriber registration mapped by event type (`self._subscribers: Dict[Type[Any], List[Callable[[Any], None]]] = defaultdict(list)`).
+   - `EventBus.publish()` implements polymorphic event dispatch (`isinstance(event, sub_type)` / `sub_type is Any`) wrapped in an explicit exception suppression boundary (lines 117-127):
+     ```python
+     for listener in listeners_to_call:
+         try:
+             listener(event)
+         except Exception as e:
+             logger.error(
+                 "EventBus listener raised an exception",
+                 event_type=type(event).__name__,
+                 listener=getattr(listener, "__qualname__", str(listener)),
+                 error=str(e),
+                 exc_info=True,
+             )
+     ```
+   - No hardcoded test outputs, facade methods, or pre-computed results are present.
 
-tests/orchestrator/test_state_ledger.py::test_ledger_initialization_and_pragmas PASSED [ 11%]
-tests/orchestrator/test_state_ledger.py::test_in_memory_ledger_initialization PASSED [ 22%]
-tests/orchestrator/test_state_ledger.py::test_create_and_get_run PASSED  [ 33%]
-tests/orchestrator/test_state_ledger.py::test_step_lifecycle_success_path PASSED [ 44%]
-tests/orchestrator/test_state_ledger.py::test_step_lifecycle_failure_path PASSED [ 55%]
-tests/orchestrator/test_state_ledger.py::test_error_handling_and_constraints PASSED [ 66%]
-tests/orchestrator/test_state_ledger.py::test_same_process_crash_recovery PASSED [ 77%]
-tests/orchestrator/test_state_ledger.py::test_multiprocess_sigkill_crash_recovery PASSED [ 88%]
-tests/orchestrator/test_state_ledger.py::test_thread_safety_concurrent_step_logging PASSED [100%]
+2. **`src/core/workflow/engine.py`**:
+   - `WorkflowEngine.__init__` accepts optional `event_bus: Optional[EventBus] = None`.
+   - Emits `NodeStarted` (lines 162-165) upon step execution start after acquiring `step_id` from `StateLedger`.
+   - Emits `NodeCompleted` (lines 174-182) upon step completion with actual `node_output`.
+   - Emits `NodeFailed` (lines 214-223) within the exception handling block upon step execution failure with `error_message` and `error_details`.
 
-============================== 9 passed in 0.26s ===============================
-```
-Specifically:
-- `test_same_process_crash_recovery` tests opening a new `StateLedger` instance against an abandoned database file and verifies that completed steps remain intact while incomplete steps can be cleanly resumed.
-- `test_multiprocess_sigkill_crash_recovery` spawns a worker process, sends `os.kill(proc.pid, signal.SIGKILL)`, opens the disk SQLite ledger file from the parent process, and proves database integrity and step resumption after an abrupt process termination.
+3. **`tests/events/test_bus.py` and `tests/workflow/test_engine.py`**:
+   - Tests use `unittest.mock.MagicMock` for subscribing callables and assert call counts and passed arguments.
+   - `test_fault_tolerant_exception_suppression` explicitly injects `side_effect=RuntimeError("Intentional listener crash!")` into a mock listener, verifying that `EventBus.publish()` suppresses the exception and continues delivering events to other subscribers.
+   - `test_workflow_engine_event_bus_listener_runtime_error_suppression` and `test_workflow_engine_event_bus_failing_node_listener_error_suppression` verify that listener crashes do not interrupt `WorkflowEngine.run()` or alter `EngineResult`.
 
-### 1.3 Documentation Verification (`PromptBook/Phase04/01_Runtime_Architecture.md`)
-- Exists at `PromptBook/Phase04/01_Runtime_Architecture.md` (736 lines).
-- Comprehensively documents the State Ledger SQL DDL schema, dataclass models, WAL PRAGMA settings, lock rationale, state transition machine, startup recovery sequence, and 6-stage programmatic crash recovery verification methodology.
-- Strictly enforces compliance with the Synchronous Batch-Pipeline paradigm.
+4. **`PromptBook/Phase10/01_Event_Bus.md`**:
+   - Contains complete architectural overview, data contract definitions, Pub/Sub engine mechanics, workflow engine integration points, Mermaid sequence diagrams, operational failure matrix, code examples, and pytest verification guide.
+
+5. **Behavioral Test Execution**:
+   - Command: `pytest tests/events/test_bus.py tests/workflow/test_engine.py -v`
+   - Output: 18 passed in 0.31s.
+   - Code Coverage: 100% statement coverage for `src/core/events/bus.py` (55/55 statements); 99% coverage for `src/core/workflow/engine.py` (80/81 statements).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation 1**: `src/core/orchestrator/state_ledger.py` contains genuine SQL queries using Python's standard `sqlite3` module with explicit `threading.Lock()` mutex protection and explicit PRAGMA settings (`journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=5000`).
-2. **Observation 2**: No hardcoded test responses, fake bypasses, or empty stub methods were found anywhere in `src/core/orchestrator/state_ledger.py` or `tests/orchestrator/test_state_ledger.py`.
-3. **Observation 3**: State lifecycle transitions handle `PENDING`, `IN_PROGRESS`, `COMPLETED`, and `FAILED` states deterministically. Step failure updates parent pipeline run status to `FAILED`.
-4. **Observation 4**: Test suite contains multi-process `SIGKILL` crash simulation (`test_multiprocess_sigkill_crash_recovery`) and same-process recovery (`test_same_process_crash_recovery`), proving disk state persistence and crash recovery.
-5. **Observation 5**: Execution of `./.venv/bin/pytest tests/orchestrator/test_state_ledger.py` resulted in 9 passed tests out of 9 in 0.26 seconds.
-6. **Observation 6**: `PromptBook/Phase04/01_Runtime_Architecture.md` fully documents the schema, crash recovery state machine, and Synchronous Batch-Pipeline paradigm requirements.
-7. **Conclusion**: The implementation meets all architectural, functional, and integrity criteria without taking shortcuts or introducing violations.
+1. **Verification of Non-cheating / No Hardcoding**:
+   - Inspected `src/core/events/bus.py` and `src/core/workflow/engine.py`. Event models construct timestamps dynamically, and `EventBus` stores subscriber lists in memory. No fixed strings matching test expectations exist in the source code.
+
+2. **Verification of Functional Pub/Sub & Fault Tolerance**:
+   - Traced `EventBus.publish(event)` execution path. Listeners are invoked within a isolated `try...except Exception as e:` block. Exceptions raised inside listeners trigger structured log output via `logger.error` and are suppressed, allowing iteration over remaining listeners to continue.
+   - Traced `WorkflowEngine.run(run_id)`. When `event_bus` is present, `NodeStarted`, `NodeCompleted`, and `NodeFailed` events are emitted dynamically at step lifecycle state changes. Crashing listeners do not break `WorkflowEngine` execution or cause unexpected unhandled exceptions.
+
+3. **Verification of Test Authenticity**:
+   - Tests instantiate `EventBus` and `WorkflowEngine` directly, attach `MagicMock` instances, publish real events or execute node sequences, and assert mock calls and state outcomes (`assert mock_listener.call_count == 3`, `assert result.success is True`, etc.).
+   - Mock exception injection (`side_effect=RuntimeError(...)`) proves that the fault-tolerance suppression logic is genuinely tested and functional.
+
+4. **Verification of Documentation**:
+   - `PromptBook/Phase10/01_Event_Bus.md` is present and matches the code signatures and architectural behavior of `EventBus` and `WorkflowEngine`.
 
 ---
 
 ## 3. Caveats
 
-- **No caveats.** All requirements and edge cases (including multi-process `SIGKILL` crash recovery and concurrent thread access) were empirically verified via direct inspection and test execution.
+- SQLite database connection warning during unit test execution (`ResourceWarning: unclosed database`). This warning originates from in-memory SQLite state ledger test fixtures and does not impact functionality or integrity.
+- Async event dispatching is explicitly out of scope for Phase 10 as specified in `ORIGINAL_REQUEST.md` (in-memory synchronous Pub/Sub).
 
 ---
 
 ## 4. Conclusion
 
-The Phase 04 State Ledger implementation (`src/core/orchestrator/state_ledger.py`), test suite (`tests/orchestrator/test_state_ledger.py`), and runtime documentation (`PromptBook/Phase04/01_Runtime_Architecture.md`) comply fully with all Phase 04 specifications in `ORIGINAL_REQUEST.md`.
+The Phase 10 Event Bus Integration satisfies all functional, architectural, and integrity requirements.
+- No facade implementations, fake results, or hardcoded strings were found.
+- In-memory Pub/Sub event delivery and exception suppression are genuine and fully functional.
+- All 18 unit tests pass with high statement coverage (100% on `bus.py`).
+- Documentation is accurate and complete.
 
-**Final Audit Verdict**: **CLEAN**
+**Final Verdict**: **CLEAN**
 
 ---
 
 ## 5. Verification Method
 
-To independently re-verify this audit verdict, execute:
+To independently verify this audit:
 
-```bash
-cd /home/adarsh/Documents/Youtube-Channel
-./.venv/bin/pytest tests/orchestrator/test_state_ledger.py -v
-```
+1. Inspect source files:
+   ```bash
+   view_file src/core/events/bus.py
+   view_file src/core/workflow/engine.py
+   ```
 
-Expected result: 9 passed tests, zero errors or failures.
+2. Run full pytest suite:
+   ```bash
+   pytest tests/events/test_bus.py tests/workflow/test_engine.py -v
+   ```
+
+3. Invalidation condition:
+   - Any test failure in `test_bus.py` or `test_engine.py`.
+   - Discovery of unhandled listener exceptions escalating out of `EventBus.publish()`.
+   - Any hardcoded return values or fake string matches in source code.

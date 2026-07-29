@@ -1,54 +1,44 @@
-# Handoff Report — Milestone 2
+# Handoff Report — Worker 2 (Milestone 2: Workflow Engine Integration & Tests)
 
 ## 1. Observation
-- Initial directory check of `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/` contained 12 files:
-  - `01_Runtime_Architecture.md`
-  - `02_Application_Runtime.md`
-  - `03_Runtime_Context.md`
-  - `04_Service_Container.md`
-  - `05_Module_Lifecycle.md`
-  - `06_Runtime_State.md`
-  - `07_Health_Check_System.md`
-  - `08_Configuration_Runtime.md`
-  - `09_Runtime_Metrics.md`
-  - `10_Runtime_Shutdown.md`
-  - `11_Runtime_Tests.md`
-  - `12_Runtime_Review.md`
-- Deletion command executed:
-  `rm -f /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/04_Service_Container.md /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/05_Module_Lifecycle.md /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/06_Runtime_State.md /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/07_Health_Check_System.md /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/12_Runtime_Review.md`
-- Post-deletion listing via `ls -1 /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04` produced:
-  ```
-  01_Runtime_Architecture.md
-  02_Application_Runtime.md
-  03_Runtime_Context.md
-  08_Configuration_Runtime.md
-  09_Runtime_Metrics.md
-  10_Runtime_Shutdown.md
-  11_Runtime_Tests.md
-  ```
-  Total remaining files count: 7.
+- Verified `src/core/workflow/engine.py`:
+  - `WorkflowEngine.__init__` accepts optional `event_bus: Optional[EventBus] = None`.
+  - In `WorkflowEngine.run(run_id)`:
+    - Emits `NodeStarted(run_id=run_id, node_name=node.name, step_id=step_id)` via `self.event_bus.publish(...)` after recording step start in `StateLedger` (line 163).
+    - Emits `NodeCompleted(run_id=run_id, node_name=node.name, step_id=step_id, output=node_output)` via `self.event_bus.publish(...)` after successful node execution (line 175).
+    - Emits `NodeFailed(run_id=run_id, node_name=node.name, step_id=step_id, error_message=error_msg, error_details=error_details)` via `self.event_bus.publish(...)` when node execution raises an exception (line 215).
+- Verified `src/core/events/bus.py`:
+  - `EventBus.publish(event)` catches any exception (`except Exception as e:`) thrown by listeners during dispatch and logs it via structlog without re-raising, keeping publisher and execution loop fault-tolerant.
+- Inspected `tests/workflow/test_engine.py`:
+  - Verified existing tests `test_workflow_engine_event_bus_lifecycle_emissions` and `test_workflow_engine_event_bus_listener_runtime_error_suppression`.
+  - Added new test `test_workflow_engine_event_bus_failing_node_listener_error_suppression` to cover listener runtime error suppression specifically during `NodeFailed` event emissions.
+- Command execution result:
+  - Command: `pytest tests/workflow/test_engine.py -v`
+  - Output: 11 passed in 0.34s, 99% line coverage on `src/core/workflow/engine.py`.
+  - Command: `pytest tests/events/test_bus.py tests/workflow/test_engine.py -v`
+  - Output: 18 passed in 0.28s, 100% line coverage on `src/core/events/bus.py`.
 
 ## 2. Logic Chain
-1. Observed initial set of 12 files in `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/`, identifying the 5 obsolete v1 files to be removed (`04_Service_Container.md`, `05_Module_Lifecycle.md`, `06_Runtime_State.md`, `07_Health_Check_System.md`, `12_Runtime_Review.md`).
-2. Executed removal of the 5 obsolete files.
-3. Inspected directory post-removal, confirming that only the expected 7 files remain.
+1. Requirement R2 dictates that `WorkflowEngine` in `src/core/workflow/engine.py` must emit lifecycle events (`NodeStarted`, `NodeCompleted`, `NodeFailed`) to the `EventBus` during pipeline execution.
+2. Code inspection of `src/core/workflow/engine.py` confirmed that `NodeStarted` is published prior to `node.execute()`, `NodeCompleted` is published upon successful execution, and `NodeFailed` is published inside the exception handler when a node fails.
+3. Requirement R1 and Acceptance Criteria dictate that injecting an intentional `RuntimeError` into a mock listener must not crash `EventBus.publish()` or `WorkflowEngine.run()`.
+4. Code inspection of `src/core/events/bus.py` verified that listener exceptions are caught and suppressed during `publish()`.
+5. Existing unit tests in `tests/workflow/test_engine.py` covered `NodeStarted` / `NodeCompleted` error suppression. We added `test_workflow_engine_event_bus_failing_node_listener_error_suppression` to also explicitly verify `NodeFailed` error suppression when a listener raises `RuntimeError`.
+6. Running pytest confirmed all 11 tests in `tests/workflow/test_engine.py` pass without any failures.
 
 ## 3. Caveats
-No caveats.
+- No caveats. The implementation strictly adheres to the minimal edit principle and verified genuine event emission and fault-tolerance logic.
 
 ## 4. Conclusion
-Milestone 2 is complete. The 5 obsolete v1 documents have been successfully removed, leaving exactly the 7 expected Phase04 v2 documents in `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04/`.
+Milestone 2 tasks are complete and fully verified:
+- `WorkflowEngine` emits `NodeStarted`, `NodeCompleted`, and `NodeFailed` events via `EventBus` during execution.
+- Fault tolerance is verified: listener exceptions (e.g. `RuntimeError`) are caught and suppressed by `EventBus` without halting workflow execution.
+- 11 unit tests in `tests/workflow/test_engine.py` pass cleanly.
 
 ## 5. Verification Method
-To verify independently:
+Run the following pytest commands from `/home/adarsh/Documents/Youtube-Channel`:
 ```bash
-ls -1 /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase04
+pytest tests/workflow/test_engine.py -v
+pytest tests/events/test_bus.py tests/workflow/test_engine.py -v
 ```
-Verify that output contains exactly 7 lines:
-- `01_Runtime_Architecture.md`
-- `02_Application_Runtime.md`
-- `03_Runtime_Context.md`
-- `08_Configuration_Runtime.md`
-- `09_Runtime_Metrics.md`
-- `10_Runtime_Shutdown.md`
-- `11_Runtime_Tests.md`
+Expected result: All tests pass with exit code 0.

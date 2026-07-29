@@ -3,8 +3,10 @@ Unit tests for WorkflowEngine and Node abstraction in src/core/workflow.
 """
 
 from typing import Any
+from unittest.mock import MagicMock
 import pytest
 
+from src.core.events import EventBus, NodeCompleted, NodeFailed, NodeStarted
 from src.core.exceptions import PipelineError, PipelineStageError
 from src.core.orchestrator.state_ledger import StateLedger, StepStatus
 from src.core.workflow import EngineResult, Node, WorkflowEngine
@@ -183,3 +185,107 @@ def test_workflow_engine_aliases():
     run_id2 = ledger.create_run("alias-test-2")
     res2 = engine.run_pipeline(run_id2)
     assert res2.success is True
+
+
+def test_workflow_engine_event_bus_lifecycle_emissions():
+    """Verify WorkflowEngine with EventBus emits NodeStarted, NodeCompleted, and NodeFailed events."""
+    ledger = StateLedger(":memory:")
+    run_id = ledger.create_run("event-emission-test")
+    bus = EventBus()
+
+    started_listener = MagicMock()
+    completed_listener = MagicMock()
+    failed_listener = MagicMock()
+
+    bus.subscribe(NodeStarted, started_listener)
+    bus.subscribe(NodeCompleted, completed_listener)
+    bus.subscribe(NodeFailed, failed_listener)
+
+    engine = WorkflowEngine([MockIngestNode(), FailingNode()], ledger=ledger, event_bus=bus)
+    result = engine.run(run_id)
+
+    assert result.success is False
+    assert result.failed_step == "failing_step"
+
+    # Ingest node start and completion, Failing node start and failure
+    assert started_listener.call_count == 2
+    assert completed_listener.call_count == 1
+    assert failed_listener.call_count == 1
+
+    # Verify NodeStarted for ingest
+    ev_start_ingest = started_listener.call_args_list[0][0][0]
+    assert isinstance(ev_start_ingest, NodeStarted)
+    assert ev_start_ingest.run_id == run_id
+    assert ev_start_ingest.node_name == "ingest"
+    assert ev_start_ingest.step_id is not None
+
+    # Verify NodeCompleted for ingest
+    ev_comp_ingest = completed_listener.call_args_list[0][0][0]
+    assert isinstance(ev_comp_ingest, NodeCompleted)
+    assert ev_comp_ingest.run_id == run_id
+    assert ev_comp_ingest.node_name == "ingest"
+    assert ev_comp_ingest.output["slug"] == "event-emission-test"
+
+    # Verify NodeStarted for failing_step
+    ev_start_fail = started_listener.call_args_list[1][0][0]
+    assert isinstance(ev_start_fail, NodeStarted)
+    assert ev_start_fail.run_id == run_id
+    assert ev_start_fail.node_name == "failing_step"
+
+    # Verify NodeFailed for failing_step
+    ev_fail = failed_listener.call_args_list[0][0][0]
+    assert isinstance(ev_fail, NodeFailed)
+    assert ev_fail.run_id == run_id
+    assert ev_fail.node_name == "failing_step"
+    assert "Intentional mock node failure" in ev_fail.error_message
+
+
+def test_workflow_engine_event_bus_listener_runtime_error_suppression():
+    """Verify crashing listener raising RuntimeError does not interrupt WorkflowEngine execution."""
+    ledger = StateLedger(":memory:")
+    run_id = ledger.create_run("crashing-listener-test")
+    bus = EventBus()
+
+    bad_listener = MagicMock(side_effect=RuntimeError("Listener exploded!"))
+    good_listener = MagicMock()
+
+    bus.subscribe(NodeStarted, bad_listener)
+    bus.subscribe(NodeStarted, good_listener)
+    bus.subscribe(NodeCompleted, bad_listener)
+    bus.subscribe(NodeCompleted, good_listener)
+
+    engine = WorkflowEngine([MockIngestNode(), MockPlanNode()], ledger=ledger, event_bus=bus)
+    result = engine.run(run_id)
+
+    assert result.success is True
+    assert result.completed_steps == ["ingest", "plan"]
+    assert result.status == StepStatus.COMPLETED
+
+    # Both listeners were called twice for NodeStarted and twice for NodeCompleted
+    assert bad_listener.call_count == 4
+    assert good_listener.call_count == 4
+
+
+def test_workflow_engine_event_bus_failing_node_listener_error_suppression():
+    """Verify crashing listener during NodeFailed event does not crash WorkflowEngine."""
+    ledger = StateLedger(":memory:")
+    run_id = ledger.create_run("crashing-failed-listener-test")
+    bus = EventBus()
+
+    bad_listener = MagicMock(side_effect=RuntimeError("NodeFailed listener exploded!"))
+    good_listener = MagicMock()
+
+    bus.subscribe(NodeFailed, bad_listener)
+    bus.subscribe(NodeFailed, good_listener)
+
+    engine = WorkflowEngine([MockIngestNode(), FailingNode()], ledger=ledger, event_bus=bus)
+    result = engine.run(run_id)
+
+    assert result.success is False
+    assert result.failed_step == "failing_step"
+    assert result.status == StepStatus.FAILED
+
+    assert bad_listener.call_count == 1
+    assert good_listener.call_count == 1
+
+

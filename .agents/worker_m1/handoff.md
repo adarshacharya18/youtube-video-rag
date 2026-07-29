@@ -1,47 +1,43 @@
-# Handoff Report - Phase 08 Milestone 1
+# Handoff Report — Milestone 1: Core EventBus Implementation & Tests
 
 ## 1. Observation
-- **Task Scope**: Implemented Phase 08 Milestone 1 Core Workflow Engine & Node Abstraction.
-- **Created Files**:
-  - `src/core/workflow/node.py` (Abstract base class `Node(ABC)` & StateLedger helper methods).
-  - `src/core/workflow/engine.py` (`EngineResult` dataclass & `WorkflowEngine` class).
-  - `src/core/workflow/__init__.py` (Exports `Node`, `WorkflowEngine`, `EngineResult`).
-  - `tests/workflow/test_engine.py` (Unit tests for workflow engine and node abstraction).
-- **Tool Outputs & Verification**:
-  - Executed `pytest tests/workflow tests/core tests/models tests/llm tests/orchestrator`:
-    ```
-    ======================== 95 passed, 7 warnings in 2.55s ========================
-    ```
-  - `src/core/workflow/engine.py` coverage: 99% (71/72 statements).
-  - `src/core/workflow/node.py` coverage: 80% (abstract methods uncalled).
-  - `src/core/workflow/__init__.py` coverage: 100%.
+
+- **Verified Files**:
+  - `src/core/events/bus.py` (132 lines): Contains `BaseEvent`, `NodeStarted`, `NodeCompleted`, `NodeFailed` dataclasses, and the `EventBus` class. `EventBus.publish()` catches and suppresses all exceptions (`except Exception as e:`) during listener invocation, logging errors via `logger.error` with `exc_info=True`.
+  - `tests/events/test_bus.py` (130 lines): Comprehensive unit test suite covering `BaseEvent` and node event instantiation, single event subscription/publishing, unsubscription, polymorphic inheritance dispatching, subscriber clearing, generic `Any` type subscription, and explicit suppression of `RuntimeError` raised by mock listeners with `side_effect`.
+
+- **Test Execution**:
+  - Executed command: `pytest tests/events/test_bus.py -v`
+  - Result: 7/7 tests passed in 0.15s cleanly.
+  - Test list:
+    - `test_event_models_initialization` PASSED
+    - `test_subscribe_and_publish` PASSED
+    - `test_unsubscribe` PASSED
+    - `test_inheritance_dispatch` PASSED
+    - `test_fault_tolerant_exception_suppression` PASSED
+    - `test_subscribe_any_type` PASSED
+    - `test_clear_subscribers` PASSED
 
 ## 2. Logic Chain
-1. **Node Abstraction & Idempotency (`node.py`)**:
-   - `Node(ABC)` enforces that nodes receive only `run_id` and `ledger`.
-   - Node implementations do not store or pass in-memory state objects across execution boundaries.
-   - Helper methods `get_run_record`, `get_completed_step_outputs`, and `get_step_output` allow nodes to retrieve inputs directly from the SQLite `StateLedger` via `run_id`.
-2. **Fault-Tolerant Engine & Crash Recovery (`engine.py`)**:
-   - `WorkflowEngine.run(run_id)` checks `ledger.get_completed_steps(run_id)` before step execution.
-   - If a step is already marked `COMPLETED` in SQLite, it is skipped and recorded in `skipped_steps` and `outputs`, guaranteeing true pipeline resumeability.
-   - Every step execution is wrapped in a `try...except Exception as e` block.
-   - When an exception is caught, the engine calls `ledger.record_step_failure(step_id, error_message, error_details)`, updating SQLite step and parent run status to `FAILED`.
-   - The engine halts the execution loop immediately and returns an `EngineResult` with `success=False` and `status=StepStatus.FAILED`, avoiding unhandled process crashes.
-3. **Data ModelParity (`EngineResult`)**:
-   - `EngineResult` includes `to_base_result()` to adapt cleanly to `BasePipelineResult[Any]` defined in `src/core/base.py`.
+
+1. Requirements R1 from `ORIGINAL_REQUEST.md` and Milestone 1 dispatch call for an in-memory Pub/Sub `EventBus` that suppresses listener exceptions (such as `RuntimeError` or `Exception`) without crashing the caller or halting dispatch.
+2. Direct inspection of `src/core/events/bus.py` confirms that `EventBus.publish()` wraps listener calls in a `try...except Exception as e:` block. If a listener raises an exception, it is logged and execution continues seamlessly to subsequent subscribers.
+3. Direct inspection of `tests/events/test_bus.py` confirms that mock listeners configured with `side_effect=RuntimeError("Intentional listener crash!")` are tested in `test_fault_tolerant_exception_suppression()`, verifying that `publish()` does not propagate the error and still executes good listeners before and after the failing listener.
+4. Execution of `pytest tests/events/test_bus.py -v` demonstrates that all 7 test cases pass with zero failures or errors.
 
 ## 3. Caveats
-- No caveats. All requirements specified in `ORIGINAL_REQUEST.md`, `PROJECT.md`, and `DISPATCH.md` have been fully satisfied.
+
+- Workflow Engine integration (emittance of lifecycle events in `WorkflowEngine`) and SDK documentation (`PromptBook/Phase10/01_Event_Bus.md`) belong to subsequent milestone assignments.
 
 ## 4. Conclusion
-Phase 08 Milestone 1 core workflow engine implementation is complete, genuine, fully verified, and fully integrated with existing pipeline infrastructure.
+
+- The core `EventBus` in `src/core/events/bus.py` meets all Milestone 1 requirements for fault-tolerant, exception-suppressed event dispatching.
+- All unit tests in `tests/events/test_bus.py` pass without any regressions or errors.
 
 ## 5. Verification Method
-1. Run pytest suite across all affected modules:
-   ```bash
-   pytest tests/workflow tests/core tests/models tests/llm tests/orchestrator
-   ```
-2. Verify package imports:
-   ```bash
-   python3 -c "from src.core.workflow import Node, WorkflowEngine, EngineResult; print(Node, WorkflowEngine, EngineResult)"
-   ```
+
+To independently verify this work, run:
+```bash
+pytest tests/events/test_bus.py -v
+```
+Expected output: 7 passed.

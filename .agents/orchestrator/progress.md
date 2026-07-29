@@ -1,18 +1,16 @@
-# Progress Tracker — Phase 09: Plugin SDK
+# Progress — Phase 10: Event Bus Integration
 
 ## Current Status
-Last visited: 2026-07-29T17:48:15Z
+Last visited: 2026-07-29T16:57:20Z
 
 ## Iteration Status
 Current iteration: 1 / 32
 
 ## Checklist
-- [x] Orchestrator state initialized (.agents/orchestrator files created)
-- [x] Step 0: Survey codebase via 3 Explorers
-- [x] Step 1: Decompose & Plan (`PROJECT.md`)
-- [x] Step 2: Implementation (Worker)
-  - [x] M1: Plugin SDK (`src/sdk/plugin_base.py`) & Plugin Loader (`src/core/workflow/plugin_loader.py`)
-  - [x] M2: SDK Documentation (`PromptBook/Phase09/01_Plugin_SDK.md`)
-  - [x] M3: Verification Test Suite (`tests/workflow/test_plugin_loader.py`)
-- [x] Step 3: Verification (2 Reviewers: APPROVE, 2 Challengers: APPROVE, 1 Forensic Auditor: CLEAN)
-- [x] Step 4: Final Gate & Handoff
+- [x] Initialized orchestrator workspace and state files
+- [x] Step 0: Survey codebase (dispatch Explorers)
+- [x] Milestone 1: Core EventBus Implementation (`src/core/events/bus.py` & `tests/events/test_bus.py`)
+- [x] Milestone 2: Workflow Engine Integration (`src/core/workflow/engine.py` & `tests/workflow/test_engine.py`)
+- [x] Milestone 3: SDK Documentation (`PromptBook/Phase10/01_Event_Bus.md`)
+- [x] Milestone 4: Final Verification & Audit (Reviewers: APPROVE, Challengers: APPROVE, Auditor: CLEAN)
+- [x] Declare completion to Sentinel

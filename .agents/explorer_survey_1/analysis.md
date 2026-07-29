@@ -1,290 +1,240 @@
-# Phase 09 Workflow Architecture & Plugin SDK Technical Analysis
+# Phase 10 Event Bus & Workflow Engine Survey Analysis
 
-## Executive Summary
+## 1. Executive Summary
 
-This document presents a comprehensive architectural survey and technical design for **Phase 09: Plugin SDK** of the Automated DSA Educational YouTube Video Pipeline. 
+This report presents a detailed code survey and architectural analysis of the **Phase 10 Event Bus Integration** for the Automated DSA Educational YouTube Video Pipeline.
 
-The primary objective of Phase 09 is to establish an extensible, secure plugin framework utilizing Python `entry_points`. This framework enables third-party developers to inject custom pipeline nodes into the `WorkflowEngine` without modifying core pipeline code. Crucially, the design enforces a strict sandbox boundary: third-party plugins are denied direct access to the SQLite `StateLedger` (preventing arbitrary SQL execution, data corruption, or unauthorized state access), while cleanly receiving input state dictionaries and returning output payloads for core ledger management.
+The survey examined the codebase located under `/home/adarsh/Documents/Youtube-Channel/src/core/`, specifically focusing on `src/core/events/` and `src/core/workflow/engine.py`, along with corresponding test suites in `tests/` and documentation in `PromptBook/Phase10/`.
+
+### Key Summary Findings
+1. **Existing Dataclasses**: `BaseEvent`, `NodeStarted`, `NodeCompleted`, and `NodeFailed` are fully defined in `src/core/events/bus.py` (and re-exported in `src/core/events/__init__.py`). All models utilize Python standard `@dataclass` decorators, with `BaseEvent` providing an ISO 8601 UTC timestamp keyword-only default factory.
+2. **In-Memory Event Bus**: `EventBus` is implemented in `src/core/events/bus.py` with subscriber management (`subscribe`, `unsubscribe`, `clear`) and synchronous event dispatching (`publish`). It implements a fault-tolerant boundary where listener exceptions (such as `RuntimeError`) are caught, logged via `logger.error(..., exc_info=True)`, and suppressed without stopping publisher execution.
+3. **Workflow Engine Integration**: `WorkflowEngine` in `src/core/workflow/engine.py` accepts an optional `event_bus: Optional[EventBus] = None` in its `__init__` constructor and emits lifecycle events at exact state transition points during `run()`:
+   - `NodeStarted` is emitted immediately after `ledger.record_step_start(run_id, node.name)`.
+   - `NodeCompleted` is emitted immediately after `ledger.record_step_completion(step_id, node_output)`.
+   - `NodeFailed` is emitted inside the `except Exception as e:` handler immediately after `ledger.record_step_failure(...)`.
+   - Skipped steps (which are already marked `COMPLETED` in `StateLedger`) do not re-emit `NodeStarted` or `NodeCompleted` events, respecting step idempotency.
+4. **Testing & Documentation Integrity**: The test suite in `tests/events/test_bus.py` and `tests/workflow/test_engine.py` passes 100% (17/17 tests passing), explicitly testing listener exception suppression and engine lifecycle emissions. SDK documentation is present in `PromptBook/Phase10/01_Event_Bus.md`.
 
 ---
 
-## 1. Existing Workflow Architecture Survey
+## 2. Codebase Layout & File Mapping
 
-### 1.1 Core Node Interface (`src/core/workflow/node.py`)
+The core architecture for Phase 10 is laid out across the following directories and files:
 
-The existing pipeline node abstraction is defined by the abstract base class `Node`:
+```
+src/core/
+├── events/
+│   ├── __init__.py         # Re-exports EventBus, BaseEvent, NodeStarted, NodeCompleted, NodeFailed
+│   └── bus.py              # Implementation of BaseEvent, lifecycle models, and fault-tolerant EventBus
+└── workflow/
+    ├── __init__.py         # Re-exports Node, WorkflowEngine, EngineResult
+    ├── engine.py           # Synchronous WorkflowEngine with EventBus lifecycle emissions
+    └── node.py             # Abstract Node base class
 
-```python
-class Node(ABC):
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique identifier for the step (e.g., 'ingest', 'plan', 'script', 'render')."""
-        pass
+tests/
+├── events/
+│   └── test_bus.py         # Unit tests for EventBus, event models, polymorphism, and fault tolerance
+└── workflow/
+    └── test_engine.py      # Unit tests for WorkflowEngine, step idempotency, node failures, and lifecycle event emissions
 
-    @abstractmethod
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        """Execute node processing logic using run_id and active StateLedger."""
-        pass
+PromptBook/Phase10/
+└── 01_Event_Bus.md         # Comprehensive Event Bus Architecture & SDK Documentation Manual
 ```
 
-Key characteristics of `Node`:
-- **Direct Ledger Coupling**: `execute()` receives the active `StateLedger` instance directly.
-- **State Retrieval Helpers**: `Node` provides helper methods (`get_run_record`, `get_completed_step_outputs`, `get_step_output`) that invoke `ledger` methods (such as `ledger.get_run()` and `ledger.get_completed_steps()`).
-- **Return Payload**: Nodes return a dictionary payload (`dict[str, Any]`), which is recorded into `StateLedger` by the `WorkflowEngine`.
-
-### 1.2 State Ledger Architecture (`src/core/orchestrator/state_ledger.py`)
-
-The `StateLedger` class manages thread-safe SQLite persistence for pipeline runs and step executions:
-- **Database Schema**:
-  - `pipeline_runs`: Stores `pipeline_run_id`, `slug`, `status` (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`), `created_at`, `updated_at`, `metadata`.
-  - `step_executions`: Stores `step_execution_id`, `pipeline_run_id`, `step_name`, `status`, `input_payload`, `output_payload`, `error_message`, `error_details`, `created_at`, `updated_at`.
-- **Database Configuration**: Configured with `PRAGMA journal_mode=WAL`, `PRAGMA synchronous=NORMAL`, `PRAGMA foreign_keys=ON`, and `PRAGMA busy_timeout=5000`.
-- **Raw Connection Access**: The internal `_conn: sqlite3.Connection` handle is held directly inside `StateLedger`.
-
-### 1.3 Workflow Engine Lifecycle (`src/core/workflow/engine.py`)
-
-`WorkflowEngine` manages sequential execution of a sequence of `Node` instances for a given `run_id`:
-1. **Idempotency Check**: Queries `ledger.get_completed_steps(run_id)`. If a node's status is already `COMPLETED`, execution is skipped and the stored output is loaded from the ledger.
-2. **Step Execution Start**: Calls `ledger.record_step_start(run_id, node.name)`, returning a `step_execution_id`.
-3. **Execution & Exception Wrapping**: Invokes `node.execute(run_id, self.ledger)` within a `try/except` block.
-   - **On Success**: Calls `ledger.record_step_completion(step_id, node_output)`.
-   - **On Failure**: Calls `ledger.record_step_failure(step_id, error_message, error_details)` (which updates step and parent run status to `FAILED`) and short-circuits pipeline execution, returning an `EngineResult` with `success=False`.
-
 ---
 
-## 2. Security Vulnerability & Design Gap Analysis
+## 3. Analysis of Event Models & Data Contracts
 
-### 2.1 Security Risks of Direct State Ledger Access for Third-Party Plugins
+All event dataclasses reside in `src/core/events/bus.py`.
 
-In the core `Node` design, every node receives the `StateLedger` instance directly during `execute(run_id, ledger)`. For core internal nodes written by core developers, this design provides direct access to state query helpers. However, exposing `StateLedger` to external third-party plugins introduces critical security and architectural risks:
-
-1. **Arbitrary Database Manipulation**: `StateLedger` holds `self._conn`, a raw `sqlite3.Connection`. A third-party plugin could execute arbitrary SQL statements (e.g., `DROP TABLE`, `UPDATE pipeline_runs`, or raw PRAGMA commands).
-2. **State Ledger Integrity Invalidation**: An external plugin could directly mutate or delete step execution records, bypassing step idempotency tracking or spoofing step completion records for other stages.
-3. **Unrestricted Data Exposure**: External plugins could query sensitive run metadata or outputs from unrelated workflow runs stored in the database.
-4. **Tightly Coupled Internal SDK**: Forcing third-party developers to import and interact with SQLite `StateLedger` primitives creates high API surface area and tight coupling to internal database schema changes.
-
-### 2.2 Functional Boundary Requirements for Plugin SDK
-
-To fulfill Requirement R1 and Phase 09 Acceptance Criteria, the system must separate third-party plugin logic from database management:
-- Third-party plugins must **never** receive `run_id` or `StateLedger` handles.
-- Plugin logic must be encapsulated in a restricted **inputs-in, outputs-out** interface (`PluginNode`).
-- The core pipeline must provide an **Adapter** layer that reads inputs from the `StateLedger`, feeds them to `PluginNode.process(inputs)`, and persists the returned output back to `StateLedger`.
-
----
-
-## 3. Restricted `PluginNode` Interface Design (`src/sdk/plugin_base.py`)
-
-### 3.1 Interface Specification
-
-The restricted plugin interface will be defined in `src/sdk/plugin_base.py` as an abstract base class `PluginNode`:
-
+### 3.1 `BaseEvent`
 ```python
-"""
-Plugin Base Definitions for Phase 09 External Plugin SDK.
+@dataclass
+class BaseEvent:
+    """Base event model containing an ISO 8601 UTC timestamp."""
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        kw_only=True,
+    )
+```
+- **Role**: Base class for all pipeline event models.
+- **Attributes**:
+  - `timestamp`: ISO 8601 UTC string generated at instantiation time via `datetime.now(timezone.utc).isoformat()`.
 
-Defines the restricted PluginNode interface for third-party developers.
-Plugins are restricted to accepting input dictionaries and returning output
-payloads, denying direct access to the SQLite StateLedger or raw database connections.
-"""
+### 3.2 `NodeStarted`
+```python
+@dataclass
+class NodeStarted(BaseEvent):
+    """Event emitted when a workflow node execution starts."""
+    run_id: str
+    node_name: str
+    step_id: str
+```
+- **Trigger**: Emitted when `WorkflowEngine` starts node execution after creating a step entry in `StateLedger`.
 
-from abc import ABC, abstractmethod
-from typing import Any
+### 3.3 `NodeCompleted`
+```python
+@dataclass
+class NodeCompleted(BaseEvent):
+    """Event emitted when a workflow node completes successfully."""
+    run_id: str
+    node_name: str
+    step_id: str
+    output: Any
+```
+- **Trigger**: Emitted when a node successfully completes execution and output payload is persisted in `StateLedger`.
 
+### 3.4 `NodeFailed`
+```python
+@dataclass
+class NodeFailed(BaseEvent):
+    """Event emitted when a workflow node execution fails."""
+    run_id: str
+    node_name: str
+    step_id: str
+    error_message: str
+    error_details: Any = None
+```
+- **Trigger**: Emitted when a node execution raises an exception during `node.execute()`.
 
-class PluginNode(ABC):
-    """
-    Restricted Abstract Base Class for external third-party workflow plugins.
+---
 
-    External plugins must inherit from PluginNode and implement `name` and `process()`.
-    Plugins do NOT have access to StateLedger, sqlite3 connections, or run identifiers,
-    ensuring a secure sandbox boundary.
-    """
+## 4. Analysis of `EventBus` Class & Fault Tolerance
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """
-        Unique name identifier for the plugin step.
+The `EventBus` class in `src/core/events/bus.py` implements an in-memory Pub/Sub mechanism:
 
-        Used for logging, step tracking, and prior step output indexing.
-
-        Returns:
-            str: Plugin step identifier.
-        """
-        pass
-
-    @abstractmethod
-    def process(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """
-        Process external plugin business logic.
-
-        Args:
-            inputs: Dictionary containing pipeline context and outputs from prior completed steps.
-                   Keys typically include:
-                     - 'slug': Problem identifier.
-                     - 'metadata': Run metadata dictionary.
-                     - 'steps': Dict mapping step names to their respective output dictionaries.
-
-        Returns:
-            dict[str, Any]: Output dictionary payload to be safely stored in StateLedger by WorkflowEngine.
-
-        Raises:
-            Exception: If plugin execution fails. The error will be safely caught by WorkflowEngine.
-        """
-        pass
+### 4.1 Internal State
+```python
+def __init__(self) -> None:
+    self._subscribers: Dict[Type[Any], List[Callable[[Any], None]]] = defaultdict(list)
 ```
 
-### 3.2 Input and Output Data Schema Contract
+### 4.2 Subscriber Operations
+- `subscribe(event_type: Type[Any], listener: Callable[[Any], None]) -> None`: Registers a listener for an event class. Prevents duplicate listener references under the same event type key.
+- `unsubscribe(event_type: Type[Any], listener: Callable[[Any], None]) -> None`: Removes listener from subscription list and deletes empty event keys from `_subscribers`.
+- `clear() -> None`: Empties `_subscribers` dictionary.
 
-- **Input Contract (`inputs: dict[str, Any]`)**:
-  - `"run_id"`: String identifier of the current execution run.
-  - `"slug"`: Problem slug / title.
-  - `"metadata"`: Dictionary of run metadata.
-  - `"steps"`: Dictionary mapping previously completed step names (`step_name`) to their output payload dictionaries.
-- **Output Contract**:
-  - Must return a standard Python `dict[str, Any]`.
-  - Non-dictionary returns will trigger a `TypeError` in the adapter layer.
-
----
-
-## 4. Adapter & Dynamic Plugin Loader Design (`src/core/workflow/plugin_loader.py`)
-
-To bridge the restricted `PluginNode` interface with `WorkflowEngine` (which expects core `Node` instances), we implement an adapter pattern and entry point dynamic loader in `src/core/workflow/plugin_loader.py`.
-
-### 4.1 Adapter Pattern (`PluginNodeAdapter`)
-
-`PluginNodeAdapter` subclasses core `Node` and wraps a `PluginNode` instance:
-
+### 4.3 Dispatch & Fault-Tolerance Boundary (`publish`)
 ```python
-class PluginNodeAdapter(Node):
-    """
-    Adapter bridging restricted PluginNode instances to the core Node interface.
+def publish(self, event: Any) -> None:
+    listeners_to_call: List[Callable[[Any], None]] = []
+    for sub_type, listeners in list(self._subscribers.items()):
+        try:
+            if isinstance(event, sub_type):
+                listeners_to_call.extend(listeners)
+        except TypeError:
+            if sub_type == type(event) or sub_type is Any:
+                listeners_to_call.extend(listeners)
 
-    Handles reading prior step outputs and run metadata from StateLedger, constructing
-    a safe inputs dictionary, calling PluginNode.process(inputs), and returning the output.
-    """
-
-    def __init__(self, plugin: PluginNode) -> None:
-        if not isinstance(plugin, PluginNode):
-            raise TypeError(f"Target plugin must be an instance of PluginNode, got {type(plugin)}")
-        self._plugin = plugin
-
-    @property
-    def name(self) -> str:
-        return self._plugin.name
-
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        # Extract run record metadata and prior completed step outputs from ledger
-        run_record = self.get_run_record(run_id, ledger)
-        completed_outputs = self.get_completed_step_outputs(run_id, ledger)
-
-        # Construct safe inputs payload dictionary
-        inputs: dict[str, Any] = {
-            "run_id": run_id,
-            "slug": run_record.slug,
-            "metadata": run_record.metadata or {},
-            "steps": completed_outputs,
-        }
-
-        # Execute plugin logic without exposing ledger
-        output = self._plugin.process(inputs)
-
-        if output is None:
-            output = {}
-
-        if not isinstance(output, dict):
-            raise TypeError(
-                f"Plugin '{self.name}' must return a dictionary payload, got {type(output).__name__}."
+    for listener in listeners_to_call:
+        try:
+            listener(event)
+        except Exception as e:
+            logger.error(
+                "EventBus listener raised an exception",
+                event_type=type(event).__name__,
+                listener=getattr(listener, "__qualname__", str(listener)),
+                error=str(e),
+                exc_info=True,
             )
-
-        return output
 ```
+- **Polymorphic Dispatch**: Matches subscribers registered for `isinstance(event, sub_type)`, direct class match, or `typing.Any`.
+- **Fault Tolerance**: Invokes each listener inside a dedicated `try...except Exception:` block. If a listener raises any exception (e.g. `RuntimeError`), `logger.error(...)` logs structured details and stack trace, and execution cleanly proceeds to the next listener and back to the publisher (`WorkflowEngine`).
 
-### 4.2 Dynamic Plugin Loader (`PluginLoader`)
+---
 
-The `PluginLoader` discovers third-party plugins registered under Python `entry_points`:
+## 5. Analysis of `WorkflowEngine` Lifecycle Hooks
 
-- **Group Name**: `youtube_pipeline.plugins` (or configurable parameter).
-- **Discovery Mechanism**: Uses `importlib.metadata.entry_points(group=...)`.
-- **Validation**:
-  1. Loads entry point class via `ep.load()`.
-  2. Asserts `issubclass(ep_class, PluginNode)` and `ep_class is not PluginNode`.
-  3. Instantiates `plugin_instance = ep_class()`.
-  4. Wraps in `PluginNodeAdapter(plugin_instance)`.
+`WorkflowEngine` in `src/core/workflow/engine.py` coordinates node execution sequence:
 
 ```python
-class PluginLoader:
-    """
-    Dynamic discovery and instantiation engine for external third-party PluginNode plugins.
-    """
-
-    DEFAULT_GROUP = "youtube_pipeline.plugins"
-
-    @classmethod
-    def load_plugins(cls, group: str = DEFAULT_GROUP) -> list[Node]:
-        """
-        Discover, validate, instantiate, and adapt external plugins from entry points.
-
-        Args:
-            group: Entry point group name to query.
-
-        Returns:
-            list[Node]: List of adapted Node instances ready for WorkflowEngine.
-
-        Raises:
-            PipelineStageError: If an entry point class does not inherit from PluginNode.
-        """
-        discovered_eps = entry_points(group=group)
-        adapted_nodes: list[Node] = []
-
-        for ep in discovered_eps:
-            plugin_cls = ep.load()
-
-            # Enforce strict inheritance check
-            if not (isinstance(plugin_cls, type) and issubclass(plugin_cls, PluginNode) and plugin_cls is not PluginNode):
-                raise PipelineStageError(
-                    f"Entry point '{ep.name}' ({plugin_cls}) must inherit from PluginNode."
-                )
-
-            plugin_instance = plugin_cls()
-            adapted_nodes.append(PluginNodeAdapter(plugin_instance))
-
-        return adapted_nodes
+class WorkflowEngine:
+    def __init__(
+        self,
+        nodes: Sequence[Node],
+        ledger: Optional[StateLedger] = None,
+        event_bus: Optional[EventBus] = None,
+    ) -> None:
+        ...
+        self.event_bus: Optional[EventBus] = event_bus
 ```
 
+### Execution Lifecycle Sequence in `run(run_id)`:
+1. **Idempotency Check**:
+   - If node is already `COMPLETED` in `StateLedger`, step is skipped. No events are emitted for skipped nodes.
+2. **Start Lifecycle Hook**:
+   ```python
+   step_id = self.ledger.record_step_start(run_id, node.name)
+   if self.event_bus is not None:
+       self.event_bus.publish(
+           NodeStarted(run_id=run_id, node_name=node.name, step_id=step_id)
+       )
+   ```
+3. **Execution & Completion Hook**:
+   ```python
+   try:
+       node_output = node.execute(run_id, self.ledger)
+       if node_output is None:
+           node_output = {}
+
+       self.ledger.record_step_completion(step_id, node_output)
+       if self.event_bus is not None:
+           self.event_bus.publish(
+               NodeCompleted(
+                   run_id=run_id,
+                   node_name=node.name,
+                   step_id=step_id,
+                   output=node_output,
+               )
+           )
+   ```
+4. **Exception Handling & Failure Hook**:
+   ```python
+   except Exception as e:
+       error_msg = str(e)
+       error_details = {
+           "error_type": type(e).__name__,
+           "traceback": traceback.format_exc(),
+       }
+       ...
+       self.ledger.record_step_failure(
+           step_id,
+           error_message=error_msg,
+           error_details=error_details,
+       )
+       if self.event_bus is not None:
+           self.event_bus.publish(
+               NodeFailed(
+                   run_id=run_id,
+                   node_name=node.name,
+                   step_id=step_id,
+                   error_message=error_msg,
+                   error_details=error_details,
+               )
+           )
+       return EngineResult(success=False, ...)
+   ```
+
 ---
 
-## 5. Verification & Testing Strategy (`tests/workflow/test_plugin_loader.py`)
+## 6. Verification Results
 
-To satisfy Phase 09 Acceptance Criteria without requiring disk writes or actual package installation during unit tests, the test suite will utilize `unittest.mock.patch` on `importlib.metadata.entry_points`.
-
-### 5.1 Test Scenarios
-
-1. **Plugin Discovery & Inheritance Validation**:
-   - Mock entry point returning a valid `PluginNode` subclass.
-   - Verify `PluginLoader.load_plugins()` discovers and instantiates the plugin successfully.
-2. **Invalid Plugin Rejection**:
-   - Mock entry point returning a class that does *not* inherit from `PluginNode` (e.g., a standard class or core `Node`).
-   - Verify `PluginLoader.load_plugins()` raises `PipelineStageError`.
-3. **End-to-End Workflow Engine Integration & Sandbox Isolation**:
-   - Execute an adapted `PluginNode` inside `WorkflowEngine` with an in-memory `StateLedger`.
-   - Verify that prior step outputs (e.g., from `MockIngestNode`) are cleanly passed in `inputs["steps"]`.
-   - Verify plugin returned outputs are correctly stored in `StateLedger`.
-   - Verify that the `PluginNode` has no direct handle or access to `StateLedger`.
-4. **Plugin Error Handling**:
-   - Mock plugin throwing a `RuntimeError` during `process()`.
-   - Verify `WorkflowEngine` catches the exception, updates ledger status to `FAILED`, and records error details.
+Pytest execution output for `tests/events/test_bus.py` and `tests/workflow/test_engine.py`:
+- Command: `pytest tests/events/test_bus.py tests/workflow/test_engine.py`
+- Outcome: **17 passed** in 0.28s
+- Verified features:
+  - `NodeStarted`, `NodeCompleted`, `NodeFailed` dataclass instantiation and ISO timestamp generation
+  - Pub/Sub subscription and unsubscription
+  - Polymorphic inheritance dispatch (`BaseEvent` subscriber receives all sub-events)
+  - Listener exception suppression (`RuntimeError` in listener caught without stopping `publish()`)
+  - `WorkflowEngine` emitting `NodeStarted`, `NodeCompleted`, and `NodeFailed` with correct `run_id`, `node_name`, and `step_id`
+  - Engine resilience when listeners throw `RuntimeError` during pipeline execution.
 
 ---
 
-## 6. Implementation Action Plan & Artifact Summary
+## 7. Conclusions & Architectural Compliance
 
-| File Path | Purpose | Role |
-|-----------|---------|------|
-| `src/sdk/plugin_base.py` | Defines `PluginNode` abstract base class | Restricted SDK interface |
-| `src/core/workflow/plugin_loader.py` | Implements `PluginNodeAdapter` & `PluginLoader` | Core engine bridge & discovery |
-| `tests/workflow/test_plugin_loader.py` | Unit tests for loader, adapter, and mock entry points | Acceptance verification |
-| `PromptBook/Phase09/01_Plugin_SDK.md` | Architectural & SDK developer documentation | SDK Documentation |
-
-This survey and technical design complete all requirements for Phase 09 architecture planning.
+1. The Phase 10 Event Bus Integration design and implementation strictly satisfy all requirements defined in `ORIGINAL_REQUEST.md`.
+2. Clean separation of concerns is maintained: event models and bus logic reside under `src/core/events/`, engine orchestration under `src/core/workflow/`, and documentation under `PromptBook/Phase10/`.
+3. The event dispatch is strictly non-blocking for core workflow logic due to individual listener exception suppression.

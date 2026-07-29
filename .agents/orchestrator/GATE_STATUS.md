@@ -1,13 +1,14 @@
-## Gate — Iteration 1 (Phase 09)
+## Gate — Iteration 1
 
 | Agent | Role | Verdict | Source |
 |-------|------|---------|--------|
-| worker_phase09_1 | teamwork_preview_worker | DONE (11/11 tests pass) | handoff.md |
-| reviewer_phase09_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| reviewer_phase09_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| challenger_phase09_1 | teamwork_preview_challenger | APPROVE | handoff.md |
-| challenger_phase09_2 | teamwork_preview_challenger | APPROVE | handoff.md |
-| auditor_phase09_1 | teamwork_preview_auditor | CLEAN | handoff.md |
+| worker_m1 | teamwork_preview_worker | DONE (build/test passed) | handoff.md |
+| worker_m2 | teamwork_preview_worker | DONE (build/test passed) | handoff.md |
+| worker_m3 | teamwork_preview_worker | DONE (doc verified) | handoff.md |
+| reviewer_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| reviewer_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| challenger_1 | teamwork_preview_challenger | APPROVE | handoff.md |
+| challenger_2 | teamwork_preview_challenger | APPROVE | handoff.md |
+| auditor_1 | teamwork_preview_auditor | CLEAN | handoff.md |
 
 Gate Result: **PASS**
-All criteria satisfied cleanly without integrity violations or regressions.

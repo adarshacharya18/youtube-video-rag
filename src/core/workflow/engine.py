@@ -11,6 +11,7 @@ import traceback
 from typing import Any, Optional, Sequence
 
 from src.core.base import BasePipelineResult
+from src.core.events import EventBus, NodeCompleted, NodeFailed, NodeStarted
 from src.core.exceptions import PipelineError, PipelineStageError
 from src.core.logger import get_logger
 from src.core.orchestrator.state_ledger import StateLedger, StepStatus
@@ -84,6 +85,7 @@ class WorkflowEngine:
         self,
         nodes: Sequence[Node],
         ledger: Optional[StateLedger] = None,
+        event_bus: Optional[EventBus] = None,
     ) -> None:
         """
         Initialize WorkflowEngine.
@@ -91,6 +93,7 @@ class WorkflowEngine:
         Args:
             nodes: Non-empty sequence of Node instances to execute in order.
             ledger: Optional StateLedger instance. Defaults to StateLedger("data/state_ledger.db") if None.
+            event_bus: Optional EventBus instance to publish node lifecycle events to.
 
         Raises:
             ValueError: If nodes sequence is empty.
@@ -102,6 +105,7 @@ class WorkflowEngine:
         self.ledger: StateLedger = (
             ledger if ledger is not None else StateLedger("data/state_ledger.db")
         )
+        self.event_bus: Optional[EventBus] = event_bus
 
     def run(self, run_id: str) -> EngineResult:
         """
@@ -155,6 +159,10 @@ class WorkflowEngine:
 
             # Record step execution start in StateLedger
             step_id = self.ledger.record_step_start(run_id, node.name)
+            if self.event_bus is not None:
+                self.event_bus.publish(
+                    NodeStarted(run_id=run_id, node_name=node.name, step_id=step_id)
+                )
 
             # Fault-tolerant execution wrapper
             try:
@@ -163,6 +171,15 @@ class WorkflowEngine:
                     node_output = {}
 
                 self.ledger.record_step_completion(step_id, node_output)
+                if self.event_bus is not None:
+                    self.event_bus.publish(
+                        NodeCompleted(
+                            run_id=run_id,
+                            node_name=node.name,
+                            step_id=step_id,
+                            output=node_output,
+                        )
+                    )
                 completed_steps.append(node.name)
                 outputs[node.name] = node_output
 
@@ -194,6 +211,16 @@ class WorkflowEngine:
                     error_message=error_msg,
                     error_details=error_details,
                 )
+                if self.event_bus is not None:
+                    self.event_bus.publish(
+                        NodeFailed(
+                            run_id=run_id,
+                            node_name=node.name,
+                            step_id=step_id,
+                            error_message=error_msg,
+                            error_details=error_details,
+                        )
+                    )
 
                 elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 

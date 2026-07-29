@@ -1,54 +1,52 @@
-# BRIEFING — 2026-07-23T06:45:00Z
+# BRIEFING — 2026-07-29T16:58:00Z
 
 ## Mission
-Delete 5 obsolete Phase04 v1 documents and verify that exactly 7 v2 documents remain in PromptBook/Phase04/.
+Ensure WorkflowEngine emits NodeStarted, NodeCompleted, and NodeFailed lifecycle events via EventBus during execution, and ensure test coverage for event emissions and listener fault tolerance.
 
 ## 🔒 My Identity
-- Archetype: implementer
+- Archetype: implementer / qa / specialist
 - Roles: implementer, qa, specialist
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2
-- Original parent: 2a723d38-8be7-4290-9804-9b29a1a51c03
-- Milestone: Milestone 2
+- Original parent: 9b90c213-cab6-4234-a8fd-03797f719a60
+- Milestone: Milestone 2: Workflow Engine Integration & Tests
 
 ## 🔒 Key Constraints
-- CODE_ONLY network mode: No external network calls.
-- Integrity Mandate: No hardcoding test outputs or fake verification.
-- Scope: Delete only specified 5 files from PromptBook/Phase04/, verify exactly 7 files remaining.
-- File workspace convention: Write agent metadata only to /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/.
+- DO NOT CHEAT. All implementations must be genuine.
+- Minimal change principle.
+- Verify through pytest.
+- Emit NodeStarted, NodeCompleted, NodeFailed lifecycle events via EventBus.
+- Fault tolerance for listener errors during workflow execution.
 
 ## Current Parent
-- Conversation ID: 2a723d38-8be7-4290-9804-9b29a1a51c03
-- Updated: 2026-07-23T06:45:00Z
+- Conversation ID: 9b90c213-cab6-4234-a8fd-03797f719a60
+- Updated: 2026-07-29T16:58:00Z
 
 ## Task Summary
-- **What to build/do**: Delete 5 obsolete files in PromptBook/Phase04/ (04_Service_Container.md, 05_Module_Lifecycle.md, 06_Runtime_State.md, 07_Health_Check_System.md, 12_Runtime_Review.md). Verify exact 7 remaining files.
-- **Success criteria**: 5 files deleted, exactly 7 specified files remain in PromptBook/Phase04/, handoff report written, message sent to parent.
+- **What to build**: Ensure WorkflowEngine in `src/core/workflow/engine.py` emits `NodeStarted`, `NodeCompleted`, `NodeFailed` events via `EventBus`. Check fault tolerance when event listeners raise exceptions. Ensure unit tests in `tests/workflow/test_engine.py` cover these requirements.
+- **Success criteria**: All tests pass in `pytest tests/workflow/test_engine.py -v` (11/11 passing), clean events emission, listener error fault tolerance verified.
+- **Interface contracts**: EventBus, NodeStarted, NodeCompleted, NodeFailed, WorkflowEngine.
 
 ## Key Decisions Made
-- Confirmed pre-deletion listing had 12 files.
-- Removed obsolete files via `rm -f`.
-- Confirmed post-deletion listing has exactly 7 files matching requirement.
+- Inspected `src/core/workflow/engine.py` and confirmed `WorkflowEngine` emits `NodeStarted`, `NodeCompleted`, `NodeFailed` lifecycle events via `EventBus` during node execution.
+- Inspected `tests/workflow/test_engine.py` and added an additional unit test `test_workflow_engine_event_bus_failing_node_listener_error_suppression` to explicitly verify listener exception handling on `NodeFailed` events.
+- Ran pytest on `tests/workflow/test_engine.py` (11 passed) and `tests/events/test_bus.py` (7 passed) for a total of 18 passing tests with 100% coverage on `bus.py` and 99% coverage on `engine.py`.
+
+## Artifact Index
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/DISPATCH.md` — Prompt dispatch
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/BRIEFING.md` — Agent briefing
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/progress.md` — Progress tracker
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/handoff.md` — Handoff report
 
 ## Change Tracker
 - **Files modified**:
-  - `PromptBook/Phase04/04_Service_Container.md` (deleted)
-  - `PromptBook/Phase04/05_Module_Lifecycle.md` (deleted)
-  - `PromptBook/Phase04/06_Runtime_State.md` (deleted)
-  - `PromptBook/Phase04/07_Health_Check_System.md` (deleted)
-  - `PromptBook/Phase04/12_Runtime_Review.md` (deleted)
-- **Build status**: Complete & verified
+  - `tests/workflow/test_engine.py`: Added test `test_workflow_engine_event_bus_failing_node_listener_error_suppression`
+- **Build status**: PASS (`pytest tests/workflow/test_engine.py -v` - 11/11 passed)
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: Directory inspection verified 7 remaining files.
-- **Lint status**: N/A
-- **Tests added/modified**: N/A
+- **Build/test result**: PASS (11 tests in test_engine.py, 18 total in events+workflow)
+- **Lint status**: Clean
+- **Tests added/modified**: `test_workflow_engine_event_bus_failing_node_listener_error_suppression` added
 
 ## Loaded Skills
 - None
-
-## Artifact Index
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/ORIGINAL_REQUEST.md` — Original request
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/BRIEFING.md` — Briefing document
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/progress.md` — Progress log
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/handoff.md` — Handoff report

@@ -1,83 +1,33 @@
-# Handoff Report — Phase 09 Plugin SDK & Entry Point Mocking Strategy
+# Handoff Report — Explorer 2 (Survey Phase)
 
 ## 1. Observation
-
-### 1.1 Requirements & Specifications
-- `ORIGINAL_REQUEST.md` (lines 181–210):
-  - R1: Create `src/sdk/plugin_base.py` defining restricted `PluginNode` interface for third-party developers (accept inputs, return outputs; no direct SQLite ledger access).
-  - R2: Implement `src/core/workflow/plugin_loader.py` using `importlib.metadata` entry points to discover, load, and validate plugins (must strictly inherit from `PluginNode`).
-  - R3: Document SDK structure and plugin lifecycle in `PromptBook/Phase09/01_Plugin_SDK.md`.
-  - Acceptance Criteria: `pytest tests/workflow/test_plugin_loader.py` MUST safely mock `importlib.metadata.entry_points()` to point to a dummy Python class, verifying discovery/validation without writing temp files to disk.
-
-### 1.2 Python Environment & `importlib.metadata` Execution Output
-- Environment: Python 3.13.7 (`python3 --version` returned `Python 3.13.7`).
-- `importlib.metadata.entry_points(group=...)` returning `importlib.metadata.EntryPoints` object:
-  ```python
-  eps = importlib.metadata.entry_points(group='console_scripts')
-  # Output: <class 'importlib.metadata.EntryPoints'>
-  ```
-- `EntryPoint` attributes: `.name`, `.value`, `.group`, `.load()`. Calling `.load()` returns the attribute/class reference.
-
-### 1.3 Pre-existing Core Code Structure
-- `src/core/workflow/node.py`:
-  - Abstract class `Node` with `@property def name(self) -> str` and `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`.
-- `src/core/workflow/engine.py`:
-  - `WorkflowEngine(nodes: Sequence[Node], ledger: StateLedger)`. Calls `node.execute(run_id, self.ledger)` sequentially for each `Node`.
-- `tests/workflow/test_engine.py`:
-  - Existing suite testing fault tolerance and idempotency with 100% pass rate.
-
----
+- **Original Request**: `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` details Phase 10 Event Bus Integration. R1 requires fault-tolerant `EventBus` suppressing listener exceptions; R2 requires lifecycle event emissions (`NodeStarted`, `NodeCompleted`, `NodeFailed`) in `WorkflowEngine`; R3 requires SDK documentation.
+- **Pytest Configuration**: `pytest.ini` defines test directory `tests`, options `--strict-markers --cov=src --cov-report=term-missing -v`, and test markers (`unit`, `integration`, `e2e`, `performance`). Global fixtures in `tests/conftest.py` set `ENVIRONMENT=testing` and mock logging.
+- **Event Bus Tests (`tests/events/test_bus.py`)**: 7 unit test functions covering event model initialization, subscribe/publish/unsubscribe operations, inheritance dispatch (`BaseEvent`), `RuntimeError` suppression during publish (`test_fault_tolerant_exception_suppression`), `Any` subscriber matching, and subscriber clearing.
+- **Workflow Engine Tests (`tests/workflow/test_engine.py`)**: 10 unit test functions covering node abstractions, engine input validation, execution workflow, idempotency skipping, node failure handling, and specifically event emissions (`test_workflow_engine_event_bus_lifecycle_emissions`) and listener crash fault-tolerance (`test_workflow_engine_event_bus_listener_runtime_error_suppression`).
+- **Test Execution**: Ran `pytest tests/events/test_bus.py tests/workflow/test_engine.py`. Result: 17 passed tests in 0.28 seconds. Coverage for `src/core/events/bus.py` is 100% (55/55 stmts); `src/core/workflow/engine.py` is 99% (80/81 stmts).
 
 ## 2. Logic Chain
-
-1. **Observation**: `WorkflowEngine` accepts a sequence of `Node` instances where `execute(run_id, ledger)` receives `StateLedger`. `ORIGINAL_REQUEST.md` R1 explicitly requires denying plugins direct access to `StateLedger`.
-   **Inference**: `PluginNode` in `src/sdk/plugin_base.py` must define an isolated method `process(self, inputs: dict[str, Any]) -> dict[str, Any]`. An adapter `PluginNodeAdapter(Node)` in `src/core/workflow/plugin_loader.py` must implement `execute(run_id, ledger)` to read inputs from `ledger` and pass them into `plugin.process(inputs)`, shielding third-party plugin code from `StateLedger`.
-
-2. **Observation**: Python 3.10+ deprecated dictionary lookup `entry_points()["group"]` in favor of keyword query `importlib.metadata.entry_points(group="dsa.plugins")` or `.select(group="dsa.plugins")`.
-   **Inference**: `PluginLoader` in `src/core/workflow/plugin_loader.py` must use `importlib.metadata.entry_points(group=self.group)` to maintain future-proof Python 3.10+ / 3.13 compatibility.
-
-3. **Observation**: R2 requires validating that discovered plugin classes strictly inherit from `PluginNode`. Calling `entry_point.load()` returns the uninstantiated class or function.
-   **Inference**: `PluginLoader.load_and_validate()` must verify `isinstance(loaded_obj, type)` and `issubclass(loaded_obj, PluginNode)` before instantiating or wrapping in `PluginNodeAdapter`. If validation fails, it must raise `PluginValidationError`. If loading module/attr fails, it must raise `PluginLoadError`.
-
-4. **Observation**: Acceptance Criteria prohibits writing temp files or `.dist-info` directories to disk during test execution in `tests/workflow/test_plugin_loader.py`.
-   **Inference**: `tests/workflow/test_plugin_loader.py` must use `unittest.mock.patch('importlib.metadata.entry_points')` to return in-memory `MagicMock(spec=importlib.metadata.EntryPoint)` instances configured with `load.return_value = DummyPluginClass`.
-
----
+1. **Observation**: `pytest.ini` configures coverage analysis and strict test matching, and `tests/conftest.py` sets up environment isolation.
+   - *Inference*: Tests must be co-located under `tests/` matching module hierarchy (e.g. `tests/events/test_bus.py` and `tests/workflow/test_engine.py`).
+2. **Observation**: `test_fault_tolerant_exception_suppression` in `tests/events/test_bus.py` uses `MagicMock(side_effect=RuntimeError(...))` to verify `EventBus.publish()` catches and suppresses listener exceptions.
+   - *Inference*: Listener mocking using `MagicMock` with `side_effect` is the established standard pattern for testing fault tolerance across the codebase.
+3. **Observation**: `test_workflow_engine_event_bus_lifecycle_emissions` in `tests/workflow/test_engine.py` inspects `call_args_list` of mock listeners to verify `NodeStarted`, `NodeCompleted`, and `NodeFailed` dataclasses.
+   - *Inference*: Lifecycle event emission testing in `WorkflowEngine` relies on subscribing mock listeners to specific event types and asserting payload fields (`run_id`, `node_name`, `step_id`, `output`, `error_message`).
+4. **Observation**: Running `pytest tests/events/test_bus.py tests/workflow/test_engine.py` passes all 17 unit tests without failures.
+   - *Inference*: Existing test suites for `EventBus` and `WorkflowEngine` are fully functional, conform to project test standards, and provide high code coverage (100% and 99% respectively).
 
 ## 3. Caveats
-
-- **Caveat 1**: Third-party plugin dependencies must be pre-installed in the Python environment where the workflow engine runs; `importlib.metadata` only discovers entry points for packages present in Python's `site-packages` / `sys.path`.
-- **Caveat 2**: Entry point group naming convention should be standardized as `"dsa.plugins"` across documentation and code.
-- **Caveat 3**: No caveats regarding Python version compatibility since Python 3.13.7 is active and `importlib.metadata` behavior was directly verified via interactive execution.
-
----
+- Fast execution relies on in-memory SQLite (`StateLedger(":memory:")`) and mock loggers; full integration tests with real SQLite disk files or external LLM/RAG services are covered in separate integration test files (`tests/integration/`).
+- Warnings regarding unclosed SQLite connections were noted in pytest output during test execution, but do not affect test pass/fail status.
 
 ## 4. Conclusion
-
-1. **`src/sdk/plugin_base.py`**: Define `PluginNode(ABC)` with abstract property `name` and abstract method `process(inputs: dict[str, Any]) -> dict[str, Any]`.
-2. **`src/core/workflow/plugin_loader.py`**: Define `PluginNodeAdapter(Node)`, `PluginLoader` class with methods `discover_entry_points()`, `load_and_validate()`, `load_plugins()`, and custom exception hierarchy (`PluginError`, `PluginLoadError`, `PluginValidationError`).
-3. **`tests/workflow/test_plugin_loader.py`**: Construct isolated pytest suite using `unittest.mock.patch` for `importlib.metadata.entry_points` to verify valid discovery, non-PluginNode validation rejection, module load failure handling, and `WorkflowEngine` execution without disk I/O.
-4. **`PromptBook/Phase09/01_Plugin_SDK.md`**: Document `pyproject.toml` entry point syntax `[project.entry-points."dsa.plugins"]` and restricted plugin lifecycle.
-
----
+The test suites `tests/events/test_bus.py` and `tests/workflow/test_engine.py` are properly structured, fully tested, and conform to the project's testing conventions. `EventBus` fault tolerance (exception suppression) and `WorkflowEngine` event lifecycle emissions are thoroughly verified using `unittest.mock.MagicMock` objects and in-memory test doubles.
 
 ## 5. Verification Method
-
-To verify the Phase 09 implementation once created by the implementer:
-
-1. **Run Pytest Suite**:
-   ```bash
-   pytest tests/workflow/test_plugin_loader.py -v
-   ```
-   *Expected outcome*: All unit tests pass cleanly in memory without creating temporary files or `.dist-info` directories.
-
-2. **Run Entire Workflow Test Suite**:
-   ```bash
-   pytest tests/workflow/ -v
-   ```
-   *Expected outcome*: Both `test_engine.py` and `test_plugin_loader.py` pass without errors.
-
-3. **Verify File Existence**:
-   - `src/sdk/plugin_base.py` exists and contains `PluginNode`.
-   - `src/core/workflow/plugin_loader.py` exists and contains `PluginLoader` & `PluginNodeAdapter`.
-   - `PromptBook/Phase09/01_Plugin_SDK.md` exists and contains SDK documentation.
+Execute the following command from the workspace root (`/home/adarsh/Documents/Youtube-Channel`):
+```bash
+pytest tests/events/test_bus.py tests/workflow/test_engine.py
+```
+- **Expected Outcome**: 17 passed tests, exit code 0.
+- **Coverage Criteria**: `src/core/events/bus.py` at 100% coverage, `src/core/workflow/engine.py` at 99%+ coverage.
