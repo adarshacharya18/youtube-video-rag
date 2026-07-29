@@ -1,60 +1,50 @@
-# Adversarial Challenge Report: Phase 07 M1 PromptLoader
+# Adversarial Challenge Report: WorkflowEngine & Node Exception Handling
 
 ## Challenge Summary
 
-**Overall risk assessment**: MEDIUM
+**Overall risk assessment**: LOW
 
-An empirical stress-test suite consisting of 18 isolated test cases was constructed and executed against `PromptLoader` in `src/core/llm/prompt_loader.py`. While 17 out of 18 test cases passed (verifying robust exception handling, strict variable enforcement, complex control flow, version resolution, path traversal security, and multithreaded concurrency), 1 empirical defect was identified regarding template caching behavior when caching is disabled.
-
----
-
-## Challenges
-
-### [Medium] Challenge 1: `cache_templates=False` fails to disable Jinja2 internal Environment cache
-
-- **Assumption challenged**: Setting `cache_templates=False` (or `enable_cache=False`) on `PromptLoader` disables template caching completely to allow hot-reloading prompt files from disk.
-- **Attack scenario**: A developer or pipeline setting `PromptLoader(cache_templates=False)` modifies prompt templates on disk (or re-renders updated `.j2` files in development/testing mode). Because `PromptLoader` initializes `jinja2.Environment` without setting `cache_size=0`, Jinja2's internal LRU cache (`env.cache`) remains active with its default size of 400. `env.get_template()` returns the cached template object from Jinja2's internal cache, ignoring file modifications unless file mtime changes across clock ticks.
-- **Blast radius**: Developers or pipeline stages attempting to hot-reload prompt templates during iterative prompt engineering or testing will observe stale cached prompts being rendered despite passing `cache_templates=False`.
-- **Mitigation**: In `src/core/llm/prompt_loader.py`, update `jinja2.Environment` instantiation to explicitly pass `cache_size`:
-  ```python
-  self.env = jinja2.Environment(
-      loader=jinja2.FileSystemLoader(str(self.template_dir)),
-      undefined=jinja2.StrictUndefined,
-      trim_blocks=True,
-      lstrip_blocks=True,
-      autoescape=False,
-      cache_size=400 if self.cache_templates else 0,
-  )
-  ```
+The implementation of `src/core/workflow/engine.py` and `src/core/workflow/node.py` demonstrates robust fault tolerance and adherence to the StateLedger specification. Empirically tested against a broad array of system and domain exceptions, `WorkflowEngine` reliably traps exceptions, prevents application crashes, updates the SQLite StateLedger to `FAILED`, and halts downstream node execution.
 
 ---
 
-## Stress Test Results
+## Empirical Stress Test Results
 
-| Test Case | Scenario | Expected Behavior | Actual Behavior | Result |
+| Exception Type | Scenario | Expected Behavior | Actual Behavior | Result |
 |---|---|---|---|---|
-| **Test 01** | Exception Class Hierarchy | Inheritance from `FatalError` & `PromptTemplateError` | `TemplateNotFoundError` & `TemplateRenderError` inherit from `PromptTemplateError(FatalError)` | **PASS** |
-| **Test 02** | Missing Template File | Raise `TemplateNotFoundError` | `TemplateNotFoundError` raised with full template path | **PASS** |
-| **Test 03** | Missing Version Directory | Raise `TemplateNotFoundError` | `TemplateNotFoundError` raised detailing requested version | **PASS** |
-| **Test 04** | Missing Context Variable | Raise `TemplateRenderError` | `TemplateRenderError` raised under `StrictUndefined` | **PASS** |
-| **Test 05** | Missing Nested Attribute | Raise `TemplateRenderError` | `TemplateRenderError` raised specifying missing attribute | **PASS** |
-| **Test 06** | Syntax Error on Load | Raise `TemplateRenderError` | `TemplateRenderError` raised with line number details | **PASS** |
-| **Test 07** | Syntax Error on Render | Raise `TemplateRenderError` | `TemplateRenderError` raised during rendering | **PASS** |
-| **Test 08** | Empty Template Render | Raise `TemplateRenderError` | `TemplateRenderError` raised for whitespace-only render | **PASS** |
-| **Test 09** | Complex Jinja Logic & Macros | Correct string interpolation & macro evaluation | Rendered loops, filters (`| upper`), macros, and conditionals correctly | **PASS** |
-| **Test 10** | Kwargs vs Context Precedence | Kwargs override context dict | Kwargs correctly override colliding context dict keys | **PASS** |
-| **Test 11** | Version Directory Override | Render template from requested version | `version="v2"` correctly rendered v2 template | **PASS** |
-| **Test 12** | Caching Enabled | Reuse compiled template in `_template_cache` | `load_template` returned identical object instance (`t1 is t2`) | **PASS** |
-| **Test 13** | Caching Disabled (`cache_templates=False`) | Completely disable caching in `_template_cache` & Jinja2 | `_template_cache` bypassed, BUT `loader.env.cache` remained active (`LRUCache`) | **FAIL (Defect)** |
-| **Test 14** | Custom `template_dir` Types | Accept `str` and `Path` | Both `str` and `Path` correctly coerced and used | **PASS** |
-| **Test 15** | List Templates | List sorted `.j2` filenames, ignore non-`.j2` | Returned sorted `['complex.j2', 'empty.j2', ...]` excluding `.txt` | **PASS** |
-| **Test 16** | List Versions | List version subdirectories, ignore hidden dirs | Returned sorted `['v1', 'v2']` excluding `.git` | **PASS** |
-| **Test 17** | Path Traversal | Block relative `../` traversal outside root | `FileSystemLoader` blocked path traversal and raised `TemplateNotFoundError` | **PASS** |
-| **Test 18** | Multithreaded Concurrency | Thread-safe rendering & caching under load | 10 threads completed 300 render calls with 0 errors | **PASS** |
+| `KeyError` | Mock node raises missing dictionary key | Catch, record `FAILED`, halt pipeline | Engine caught `KeyError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `ZeroDivisionError` | Mock node performs division by zero | Catch, record `FAILED`, halt pipeline | Engine caught `ZeroDivisionError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `AttributeError` | Mock node accesses attribute on `None` | Catch, record `FAILED`, halt pipeline | Engine caught `AttributeError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `PipelineStageError` | Mock node requests non-existent step output | Catch, record `FAILED`, halt pipeline | Engine caught `PipelineStageError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `TypeError` | Mock node performs invalid type operation | Catch, record `FAILED`, halt pipeline | Engine caught `TypeError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `ValueError` | Mock node passes invalid argument value | Catch, record `FAILED`, halt pipeline | Engine caught `ValueError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `IndexError` | Mock node accesses out-of-range index | Catch, record `FAILED`, halt pipeline | Engine caught `IndexError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `MemoryError` | Mock node raises out-of-memory exception | Catch, record `FAILED`, halt pipeline | Engine caught `MemoryError`, updated run & step status to `FAILED`, halted | **PASS** |
+| `NoneType` Return | Mock node returns `None` instead of `dict` | Default to `{}` without raising error | Handled gracefully, converted `None` to `{}` | **PASS** |
+| Re-running Failed Run | Re-execute engine on run after fix | Skip completed prior steps, retry failed step | Correctly skipped step 1, re-executed step 2 to completion | **PASS** |
 
 ---
 
-## Unchallenged Areas
+## Detailed Findings
 
-- **Disk Read I/O Performance**: File reading speed under extreme numbers of uncached templates on slow hardware was not benchmarked.
-- **Custom Jinja Filters**: Registration of custom user-defined Jinja2 filters (beyond built-in filters) is not yet exposed via `PromptLoader` API.
+### 1. Exception Trapping & Recovery (`engine.py:160-211`)
+- **Mechanism**: The execution loop in `WorkflowEngine.run()` wraps each `node.execute(run_id, self.ledger)` call inside a `try...except Exception as e:` block.
+- **Ledger Guarantee**: On failure, `self.ledger.record_step_failure(step_id, error_message=error_msg, error_details=error_details)` is invoked. This updates both the `step_executions` record and the parent `pipeline_runs` record in SQLite to `status = 'FAILED'`.
+- **Traceback Capture**: `error_details` captures both `error_type` (e.g. `"ZeroDivisionError"`) and full stringified stack traceback via `traceback.format_exc()`.
+- **Short-circuit Execution**: Returning an `EngineResult(success=False, status=StepStatus.FAILED, ...)` immediately breaks the loop, ensuring subsequent nodes in the sequence are never invoked.
+
+### 2. State Ledger & Idempotency (`node.py:81-131`, `engine.py:141-155`)
+- Node communication is strictly decoupled via SQLite `run_id`.
+- `node.get_step_output()` raises `PipelineStageError` if dependent outputs are missing or incomplete.
+- Pre-execution check `completed_steps_map` ensures already-completed steps are skipped during pipeline retries/resumes.
+
+---
+
+## Unchallenged / Out-of-Scope Areas
+- `BaseException` derivatives (`KeyboardInterrupt`, `SystemExit`): Intentionally uncaught by `except Exception` to allow Unix signals and explicit process termination signals to take effect. This is standard, correct Python behavior.
+
+---
+
+## Verdict
+
+**VERDICT**: **APPROVE**

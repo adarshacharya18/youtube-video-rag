@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    participant Client as Execution Trigger
+    participant Engine as WorkflowEngine
+    participant Ingest as IngestNode
+    participant Plan as PlanNode
+    participant Ledger as StateLedger (SQLite)
+
+    Client->>Engine: run(run_id="run_101")
+    Engine->>Ledger: get_run("run_101")
+    Ledger-->>Engine: PipelineRunRecord(status=PENDING)
+    Engine->>Ledger: get_completed_steps("run_101")
+    Ledger-->>Engine: {} (No steps completed)
+
+    Note over Engine, Ingest: Step 1: IngestNode Execution
+    Engine->>Ledger: record_step_start("run_101", "ingest")
+    Ledger-->>Engine: step_id="step_01" (status=IN_PROGRESS)
+    Engine->>Ingest: execute("run_101", ledger)
+    Ingest->>Ledger: get_run("run_101")
+    Ledger-->>Ingest: PipelineRunRecord(slug="two-sum")
+    Ingest-->>Engine: output_dict={"slug": "two-sum", "raw_problem": "..."}
+    Engine->>Ledger: record_step_completion("step_01", output_dict)
+    Ledger-->>Engine: Step completed (status=COMPLETED)
+
+    Note over Engine, Plan: Step 2: PlanNode Execution
+    Engine->>Ledger: record_step_start("run_101", "plan")
+    Ledger-->>Engine: step_id="step_02" (status=IN_PROGRESS)
+    Engine->>Plan: execute("run_101", ledger)
+    Plan->>Ledger: get_completed_steps("run_101")
+    Ledger-->>Plan: {"ingest": StepExecutionRecord(output_payload={"slug": "two-sum"})}
+    Plan-->>Engine: output_dict={"plan_title": "Plan for two-sum"}
+    Engine->>Ledger: record_step_completion("step_02", output_dict)
+    Ledger-->>Engine: Step completed (status=COMPLETED)
+
+    Engine-->>Client: EngineResult(success=True, status=COMPLETED, completed_steps=["ingest", "plan"])

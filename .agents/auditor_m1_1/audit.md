@@ -1,94 +1,107 @@
-# Forensic Audit Report — Phase 07 Milestone 1
+# Forensic Audit Report: Phase 08 Workflow Engine
 
-**Work Product**: Phase 07 Milestone 1 (`src/core/llm/prompt_loader.py`, `src/core/exceptions.py`, `src/core/config.py`)  
-**Auditor**: Forensic Auditor 1  
-**Profile**: General Project  
-**Integrity Mode**: Development  
-**Verdict**: CLEAN  
+**Work Product**: Phase 08 Workflow Engine implementation and unit tests
+- `src/core/workflow/node.py`
+- `src/core/workflow/engine.py`
+- `src/core/workflow/__init__.py`
+- `tests/workflow/test_engine.py`
 
----
-
-## 1. Executive Summary
-
-A comprehensive forensic integrity audit of Phase 07 Milestone 1 was conducted. The scope of audit covers:
-1. `src/core/llm/prompt_loader.py` — Centralized Jinja2 prompt loader & renderer engine.
-2. `src/core/exceptions.py` — Domain exception classes (`PromptTemplateError`, `TemplateNotFoundError`, `TemplateRenderError`).
-3. `src/core/config.py` — Pydantic configuration models (`PromptConfig`, `LLMConfig`, `PipelineConfig`).
-
-All four mandatory forensic checks were executed empirically:
-- Hardcoded test output / shortcut check: **PASS**
-- Facade / dummy logic check: **PASS**
-- Exception instantiation & propagation check: **PASS**
-- Static analysis & runtime tracing: **PASS**
-
-Verdict: **CLEAN**.
+**Profile**: General Project (Development Mode)
+**Verdict**: CLEAN
 
 ---
 
-## 2. Forensic Phase Results
+## Audit Objectives & Executive Summary
 
-### Check 1: Hardcoded Test Outputs or String Shortcuts
-- **Status**: PASS
-- **Findings**:
-  - Source code analysis of `prompt_loader.py`, `exceptions.py`, and `config.py` confirmed zero hardcoded template output strings or pre-rendered prompt shortcuts.
-  - All returned strings in `PromptLoader.render()` originate from real dynamic evaluation by `jinja2.Template.render(**render_context)`.
-  - No pre-populated result artifacts, log files, or fake attestation files predating current iteration were detected.
+A forensic integrity audit was performed on Phase 08 (Workflow Engine) to verify genuine implementation quality and compliance with integrity guidelines. All source files and test suites were independently inspected and executed.
 
-### Check 2: Facade / Dummy Logic Detection
-- **Status**: PASS
-- **Findings**:
-  - `PromptLoader` genuine instantiation:
-    - Instantiates `jinja2.Environment` configured with `jinja2.FileSystemLoader`, `jinja2.StrictUndefined`, `trim_blocks=True`, `lstrip_blocks=True`, and `autoescape=False`.
-    - Implements in-memory template caching via `self._template_cache` dictionary.
-    - Implements version path resolution (`v1/`, `v2/`, etc.) with optional `.j2` extension normalization.
-    - Implements directory listing (`list_templates`, `list_versions`) via live filesystem inspection (`glob("*.j2")` and `iterdir()`).
-  - No stub methods, dummy return constants, or empty pass functions exist.
-
-### Check 3: Exception Instantiation & Propagation
-- **Status**: PASS
-- **Findings**:
-  - Inheritance hierarchy strictly compliant:
-    - `PipelineError` -> `FatalError` -> `PromptTemplateError` -> `TemplateNotFoundError`, `TemplateRenderError`.
-  - Exception propagation & translation verified:
-    - `jinja2.TemplateNotFound` is caught and re-raised as `TemplateNotFoundError` via `from exc`.
-    - `jinja2.UndefinedError` is caught and re-raised as `TemplateRenderError` via `from exc`.
-    - `jinja2.TemplateSyntaxError` is caught and re-raised as `TemplateRenderError` via `from exc`.
-    - Traceback context (`__cause__`) is properly preserved in all exception translations.
-
-### Check 4: Static Analysis & Runtime Tracing
-- **Status**: PASS
-- **Findings**:
-  - Empirical runtime tracing executed via test suite (`run_forensic_checks.py`).
-  - Jinja2 variable substitution, conditionals (`{% if %}`), and loops (`{% for %}`) were evaluated dynamically against mock data.
-  - Caching mechanism (`cache_templates=True` vs `False`) verified against internal `_template_cache` map.
-  - `pytest tests/core/` executed successfully: 14 passing tests, 0 failures.
+| # | Check / Requirement | Status | Details |
+|---|---------------------|--------|---------|
+| 1 | Hardcoded test outputs, fake/facade logic, or bypassed exception handling | **PASS** | Source code contains genuine step execution, state passing via StateLedger, and complete try/except exception handling with ledger updates. |
+| 2 | `src/core/workflow/node.py` defines abstract class `Node(ABC)` | **PASS** | `Node(ABC)` uses `abc.ABC` and `@abstractmethod` decorators for `name` property and `execute` method. Direct instantiation throws `TypeError`. |
+| 3 | `src/core/workflow/engine.py` writes failure status to SQLite `StateLedger` | **PASS** | Caught exceptions trigger `self.ledger.record_step_failure(...)`, updating both step execution and parent run records in SQLite to `FAILED`. |
+| 4 | `tests/workflow/test_engine.py` genuinely runs `WorkflowEngine` & checks assertions | **PASS** | 8 test cases execute `WorkflowEngine` using `StateLedger(":memory:")`, asserting run statuses and step records in SQLite. All 8 tests pass. |
 
 ---
 
-## 3. Empirical Evidence Log
+## Phase Results & Forensic Verification
 
-```
-[CHECK] Exception Hierarchy...
-  -> Passed hierarchy checks.
-[CHECK] Config Integration...
-  -> Passed config integration checks.
-[CHECK] PromptLoader Runtime Tracing...
-2026-07-29 11:43:49 [error    ] prompt_template_missing_variable error="'extra_val' is undefined" template=test_template template_dir=/tmp/tmp0y0ztr8m
-2026-07-29 11:43:49 [error    ] prompt_template_not_found      path=/tmp/tmp0y0ztr8m/v1/non_existent_template.j2 template_dir=/tmp/tmp0y0ztr8m template_name=non_existent_template version=v1
-2026-07-29 11:43:49 [error    ] prompt_template_syntax_error   error="unexpected end of template, expected 'end of print statement'." line=1 template=bad_syntax template_dir=/tmp/tmp0y0ztr8m
-  -> Passed runtime tracing checks.
+### Phase 1: Source Code & Facade Analysis
 
-ALL FORENSIC CHECKS PASSED SUCCESSFULLY!
-```
+1. **Hardcoded Test Outputs & Facade Detection**:
+   - `src/core/workflow/node.py`: Implements helper functions (`get_run_record`, `get_completed_step_outputs`, `get_step_output`) that query the `StateLedger` instance directly.
+   - `src/core/workflow/engine.py`: `WorkflowEngine.run()` queries `completed_steps` from SQLite for step idempotency, records step start, calls `node.execute(run_id, self.ledger)`, and records step completion or failure in SQLite. No hardcoded or shortcut return statements exist.
 
+2. **Abstract Class Verification (`Node(ABC)`)**:
+   - Defined in `src/core/workflow/node.py`:
+     ```python
+     from abc import ABC, abstractmethod
+
+     class Node(ABC):
+         @property
+         @abstractmethod
+         def name(self) -> str:
+             pass
+
+         @abstractmethod
+         def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
+             pass
+     ```
+   - Instantiation of `Node` directly or un-implemented subclasses is blocked by Python's `abc` module and verified by `test_node_abstract_instantiation_raises`.
+
+3. **SQLite State Ledger Failure Recording**:
+   - In `src/core/workflow/engine.py` line 192:
+     ```python
+     self.ledger.record_step_failure(
+         step_id,
+         error_message=error_msg,
+         error_details=error_details,
+     )
+     ```
+   - In `src/core/orchestrator/state_ledger.py`, `record_step_failure` issues SQL `UPDATE` queries to set `status = 'FAILED'`, `error_message`, and `error_details` on `step_executions` and `pipeline_runs`.
+
+### Phase 2: Behavioral & Test Suite Verification
+
+- **Command Executed**: `pytest tests/workflow/test_engine.py -v`
+- **Output Summary**:
+  - `test_node_abstract_instantiation_raises`: PASSED
+  - `test_workflow_engine_empty_nodes_raises`: PASSED
+  - `test_workflow_engine_invalid_run_id_raises`: PASSED
+  - `test_workflow_engine_successful_pipeline_execution`: PASSED
+  - `test_workflow_engine_idempotency_skipping`: PASSED
+  - `test_workflow_engine_node_failure_handling`: PASSED
+  - `test_workflow_engine_missing_prior_step_error`: PASSED
+  - `test_workflow_engine_aliases`: PASSED
+- **Total**: 8 passed in 0.28s.
+- **Coverage**: `src/core/workflow/engine.py` reached 99% line coverage during test execution.
+
+---
+
+## Evidence
+
+### Pytest Execution Log
 ```
-pytest tests/core/
-============================== 14 passed in 0.28s ==============================
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-9.1.1, pluggy-1.5.0
+rootdir: /home/adarsh/Documents/Youtube-Channel
+configfile: pyproject.toml
+plugins: cov-6.0.0, anyio-4.8.0
+collected 8 items
+
+tests/workflow/test_engine.py::test_node_abstract_instantiation_raises PASSED [ 12%]
+tests/workflow/test_engine.py::test_workflow_engine_empty_nodes_raises PASSED [ 25%]
+tests/workflow/test_engine.py::test_workflow_engine_invalid_run_id_raises PASSED [ 37%]
+tests/workflow/test_engine.py::test_workflow_engine_successful_pipeline_execution PASSED [ 50%]
+tests/workflow/test_engine.py::test_workflow_engine_idempotency_skipping PASSED [ 62%]
+tests/workflow/test_engine.py::test_workflow_engine_node_failure_handling PASSED [ 75%]
+tests/workflow/test_engine.py::test_workflow_engine_missing_prior_step_error PASSED [ 87%]
+tests/workflow/test_engine.py::test_workflow_engine_aliases PASSED [100%]
+
+======================== 8 passed, 4 warnings in 0.28s =========================
 ```
 
 ---
 
-## 4. Final Audit Verdict
+## Final Forensic Verdict
 
-**Verdict**: `CLEAN`  
-No integrity violations, facade implementations, or hardcoded shortcuts were detected.
+**CLEAN**: Phase 08 Workflow Engine implementation (`node.py`, `engine.py`, `__init__.py`) and test suite (`test_engine.py`) contain genuine implementation logic, strictly enforce abstract node contracts and state ledger failure updates, and pass all behavioral test assertions without cheating or shortcuts.

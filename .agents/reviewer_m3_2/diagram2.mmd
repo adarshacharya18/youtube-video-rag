@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant Client as Execution Trigger
+    participant Engine as WorkflowEngine
+    participant Ingest as IngestNode
+    participant FailNode as FailingNode
+    participant Plan as PlanNode
+    participant Ledger as StateLedger (SQLite)
+
+    Client->>Engine: run(run_id="run_102")
+    Engine->>Ledger: record_step_start("run_102", "ingest")
+    Ledger-->>Engine: step_id="step_01"
+    Engine->>Ingest: execute("run_102", ledger)
+    Ingest-->>Engine: output_dict={"slug": "failing-slug"}
+    Engine->>Ledger: record_step_completion("step_01", output_dict)
+
+    Note over Engine, FailNode: Step 2: FailingNode Execution (Exception Triggered)
+    Engine->>Ledger: record_step_start("run_102", "failing_step")
+    Ledger-->>Engine: step_id="step_02" (status=IN_PROGRESS)
+    Engine->>FailNode: execute("run_102", ledger)
+    FailNode--xEngine: raises RuntimeError("Intentional mock node failure")
+
+    Note over Engine: Fault Tolerance Boundary: Catch Exception
+    Engine->>Ledger: record_step_failure("step_02", "Intentional mock node failure", traceback_json)
+    Note over Ledger: Updates step_id="step_02" to FAILED<br/>Updates run_id="run_102" to FAILED
+
+    Note over Engine: Short-Circuit: PlanNode IS NOT EXECUTED
+    Engine-->>Client: EngineResult(success=False, status=FAILED, failed_step="failing_step", error="Intentional mock node failure")

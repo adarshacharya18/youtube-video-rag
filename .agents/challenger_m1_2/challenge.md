@@ -1,95 +1,60 @@
-# Challenge Report — PromptLoader Empirical Stress Test (Phase 07 M1)
+# Adversarial Challenge Report — Milestone M1_2
 
-**Challenger**: Challenger 2  
-**Date**: 2026-07-29  
-**Target Module**: `src/core/llm/prompt_loader.py`  
-**Overall Risk Assessment**: LOW  
+## Challenge Summary
 
----
-
-## 1. Executive Summary
-
-Empirical testing was conducted on `PromptLoader` using Python 3.13.7 in an isolated environment (`test_empirical.py`). Tests evaluated rendering performance with caching enabled vs disabled, Pydantic model vs dictionary context resolution, `list_templates` edge cases, path traversal, and strict undefined behavior.
-
-`PromptLoader` performs reliably, accurately enforces Jinja2 `StrictUndefined` variable checks, properly translates Jinja2 exceptions into domain exceptions (`TemplateNotFoundError`, `TemplateRenderError`), and exhibits strong rendering throughput (~160,000 ops/sec).
+- **Overall Risk Assessment**: LOW
+- **Verdict**: APPROVE
+- **Target Components**: `WorkflowEngine` (`src/core/workflow/engine.py`), `Node` (`src/core/workflow/node.py`), and `StateLedger` (`src/core/orchestrator/state_ledger.py`).
 
 ---
 
-## 2. Empirical Test Results
+## Empirical Verification & Check Results
 
-### 2.1 Rendering Performance & Caching Mechanics
-
-| Scenario | Iterations | Caching Enabled | Caching Disabled | Speedup / Impact |
-|---|---|---|---|---|
-| Simple Template (`simple.j2`) | 10,000 | 0.0619s (161,570 ops/sec) | 0.0812s (123,157 ops/sec) | 1.31x speedup |
-| Complex Template (`complex.j2`) | 10,000 | 0.1441s (69,418 ops/sec) | 0.1459s (68,531 ops/sec) | 1.01x speedup |
-
-**Cache Mechanics Observations**:
-1. `PromptLoader` stores compiled `jinja2.Template` instances in `self._template_cache` when `cache_templates=True`.
-2. **Stale Cache Behavior**: Modifying a `.j2` file on disk after loading it with `cache_templates=True` continues to return the old, cached template contents indefinitely. There is currently no file modification time (mtime) checking or `clear_cache()` method on `PromptLoader`.
+### Check 1: In-Memory State Objects & State-Ledger Isolation
+- **Hypothesis**: Nodes cannot pass in-memory state objects to subsequent nodes; communication must occur exclusively via SQLite `StateLedger`.
+- **Empirical Harness**: `.agents/challenger_m1_2/test_empirical_challenges.py` (`test_challenge_unserializable_in_memory_object_rejected`, `test_challenge_mutation_isolation_via_state_ledger`, `test_challenge_multi_engine_instance_state_isolation`).
+- **Observations & Evidence**:
+  1. `Node.execute()` returns a `dict[str, Any]` output payload which `WorkflowEngine` writes to SQLite via `StateLedger.record_step_completion()`.
+  2. `StateLedger.record_step_completion()` serializes outputs using `json.dumps(output_payload)`. Returning a non-JSON-serializable in-memory Python object (e.g., `UnserializableStateObject`) immediately raises `TypeError: Object of type UnserializableStateObject is not JSON serializable` at line 267 of `state_ledger.py`. `WorkflowEngine.run()` catches this exception, logs node failure, updates step status to `FAILED`, and returns `EngineResult(success=False, status=StepStatus.FAILED)`.
+  3. Nodes retrieve prior outputs using `self.get_step_output(run_id, ledger, step_name)`, which queries SQLite (`SELECT * FROM step_executions...` in `StateLedger.get_completed_steps()`) and deserializes JSON via `json.loads()`. Modifying the dict returned by `get_step_output()` in a downstream node does not affect subsequent nodes or alter the stored SQLite record.
+  4. Separate `WorkflowEngine` and `Node` instances can run steps independently without sharing any in-memory references.
+- **Result**: **PASS** (In-memory state object passing is strictly prohibited by serialization boundaries and fresh SQLite queries).
 
 ---
 
-### 2.2 Pydantic Models vs Dicts Rendering Behavior
+### Check 2: Idempotency & Clean Skipping of COMPLETED Steps
+- **Hypothesis**: If a step is already recorded as `COMPLETED` in SQLite, running `WorkflowEngine.run(run_id)` skips that node execution cleanly and returns output payloads from SQLite.
+- **Empirical Harness**: `.agents/challenger_m1_2/test_empirical_challenges.py` (`test_challenge_completed_step_skipped_cleanly`, `test_challenge_crash_resume_idempotency`, `test_challenge_preseeded_sqlite_completed_step`).
+- **Observations & Evidence**:
+  1. When `WorkflowEngine.run(run_id)` executes, line 131 queries completed steps from SQLite: `completed_steps_map = self.ledger.get_completed_steps(run_id)`.
+  2. For any node whose name is present in `completed_steps_map` with `StepStatus.COMPLETED`, `WorkflowEngine` appends the step name to `skipped_steps` and `completed_steps`, sets `outputs[node.name] = completed_steps_map[node.name].output_payload`, and `continue`s loop without calling `node.execute()`.
+  3. In empirical tests, re-running a 2-node workflow resulted in zero node re-executions (`execution_count` remained 1 for both nodes), `skipped_steps == ["node_a", "node_b"]`, and exact output payload restoration from SQLite.
+  4. In crash-resume tests, Node 1 (`COMPLETED`) was cleanly skipped while Node 2 (`FAILED` on first attempt) was re-executed and completed successfully upon retry.
+  5. Pre-seeded `COMPLETED` records inserted directly into SQLite were correctly recognized and skipped by `WorkflowEngine`.
+- **Result**: **PASS** (Step idempotency, clean skipping, and payload restoration from SQLite confirmed empirically).
 
-| Input Type | Invocation Style | Result | Observations |
+---
+
+### Check 3: Existing Unit Test Suite Execution
+- **Command**: `pytest tests/workflow/test_engine.py`
+- **Result**: **PASS** (8 passed, 0 failed in 0.23s).
+
+---
+
+## Stress Test Results Table
+
+| Test Scenario | Expected Behavior | Actual Behavior | Pass/Fail |
 |---|---|---|---|
-| Pydantic BaseModel | Direct `context=model` | `TypeError: 'VideoMetaDataTest' object is not a mapping` | `render()` executes `{**(context or {})}` which requires Python `Mapping` interface. |
-| Pydantic BaseModel | Kwarg `item=model` | Success (`'Title: Binary Trees 101...'`) | Jinja2 resolves `{{ item.title }}` via Python `getattr()`. |
-| Pydantic BaseModel | Bracket access `{{ item['title'] }}` | Success (`'Title: Binary Trees 101'`) | Jinja2 falls back gracefully to attribute lookup for Pydantic V2 models. |
-| Dict Object | Kwarg `item=dict_obj` | Success | Standard dictionary key resolution. |
-
-**Performance Comparison (10,000 renders)**:
-- Pydantic V2 Model: 0.0608s (~164,600 ops/sec)
-- Standard Dict: 0.0711s (~140,680 ops/sec)
-- Ratio: 0.85x (Pydantic attribute access is faster or on par with Python dict key lookup in Python 3.13).
+| Non-JSON object in Node output | Reject at SQLite serialization boundary, mark run `FAILED` | `TypeError` caught, run marked `FAILED`, process does not crash | PASS |
+| Downstream dictionary mutation | No pollution of prior step state in SQLite or future node reads | SQLite payload pristine (`[10, 20]`), downstream reads pristine | PASS |
+| Re-run completed pipeline | Skip node `execute()`, restore outputs from SQLite | Node `execute()` count = 0 on re-run, outputs loaded from SQLite | PASS |
+| Crash resume on `FAILED` step | Skip `COMPLETED` steps, re-run `FAILED` step | `COMPLETED` steps skipped (`skipped_steps`), `FAILED` step retried | PASS |
+| Run `test_engine.py` | 100% test pass rate | 8 passed, 0 failures | PASS |
 
 ---
 
-### 2.3 `list_templates` & `list_versions` Edge Cases
+## Conclusion & Verdict
 
-| Test Case | Inputs | Result | Status / Observation |
-|---|---|---|---|
-| Non-existent version | `list_templates(version="v999")` | `[]` | Pass (Gracefully returns empty list) |
-| Empty directory | `list_templates(version="v_empty")` | `[]` | Pass (Gracefully returns empty list) |
-| Extension filtering | Directory with `.j2`, `.jinja`, `.jinja2`, `.txt`, `.bak` | Only `.j2` matched | Pass (Excludes non-`.j2` extensions) |
-| Dot-hidden `.j2` files | Directory with `.hidden.j2` | Included (`['.hidden.j2', ...]`) | Minor Inconsistency (`list_versions` ignores hidden dirs, `list_templates` does not filter out hidden `.j2` files) |
-| Path Traversal | `list_templates(version="../v1")` | `[...]` | Path traversal resolved relative to `template_dir` |
+`WorkflowEngine` and `Node` strictly enforce state-ledger-only communication and robust step-level idempotency. No in-memory state objects leak between nodes, and completed steps are cleanly skipped when querying SQLite.
 
----
-
-### 2.4 Strict Undefined & Edge Case Exceptions
-
-| Scenario | Trigger Input | Expected Behavior | Actual Behavior | Result |
-|---|---|---|---|---|
-| Undefined Variable | `{{ missing_var }}` | Raise `TemplateRenderError` | `TemplateRenderError` raised wrapping `StrictUndefined` | Pass |
-| Missing Object Attribute | `{{ item.nonexistent }}` | Raise `TemplateRenderError` | `TemplateRenderError` raised wrapping `AttributeError` | Pass |
-| Variable set to `None` | `{{ item }}` with `item=None` | Render `"None"` | Rendered `"Val: None"` | Pass |
-| Attribute on `None` | `{{ item.title }}` with `item=None` | Raise `TemplateRenderError` | `TemplateRenderError` raised wrapping `UndefinedError` | Pass |
-| Empty Render Output | Template rendering to whitespace/comment | Raise `TemplateRenderError` | `TemplateRenderError` raised ("rendered to an empty string") | Pass |
-| Missing Template | Non-existent `.j2` file | Raise `TemplateNotFoundError` | `TemplateNotFoundError` raised | Pass |
-| Syntax Error | `{% if True %} Hello` | Raise `TemplateRenderError` | `TemplateRenderError` raised wrapping `TemplateSyntaxError` | Pass |
-
----
-
-## 3. Findings & Recommendations
-
-### Finding 1: Direct Pydantic Context Unpacking Limitation (Low Severity)
-Calling `loader.render("template_name", context=pydantic_instance)` raises `TypeError` because `PromptLoader.render()` performs `{**(context or {}), **kwargs}`.  
-*Mitigation / Guidance*: Callers passing a Pydantic model as the root context must either pass `context=model.model_dump()` or pass it as a named keyword argument (`item=model`).
-
-### Finding 2: Lack of Cache Invalidation / Clearing Method (Low Severity)
-In-memory caching (`_template_cache`) stores compiled `jinja2.Template` objects indefinitely. If template files are edited during runtime, `PromptLoader` will continue serving stale templates until the process restarts.  
-*Mitigation / Guidance*: Consider adding a `clear_cache()` method or checking file `mtime` if dynamic template reloads are needed in development.
-
-### Finding 3: `list_templates` Dot-File Filtering (Low Severity)
-`list_versions()` excludes dot-hidden directories (`not d.name.startswith(". ")`), whereas `list_templates()` uses `glob("*.j2")` which includes dot-hidden files like `.hidden.j2`.  
-*Mitigation / Guidance*: In a future refactoring, `list_templates` can filter out `filename.startswith(".")` for consistency.
-
----
-
-## 4. Conclusion & Verdict
-
-The implementation of `PromptLoader` is robust, performant, and meets all requirements specified for Phase 07 Milestone 1.
-
-**Verdict**: `APPROVE`
+**Final Verdict**: **APPROVE**

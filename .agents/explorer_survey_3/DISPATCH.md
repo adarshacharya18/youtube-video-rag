@@ -1,14 +1,10 @@
-## 2026-07-25T15:04:54Z
-You are Explorer 3 for Phase 04 of the Automated DSA Educational YouTube Video Pipeline.
-Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3
+## 2026-07-29T17:25:35Z
+Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for full context.
 
-Task:
-Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md.
-Investigate the `PromptBook/` directory structure under `/home/adarsh/Documents/Youtube-Channel`:
-1. Inspect `PromptBook/Phase01/`, `PromptBook/Phase02/`, `PromptBook/Phase03/` documentation files to understand formatting, tone, architectural diagrams/schemas, and structure conventions.
-2. Detail the exact requirements for `PromptBook/Phase04/01_Runtime_Architecture.md`, focusing on documenting:
-   - State Ledger schema
-   - Recovery logic & crash safety
-   - Strict adherence to the Synchronous Batch-Pipeline paradigm.
+Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3
+Your task is to survey documentation standards and requirements for Phase 08 (The Workflow Engine). Specifically:
+1. Examine `PromptBook/` directory structure and existing architectural docs (`PromptBook/Phase01/`, `PromptBook/Phase05/`, `PromptBook/Phase06/`, `PromptBook/Phase07/`).
+2. Document conventions used in prior docs (headings, Mermaid sequence diagram styling, node lifecycle explanations, error handling details).
+3. Verify if `PromptBook/Phase08/` exists and define what `PromptBook/Phase08/01_Workflow_Engine.md` must contain to satisfy Requirement R3 and Acceptance Criteria.
 
-Write your analysis to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3/handoff.md`. Notify parent via send_message when complete.
+Write your detailed analysis to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3/handoff.md`. Send a message when finished.

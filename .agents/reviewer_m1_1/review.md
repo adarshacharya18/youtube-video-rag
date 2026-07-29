@@ -1,97 +1,73 @@
-# Code Quality, Architectural, and Adversarial Review: Phase 07 Milestone 1
+# Code Review Report - Phase 08 Milestone 1
 
-**Milestone**: Phase 07 Milestone 1 — Core Prompt Loading Engine & Dependencies  
-**Reviewer**: Reviewer 1 (Quality Reviewer & Adversarial Critic)  
-**Date**: 2026-07-29  
-**Verdict**: **APPROVE**
+## Review Summary
 
----
+**Verdict**: APPROVE
 
-## Executive Summary
-
-Phase 07 Milestone 1 implements the core dependency additions (`jinja2>=3.1.0`), foundational prompt template exception hierarchy (`PromptTemplateError`, `TemplateNotFoundError`, `TemplateRenderError`), configuration settings (`PromptConfig`), and the central Jinja2 prompt rendering engine (`PromptLoader`).
-
-All files modified and created:
-1. `pyproject.toml`
-2. `requirements.txt`
-3. `src/core/exceptions.py`
-4. `src/core/config.py`
-5. `src/core/llm/prompt_loader.py`
-
-Independent verification confirmed that all unit test suites (`./.venv/bin/pytest tests/core/ tests/llm/`) pass (38/38 passed in 2.62s). Verification script testing Jinja2 strict variable evaluation, caching mechanisms, path resolution, version listing, empty template detection, and error wrapping ran with 100% success.
+The code implementation for Phase 08 Milestone 1 (`Node` abstraction, `WorkflowEngine`, package exports, and unit tests) meets all quality standards, PEP 8 guidelines, static typing rules, and requirement specifications (R1 and R2).
 
 ---
 
-## 1. Quality & Correctness Review
+## Review Dimensions
 
-### 1.1 Dependency Updates (`pyproject.toml`, `requirements.txt`)
-- **Observation**: `jinja2>=3.1.0` added to `dependencies` in `pyproject.toml` (line 25) and under `# LLM Provider Dependencies` in `requirements.txt` (line 17).
-- **Verification**: Verified `jinja2` is installed in environment (`Jinja2 3.1.6`).
-- **Assessment**: Correct and conforms to project conventions.
+### 1. Correctness & Alignment with Requirements
+- **Requirement R1 (Node Abstraction & State-Ledger-Only Communication)**:
+  - `Node` (`src/core/workflow/node.py`) is an abstract base class inheriting from `abc.ABC`.
+  - Enforces `@property @abstractmethod def name(self) -> str` and `@abstractmethod def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`.
+  - Provides helper methods `get_run_record`, `get_completed_step_outputs`, and `get_step_output` that retrieve state exclusively via `run_id` and `StateLedger`.
+  - Prohibits passing in-memory state objects between nodes, ensuring true component isolation and pipeline idempotency.
 
-### 1.2 Exception Hierarchy (`src/core/exceptions.py`)
-- **Observation**:
-  - `PromptTemplateError(FatalError)`
-  - `TemplateNotFoundError(PromptTemplateError)`
-  - `TemplateRenderError(PromptTemplateError)`
-- **Verification**: `issubclass(PromptTemplateError, FatalError)` is `True`. `issubclass(TemplateNotFoundError, FatalError)` and `issubclass(TemplateRenderError, FatalError)` are both `True`.
-- **Assessment**: Follows operational classification where unrecoverable template missing or render errors halt pipeline execution immediately without transient retry attempts.
+- **Requirement R2 (Fault-Tolerant Engine & Exception Handling)**:
+  - `WorkflowEngine` (`src/core/workflow/engine.py`) iterates sequentially through nodes.
+  - Enforces step idempotency by checking `StateLedger.get_completed_steps(run_id)` before node execution and skipping already-completed steps.
+  - Wraps node execution in `try...except Exception as e:` block.
+  - On node failure, captures exception details and traceback, calls `StateLedger.record_step_failure(...)` (which updates SQLite step and run records to `FAILED`), halts execution gracefully, and returns an `EngineResult` with `success=False` and `status=StepStatus.FAILED`.
+  - Process crash is completely prevented.
 
-### 1.3 Configuration (`src/core/config.py`)
-- **Observation**: `PromptConfig` added with `template_dir: Path = Path("src/core/llm/prompts")` and `default_version: str = "v1"`. Embedded as `prompts: PromptConfig` in both `LLMConfig` and root `PipelineConfig`.
-- **Verification**: Evaluated `load_config()`. Overrides and environment variable nesting (`PROMPTS__TEMPLATE_DIR`, `LLM__PROMPTS__DEFAULT_VERSION`) function as expected.
-- **Assessment**: Cleanly integrates with Pydantic V2 `BaseSettings`.
+- **Interface Contracts**:
+  - Complies with interface contracts defined in `PROJECT.md`.
+  - Provides `run()`, `execute()`, and `run_pipeline()` methods on `WorkflowEngine`.
+  - `EngineResult.to_base_result()` converts `EngineResult` to `BasePipelineResult` for system-wide result compatibility.
 
-### 1.4 Prompt Loading Engine (`src/core/llm/prompt_loader.py`)
-- **Observation**: `PromptLoader` wraps Jinja2 `Environment` with `FileSystemLoader`, `jinja2.StrictUndefined`, `trim_blocks=True`, `lstrip_blocks=True`, and `autoescape=False`. Features in-memory caching (`_template_cache`), relative version directory path resolution (`_resolve_template_path`), domain exception translation, and `structlog` logging.
-- **Verification**: Tested `load_template`, `render`, `list_templates`, and `list_versions` against synthetic templates in temporary directories.
-- **Assessment**: Fully meets interface contracts defined in `PROJECT.md`.
+### 2. Code Quality, Style, Typing, and Docstrings
+- **PEP 8**: Code strictly follows PEP 8 formatting conventions.
+- **Typing**: Explicit type annotations throughout using Python 3.9+ built-in generic types (`list[str]`, `dict[str, Any]`, `Sequence[Node]`, `Optional[StateLedger]`).
+- **Docstrings**: Clear, Google/Sphinx style module, class, and method docstrings complete with parameter, return, and exception descriptions.
+- **Exports**: `src/core/workflow/__init__.py` explicitly exports `Node`, `WorkflowEngine`, and `EngineResult` via `__all__`.
 
----
-
-## 2. Adversarial Review & Stress-Testing
-
-### 2.1 Assumption Stress-Testing
-- **Assumption 1**: Prompts are stored in subdirectories named after version identifiers (e.g. `v1/`).
-  - *Attack Scenario*: Passing explicit template path containing `/` (e.g. `v2/custom_prompt.j2` or `subfolder/prompt`).
-  - *Result*: `_resolve_template_path` detects `/` and bypasses default version prepend. PASS.
-- **Assumption 2**: Missing variables should fail fast.
-  - *Attack Scenario*: Rendering template with missing variables under `StrictUndefined`.
-  - *Result*: Jinja2 `UndefinedError` is caught and translated to `TemplateRenderError`. PASS.
-- **Assumption 3**: Empty or whitespace-only rendered prompts indicate template bug or missing context.
-  - *Attack Scenario*: Template rendering to whitespace-only string.
-  - *Result*: Explicitly checked (`if not rendered or not rendered.strip()`) and raises `TemplateRenderError`. PASS.
-- **Assumption 4**: Path traversal safety.
-  - *Attack Scenario*: Attempting to load `../../etc/passwd` via `load_template`.
-  - *Result*: Jinja2's `FileSystemLoader` prevents escaping template directory root, raising `TemplateNotFoundError`. PASS.
-
-### 2.2 Edge Cases & Boundary Conditions
-- **Missing Directory**: Instantiating `PromptLoader` with non-existent directory path handles `list_templates` and `list_versions` gracefully by returning `[]`.
-- **Context Merging**: Merges `context` dict and `kwargs` seamlessly (`{**(context or {}), **kwargs}`).
-- **Template Extension Handling**: Works seamlessly with or without `.j2` suffix (e.g. `educational_plan` vs `educational_plan.j2`).
+### 3. Verification & Integrity Checks
+- Integrity Violation Check: Passed (no hardcoded test outcomes, no facades, no shortcuts, no fabricated outputs).
+- Test Execution: `pytest tests/workflow/test_engine.py` passed 8/8 tests with 99%+ code coverage on `src/core/workflow/`.
 
 ---
 
-## 3. Review Summary Findings
+## Verified Claims
 
-### Findings
-- **No Critical, Major, or Minor issues identified.**
-- Code style is clean, strongly typed (Python 3.10+ annotations), PEP 8 compliant, and free of hardcoded test bypasses or facades.
-
-### Verified Claims
-- `jinja2>=3.1.0` added and loadable → Verified via `python -c "import jinja2"` (v3.1.6).
-- Exception hierarchy inherits from `FatalError` → Verified via Python `issubclass()`.
-- `PromptConfig` setup in `config.py` → Verified via `load_config()`.
-- `PromptLoader` strict undefined, caching, rendering, versioning → Verified via comprehensive python test script.
-- Test suite passing → Verified via `./.venv/bin/pytest tests/core/ tests/llm/` (38 passed).
-
-### Integrity Check
-- No hardcoded test results embedded.
-- No dummy/facade implementations.
-- No bypassed tasks or self-certifying shortcuts detected.
+- `Node` abstract instantiation raises `TypeError` → verified via `test_node_abstract_instantiation_raises` → pass
+- Empty nodes sequence in `WorkflowEngine` raises `ValueError` → verified via `test_workflow_engine_empty_nodes_raises` → pass
+- Invalid `run_id` raises `PipelineError` → verified via `test_workflow_engine_invalid_run_id_raises` → pass
+- Multi-node pipeline execution succeeds and accumulates outputs → verified via `test_workflow_engine_successful_pipeline_execution` → pass
+- Completed nodes skipped on re-run (idempotency) → verified via `test_workflow_engine_idempotency_skipping` → pass
+- Node exception caught, StateLedger updated to `FAILED`, process crash prevented → verified via `test_workflow_engine_node_failure_handling` → pass
+- Missing prior step output raises `PipelineStageError` → verified via `test_workflow_engine_missing_prior_step_error` → pass
+- Method aliases (`execute`, `run_pipeline`) functional → verified via `test_workflow_engine_aliases` → pass
 
 ---
 
-## 4. Final Verdict
+## Findings & Recommendations
 
-**APPROVE** — Milestone 1 is approved without reservations.
+### [Minor] Recommendation 1: Duplicate Node Name Guard
+- **Where**: `WorkflowEngine.__init__` in `src/core/workflow/engine.py`
+- **What**: `WorkflowEngine` does not explicitly validate if duplicate node names exist in the provided `nodes` sequence.
+- **Suggestion**: Consider adding a check in `__init__` (e.g., `if len(set(n.name for n in nodes)) != len(nodes): raise ValueError("Duplicate node names detected")`) to prevent accidental configuration errors.
+
+### [Minor] Recommendation 2: SQLite Connection Warnings in Unit Tests
+- **Where**: `tests/workflow/test_engine.py`
+- **What**: Direct instantiation of `StateLedger(":memory:")` inside tests triggers Pytest `ResourceWarning: unclosed database`.
+- **Suggestion**: Use a pytest fixture or explicit `.close()` calls in tests to eliminate resource warnings.
+
+---
+
+## Verdict
+
+**APPROVE**

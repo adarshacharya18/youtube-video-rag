@@ -1,22 +1,16 @@
-## 2026-07-29T11:43:04Z
-You are Challenger 2 for Phase 07 Milestone 1.
+## 2026-07-29T12:00:00Z
+<USER_REQUEST>
+Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for task requirements.
+Read /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase08/PROJECT.md for milestone scope.
 
-Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2
+Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2
 
-MANDATORY READ:
-- /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md (specifically Phase 07 entry)
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase07/PROJECT.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_phase07_m1/changes.md
+Your task is to empirically challenge the idempotency and state-ledger-only communication of `WorkflowEngine` and `Node`.
 
-Objective: Empirically test performance, cache invalidation/hits, and strict undefined behavior of `PromptLoader`.
+Check:
+1. Verify that nodes cannot pass in-memory state objects to subsequent nodes.
+2. Verify that if a step is already recorded as `COMPLETED` in SQLite, running `WorkflowEngine.run(run_id)` skips that node execution cleanly and returns output payloads from SQLite.
+3. Run `pytest tests/workflow/test_engine.py`.
 
-Execution:
-Write and run an isolated test script using `./.venv/bin/python` to test:
-- Rendering performance with caching enabled vs disabled.
-- Behavior when rendering Pydantic models vs dicts.
-- `list_templates` with empty/non-existent versions and multiple template extensions.
-
-Deliverables:
-- Write challenge results to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/challenge.md`.
-- Write handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/handoff.md` containing explicit Verdict: `APPROVE` or `REQUEST_CHANGES`.
-- Send summary message back to orchestrator.
+Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/challenge.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/handoff.md`. State your verdict explicitly as APPROVE or REQUEST_CHANGES. Send a message when finished.
+</USER_REQUEST>

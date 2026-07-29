@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant Client as Execution Trigger
+    participant Engine as WorkflowEngine
+    participant Ingest as IngestNode
+    participant Plan as PlanNode
+    participant Ledger as StateLedger (SQLite)
+
+    Client->>Engine: run(run_id="run_103")
+    Engine->>Ledger: get_completed_steps("run_103")
+    Ledger-->>Engine: {"ingest": StepExecutionRecord(status=COMPLETED, output_payload={...})}
+
+    Note over Engine, Ingest: Step Idempotency Pre-Check: Ingest Already Completed
+    Engine->>Engine: Skip IngestNode execution (append to skipped_steps)
+
+    Note over Engine, Plan: Step 2: Executing Remaining Node (PlanNode)
+    Engine->>Ledger: record_step_start("run_103", "plan")
+    Ledger-->>Engine: step_id="step_02"
+    Engine->>Plan: execute("run_103", ledger)
+    Plan-->>Engine: output_dict={"plan_title": "Plan for binary-search"}
+    Engine->>Ledger: record_step_completion("step_02", output_dict)
+
+    Engine-->>Client: EngineResult(success=True, completed_steps=["ingest", "plan"], skipped_steps=["ingest"])
