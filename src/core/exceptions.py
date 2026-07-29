@@ -114,6 +114,18 @@ class ScriptGenerationError(PipelineError):
     """Base exception for the Script Generator module."""
     pass
 
+class PromptTemplateError(FatalError):
+    """Base exception for prompt template operations."""
+    pass
+
+class TemplateNotFoundError(PromptTemplateError):
+    """Raised when a requested prompt template file or version does not exist on disk."""
+    pass
+
+class TemplateRenderError(PromptTemplateError):
+    """Raised when Jinja2 rendering fails (e.g. missing variable under StrictUndefined or syntax error)."""
+    pass
+
 # -- Module 5: Voice Generation --
 class VoiceGenerationError(PipelineError):
     """Base exception for the Voice module (Kokoro TTS)."""

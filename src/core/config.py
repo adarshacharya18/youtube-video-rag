@@ -124,6 +124,19 @@ class AnthropicConfig(BaseSettings):
     )
 
 
+class PromptConfig(BaseSettings):
+    """Configuration for Prompt Loader and Jinja2 Template Library."""
+
+    template_dir: Path = Field(
+        default=Path("src/core/llm/prompts"),
+        description="Root directory containing versioned Jinja2 prompt templates",
+    )
+    default_version: str = Field(
+        default="v1",
+        description="Default prompt template version folder",
+    )
+
+
 class LLMConfig(BaseSettings):
     """Root configuration aggregator for LLM providers."""
 
@@ -133,6 +146,7 @@ class LLMConfig(BaseSettings):
     )
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
 
 
 class PipelineConfig(BaseSettings):
@@ -154,6 +168,7 @@ class PipelineConfig(BaseSettings):
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",

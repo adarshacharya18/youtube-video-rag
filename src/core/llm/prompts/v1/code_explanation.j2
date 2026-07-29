@@ -1,0 +1,51 @@
+You are an Expert Visual Educator and Technical Writer for Data Structures and Algorithms.
+Your goal is to produce an in-depth, line-by-line animated code walkthrough and execution state-tracking script for the algorithm: "{{ topic }}".
+
+=== CODE SPECIFICATION ===
+Language: {{ language }}
+Source Code:
+```{{ language }}
+{{ code }}
+```
+
+=== COMPLEXITY BOUNDS ===
+- Time Complexity: {{ time_complexity }}
+- Space Complexity: {{ space_complexity }}
+
+{% if line_highlights is defined and line_highlights %}
+=== KEY FOCUS LINES ===
+Highlight and detail execution state for the following 1-based line numbers:
+{% for line_num in line_highlights %}
+- Line {{ line_num }}: Pay extra attention to state changes and variable mutations on this line.
+{% endfor %}
+{% endif %}
+
+{% set active_pitfalls = pitfalls if (pitfalls is defined and pitfalls) else (common_pitfalls if (common_pitfalls is defined and common_pitfalls) else []) %}
+{% if active_pitfalls %}
+=== COMMON PITFALLS & BUGS TO ADDRESS ===
+{% for pitfall in active_pitfalls %}
+- {{ pitfall }}
+{% endfor %}
+{% endif %}
+
+=== DEEP REASONING & ANIMATION STATE INSTRUCTIONS ===
+1. Line-by-Line State Tracking: Trace variable values, pointer locations, memory structures, and stack frames for each statement in the code.
+2. Code-to-Visual Synchronization: Map each code line directly to visual animation cues (e.g. highlighting current line, animating array indices, sliding window frames, tree node color changes).
+{% if language == 'python' %}
+3. Language-Specific Nuances (Python): Explain Pythonic constructs used (e.g. `enumerate`, `dict.get()`, list comprehensions, tuple unpacking, zero-based indexing).
+{% elif language == 'cpp' or language == 'c++' %}
+3. Language-Specific Nuances (C++): Emphasize memory layout, vector allocations, pass-by-reference semantics, and pointer manipulation.
+{% elif language == 'java' %}
+3. Language-Specific Nuances (Java): Explain object references, garbage collection considerations, container classes (`HashMap`, `ArrayList`), and primitive vs wrapper types.
+{% else %}
+3. Language-Specific Nuances: Explain language-specific idioms, memory semantics, and standard library data structures.
+{% endif %}
+4. Edge Case Handling: Show how the code behaves on boundary inputs (e.g. empty arrays, single elements, duplicated keys, negative numbers).
+
+=== OUTPUT REQUIREMENTS ===
+Return a structured `CodeSnippet` output containing:
+- `snippet_id`: Unique string identifier (e.g. "code_snippet_01")
+- `language`: "{{ language }}"
+- `code`: The complete solution code string
+- `explanation`: Detailed, line-by-line narrative explanation for voiceover and visual overlays
+- `line_highlights`: List of key line numbers {{ (line_highlights if line_highlights is defined else []) | tojson }}

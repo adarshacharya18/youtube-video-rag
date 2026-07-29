@@ -116,6 +116,36 @@ Do not ask for permission before running terminal commands, unless the command i
 - [ ] Running `pytest tests/llm/test_providers.py` executes successfully. The test suite MUST use mocked API responses for both OpenAI and Anthropic, and strictly assert that both providers return identical Pydantic objects based on the Phase 05 schemas.
 - [ ] `src/core/llm/provider.py`, `openai_client.py`, and `anthropic_client.py` exist and successfully leverage LangChain's structured output abstraction.
 
+
+
+## 2026-07-29T06:09:21Z
+
+Implement Phase 07: Prompt Library & Management for the Automated DSA Educational YouTube Video Pipeline. Build a centralized system to load, format, and version the massive system prompts required for generating educational scripts.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Prompt Loading Engine via Jinja2
+Create `src/core/llm/prompt_loader.py` to read versioned prompt templates from disk. You must use `Jinja2` templates (`.j2` files) to allow advanced logic like conditionals, looping over inputs, and complex variable interpolation (e.g., inserting DSA problems, constraints).
+
+### R2. Foundational Templates
+Draft the foundational Jinja2 prompt templates for "Educational Plan Generation" and "Code Explanation". The templates must be highly optimized to extract deep reasoning from the LLMs.
+
+### R3. Prompt Management Documentation
+Document the prompt engineering guidelines, Jinja2 usage, and template storage strategy in `PromptBook/Phase07/01_Prompt_Library.md`.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Running `pytest tests/llm/test_prompt_loader.py` executes successfully. The test suite MUST actively render Jinja templates with mock variables and assert the output strictly matches an expected hardcoded string.
+- [ ] `src/core/llm/prompt_loader.py` exists and correctly utilizes the Jinja2 rendering engine.
+- [ ] At least two foundational `.j2` templates are created in the appropriate template directory.
+
 ### Documentation
-- [ ] `PromptBook/Phase06/01_LLM_Abstraction.md` exists and clearly documents the LangChain abstraction strategy and resiliency configurations.
+- [ ] `PromptBook/Phase07/01_Prompt_Library.md` exists and clearly documents the Jinja2 abstraction strategy and prompt engineering guidelines.
 

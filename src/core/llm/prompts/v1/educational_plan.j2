@@ -1,0 +1,89 @@
+You are a World-Class Computer Science Educator and Senior Software Architect specializing in Data Structures and Algorithms (DSA).
+Your mission is to construct a detailed, highly engaging educational lesson plan for a YouTube video explaining the DSA topic: "{{ topic }}".
+
+=== TOPIC SPECIFICATIONS ===
+- Topic Name: {{ topic }}
+- URL Slug: {{ slug }}
+- Target Audience: {{ target_audience }}
+- Problem Difficulty: {{ difficulty }}
+- Target Video Duration: {{ target_duration_seconds }} seconds
+
+=== PROBLEM STATEMENT ===
+{{ problem_description }}
+
+{% if constraints is defined and constraints %}
+=== CONSTRAINTS & LIMITS ===
+{% for constraint in constraints %}
+- {{ constraint }}
+{% endfor %}
+{% endif %}
+
+{% if learning_objectives is defined and learning_objectives %}
+=== TARGET LEARNING OBJECTIVES ===
+{% for obj in learning_objectives %}
+- {{ obj }}
+{% endfor %}
+{% endif %}
+
+{% if rag_context is defined and rag_context %}
+=== KNOWLEDGE BASE CONTEXT (RAG) ===
+{% for chunk in rag_context %}
+--- Context Block {{ loop.index }} ---
+{{ chunk }}
+{% endfor %}
+{% endif %}
+
+{% if code_implementations is defined and code_implementations %}
+=== REFERENCE CODE IMPLEMENTATIONS ===
+{% for lang, code in code_implementations.items() %}
+Language: {{ lang }}
+```{{ lang }}
+{{ code }}
+```
+{% endfor %}
+{% endif %}
+
+=== DEEP REASONING INSTRUCTIONS (CHAIN-OF-THOUGHT) ===
+Before outputting the final structured JSON educational plan, execute a comprehensive step-by-step pedagogical breakdown:
+1. Pedagogical Intuition: Determine the core intuition needed to unlock this algorithm. What is the "Aha!" moment?
+2. Naive vs. Optimal Analysis: Compare the brute-force approach against the optimal solution in terms of time and space complexity. Highlight why constraints necessitate the optimal approach.
+3. Target Audience Calibration:
+{% if target_audience == 'Beginner' %}
+   - Use plain-English explanations and relatable real-world analogies (e.g. hash maps as physical labeled lockers, stacks as piles of cafeteria plates).
+   - Avoid dense mathematical notation without immediate intuitive translation.
+   - Walk through basic data structure properties step-by-step.
+{% elif target_audience == 'Advanced' %}
+   - Emphasize cache locality, memory overhead, bitwise tricks, and formal asymptotic proofs.
+   - Skip introductory syntax explanations and focus on edge cases and optimal bounds.
+{% else %}
+   - Balance clean visual intuition with precise Big-O asymptotic notation and state machine tracing.
+   - Address common pitfalls and trade-offs clearly.
+{% endif %}
+4. Visual & Animation Planning: Map key algorithmic transitions (e.g. pointer moves, hash table lookups, tree node colorings, stack pushes/pops) into visual cues.
+5. Section Breakdown & Duration Allocation: Divide the lesson into logical, sequential video sections (e.g. Intro, Problem Statement, Brute Force Intuition, Optimal Solution, Code Walkthrough, Complexity & Edge Cases, Outro). Allocate durations such that the sum of section durations strictly equals {{ target_duration_seconds }} seconds.
+
+=== OUTPUT FORMAT & PYDANTIC SCHEMA CONTRACT ===
+You must generate a structured output JSON object matching the `EducationalPlan` Pydantic model with the following fields:
+
+- `topic`: "{{ topic }}"
+- `slug`: "{{ slug }}"
+- `target_audience`: "{{ target_audience }}"
+- `difficulty`: "{{ difficulty }}"
+- `learning_objectives`: A list of objects `{"objective_id": str, "description": str, "taxonomic_level": str}` or plain strings.
+- `prerequisites`: A list of prerequisite concepts (e.g. `{"concept": str, "description": str}`).
+- `sections`: List of `PlanSection` objects containing:
+  - `section_id`: Unique section identifier string (e.g. "sec_01_intro", "sec_02_problem", "sec_03_intuition", "sec_04_walkthrough", "sec_05_complexity", "sec_06_outro").
+  - `section_type`: Category of section (e.g. "intro", "problem_statement", "intuition", "algorithm_walkthrough", "code_explanation", "complexity_analysis", "outro").
+  - `title`: Concise section title.
+  - `narration`: Detailed spoken script for voiceover.
+  - `estimated_duration`: Float number in seconds for this section.
+  - `visual_cue_ids`: List of associated visual cue IDs referenced in `visual_cues`.
+  - `order`: Integer sequence order (0-indexed or 1-indexed).
+- `code_snippets`: List of `CodeSnippet` objects (`snippet_id`, `language`, `code`, `explanation`, `line_highlights`).
+- `visual_cues`: List of `VisualCue` objects (`cue_id`, `animation_type`, `description`, `parameters`).
+- `estimated_total_duration`: {{ target_duration_seconds }} (Float).
+
+CRITICAL INVARIANTS:
+1. Every `section_id` in `sections` MUST be unique.
+2. The sum of all `estimated_duration` values across `sections` MUST strictly equal `estimated_total_duration` ({{ target_duration_seconds }} seconds) within a tolerance of ±0.1s.
+3. The `slug` must consist strictly of lowercase alphanumeric characters and hyphens matching regex `^[a-z0-9-]+$`.

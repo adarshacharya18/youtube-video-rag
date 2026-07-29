@@ -115,7 +115,37 @@ Do not ask for permission before running terminal commands, unless the command i
 - [ ] Running `pytest tests/models/test_validation.py` executes successfully. The test suite MUST actively feed malformed JSON (missing fields, wrong types, semantic violations like negative duration) to the models and assert that Pydantic correctly raises `ValidationError`s.
 - [ ] `src/core/models/video.py`, `plan.py`, and `assets.py` exist and are built strictly upon Pydantic V2 `BaseModel`.
 
+
+
+## 2026-07-29T06:09:21Z
+
+Implement Phase 07: Prompt Library & Management for the Automated DSA Educational YouTube Video Pipeline. Build a centralized system to load, format, and version the massive system prompts required for generating educational scripts.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Prompt Loading Engine via Jinja2
+Create `src/core/llm/prompt_loader.py` to read versioned prompt templates from disk. You must use `Jinja2` templates (`.j2` files) to allow advanced logic like conditionals, looping over inputs, and complex variable interpolation (e.g., inserting DSA problems, constraints).
+
+### R2. Foundational Templates
+Draft the foundational Jinja2 prompt templates for "Educational Plan Generation" and "Code Explanation". The templates must be highly optimized to extract deep reasoning from the LLMs.
+
+### R3. Prompt Management Documentation
+Document the prompt engineering guidelines, Jinja2 usage, and template storage strategy in `PromptBook/Phase07/01_Prompt_Library.md`.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Running `pytest tests/llm/test_prompt_loader.py` executes successfully. The test suite MUST actively render Jinja templates with mock variables and assert the output strictly matches an expected hardcoded string.
+- [ ] `src/core/llm/prompt_loader.py` exists and correctly utilizes the Jinja2 rendering engine.
+- [ ] At least two foundational `.j2` templates are created in the appropriate template directory.
+
 ### Documentation
-- [ ] `PromptBook/Phase05/01_Data_Models.md` exists and clearly documents the Pydantic schemas and their 1-to-1 mapping with the Phase 04 State Ledger.
+- [ ] `PromptBook/Phase07/01_Prompt_Library.md` exists and clearly documents the Jinja2 abstraction strategy and prompt engineering guidelines.
 
 
