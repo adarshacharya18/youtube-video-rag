@@ -1,17 +1,23 @@
-## 2026-07-29T17:27:18Z
-Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for full context.
-Read /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase08/PROJECT.md for milestone scope.
-Read /home/adarsh/Documents/Youtube-Channel/src/core/orchestrator/state_ledger.py for StateLedger API.
+## 2026-07-30T16:35:22Z
+You are Explorer M1-2 (teamwork_preview_explorer).
+Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2.
 
-Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2
-Your task is to design the implementation of `src/core/workflow/engine.py` for Milestone 1:
-1. Specify `WorkflowEngine` class constructor: takes `nodes: Sequence[Node]`, optional `ledger: StateLedger`.
-2. Specify execution method `run(self, run_id: str) -> EngineResult` (or `execute(self, run_id: str)`).
-3. Detail step skipping/idempotency check: if `ledger.get_completed_steps(run_id)` contains a step execution with `step_name == node.name` and status `COMPLETED`, skip node execution.
-4. Detail execution lifecycle per node:
-   - Call `step_rec = ledger.record_step_start(run_id, node.name)`.
-   - Wrap `output = node.execute(run_id, ledger)` in `try...except Exception as e`.
-   - On success: `ledger.record_step_completion(step_rec.step_id, output)`.
-   - On exception `e`: call `ledger.record_step_failure(step_rec.step_id, str(e), {"error_type": type(e).__name__, "traceback": traceback.format_exc()})`, stop further node execution, and return an `EngineResult` indicating failure without letting the exception crash python.
+OBJECTIVE:
+Formulate exact design specifications and code snippets for `src/assembly/assembler.py`.
+Specifically:
+1. Design `VideoAssembler` class with `assemble(...)` method.
+2. Formulate secure non-shell `subprocess.run(..., close_fds=True, timeout=300.0, capture_output=True, text=True)` invocation.
+3. Map non-zero exit codes, stdout/stderr error outputs, and `subprocess.TimeoutExpired` to `AssemblyError` (`src/core/exceptions.py:140`).
+4. Design robust temporary file management (`tempfile.TemporaryDirectory()`, writing concat lists / SRT files, ensuring cleanup in `finally` block).
 
-Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/handoff.md`. Send a message when finished.
+INPUT INFORMATION:
+- Read ORIGINAL_REQUEST.md: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
+- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
+- Prior survey analysis: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_1/analysis.md`.
+
+OUTPUT REQUIREMENTS:
+Write detailed design to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/handoff.md`.
+
+COMPLETION CRITERIA:
+- Complete class definition, method signatures, and execution logic for `VideoAssembler` in `src/assembly/assembler.py`.
+- Handoff report published and message sent to orchestrator parent.

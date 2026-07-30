@@ -200,14 +200,69 @@ Document the scripting structure logic, the error-feedback retry mechanism, and 
 ### R4. Subagent Execution Rules
 Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
 
+
+
+
+## 2026-07-30T13:00:38Z
+
+Implement Phase 12: Media Production: Animation (Manim) for the Automated DSA Educational YouTube Video Pipeline. Build a Workflow Engine Node that utilizes Manim (via `subprocess.run()`) to render visual cues into video artifacts, managing memory and caching efficiently.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Animation Generator Node
+Create `src/pipeline/nodes/animation_generator_node.py` inheriting from the core `Node` class. The node must map visual cues from the generated script to pre-built Manim scene templates and execute them securely.
+
+### R2. Secure Subprocess Execution & Memory Management
+The node must invoke Manim via `subprocess.run()` in a completely isolated environment. It must explicitly manage and clean up all temporary output directories and file descriptors to guarantee no memory or storage leaks between computationally heavy renders.
+
+### R3. Animation Production Documentation
+Document the rendering boundaries, Manim caching strategies, and memory management architecture in `PromptBook/Phase12/01_Animation_Production.md`.
+
+### R4. Subagent Execution Rules
+Do not ask for permission before running terminal commands, unless the command involves handling sensitive data.
+
 ## Acceptance Criteria
 
 ### Verification & Testing
-- [ ] Running `pytest tests/pipeline/test_script_node.py` executes successfully. The test suite MUST mock the LLM to intentionally return a corrupted JSON string on the first call, and a valid JSON string on the second call, explicitly verifying that the node correctly feeds the error back and successfully recovers via the retry loop.
-- [ ] The `script_generator_node.py` exists and correctly implements the Pydantic schema validation and the error-feedback retry logic.
+- [ ] Running `pytest tests/pipeline/test_animation_node.py` executes successfully. The test suite MUST use a mock Python script to simulate the Manim binary, explicitly verifying that the node correctly maps visual cues to CLI flags and successfully deletes all temporary directories upon both success and simulated failure.
+- [ ] The `animation_generator_node.py` exists and correctly implements the isolated subprocess execution and memory management logic.
 
-### Documentation
-- [ ] `PromptBook/Phase11/01_Script_Generation.md` exists and clearly documents the script JSON schema and the intelligent retry architecture.
+
+
+
+## 2026-07-30T16:31:46Z
+
+Implement Phase 13: Media Production: Video Assembly.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Implement Video Assembly Node
+Create `src/pipeline/nodes/video_assembly_node.py`. This node must combine the `.wav` audio artifacts (from Phase 11) and the `.mp4` Manim animation artifacts (from Phase 12) into a final 4K YouTube video with burned-in subtitles. Retrieve artifact paths from the State Ledger.
+
+### R2. Secure FFmpeg Execution
+Execute FFmpeg via rigorous `subprocess.run()` constraints. Ensure the pipeline gracefully cleans up temporary files after assembly to prevent disk space exhaustion.
+
+### R3. Draft FFmpeg Architecture Documentation
+Document the FFmpeg filter graphs and architecture in `PromptBook/Phase13/01_Video_Assembly.md`. You are encouraged to use subagents to draft and verify complex FFmpeg syntax.
+
+### R4. Command Restrictions
+Do not ask for permission (via subagent) for running commands unless the command involves sensitive data.
+
+## Acceptance Criteria
+
+### Verification & Testing
+- [ ] Write `tests/pipeline/test_assembly_node.py` to validate that the generated FFmpeg command strings are correct.
+- [ ] Running `pytest tests/pipeline/test_assembly_node.py` executes successfully.
+- [ ] The `VideoAssemblyNode` includes explicit temporary file cleanup logic.
+- [ ] The `PromptBook/Phase13/01_Video_Assembly.md` file correctly describes the FFmpeg architecture.
+
+
 
 
 

@@ -1,68 +1,46 @@
-# Handoff Report: Workflow Engine Implementation Design (`src/core/workflow/engine.py`)
+# Handoff Report: Subtask M1-2 — VideoAssembler Design (`src/assembly/assembler.py`)
 
 ## 1. Observation
-
-Direct observations from codebase inspection:
-- **`src/core/orchestrator/state_ledger.py`**:
-  - Defines `StateLedger` class, `StepStatus` enum (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`), `PipelineRunRecord`, and `StepExecutionRecord`.
-  - `record_step_start(pipeline_run_id: str, step_name: str, input_payload: dict | None = None) -> str` returns `step_execution_id: str`. Automatically updates parent pipeline run status to `IN_PROGRESS` if status is `PENDING`.
-  - `record_step_completion(step_execution_id: str, output_payload: dict | None = None) -> None` updates step execution status to `COMPLETED` and stores `output_payload`.
-  - `record_step_failure(step_execution_id: str, error_message: str, error_details: dict | None = None) -> None` updates step execution status to `FAILED` AND updates parent `pipeline_runs` status to `FAILED`.
-  - `get_completed_steps(pipeline_run_id: str) -> dict[str, StepExecutionRecord]` returns a dictionary mapping `step_name -> StepExecutionRecord` for all steps in the run where status is `COMPLETED`.
-  - `get_run(pipeline_run_id: str) -> PipelineRunRecord | None` returns the run record or `None` if invalid.
-- **`ORIGINAL_REQUEST.md` (Phase 08 R2)**:
-  - Requires `src/core/workflow/engine.py` to wrap every node execution in a try/except block that gracefully captures exceptions and updates the SQLite ledger to `FAILED` if a node crashes, without letting exception crash python.
-- **`.agents/orchestrator_phase08/PROJECT.md` (Milestone M1)**:
-  - `WorkflowEngine` constructor signature: `WorkflowEngine(nodes: Sequence[Node], ledger: Optional[StateLedger] = None)`.
-  - Primary execution method: `run(self, run_id: str) -> EngineResult` (with `execute` and `run_pipeline` aliases).
-- **`PromptBook/Phase01/01_Global_Rules.md`**:
-  - PEP 8, strict typing, structural logging via `structlog.get_logger(__name__)`.
-
----
+- Target File: `src/assembly/assembler.py` (currently empty 0-byte file).
+- Underlying Exception: `AssemblyError` defined in `src/core/exceptions.py:140` (`class AssemblyError(PipelineError)`).
+- Input Contracts & Requirements:
+  - `ORIGINAL_REQUEST.md` (Phase 13 section, lines 236-265): Media Production: Video Assembly combining audio `.wav` and animation `.mp4` into 4K YouTube video with burnt subtitles and cleanup.
+  - `SCOPE.md`: Subtask M1-2 requires `VideoAssembler` class in `src/assembly/assembler.py` executing FFmpeg non-shell `subprocess.run()`, managing timeouts, error mapping (`AssemblyError`), and explicit temporary file cleanup.
+- Precedent Patterns: `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py:347`) and `ManimRenderer` (`src/animation/renderer.py:101-115`) use `close_fds=True`, `timeout`, `capture_output=True`, `text=True`, and `tempfile.TemporaryDirectory()`.
 
 ## 2. Logic Chain
+1. **Low-Level Execution Abstraction**:
+   - `VideoAssembler` encapsulates execution logic for running FFmpeg commands without exposing raw shell processes to higher-level workflow nodes.
+   - `_resolve_binary_command()` allows injecting a custom binary path (or mock script ending in `.py`) or defaulting to system `"ffmpeg"`.
 
-1. **StateLedger Contract Alignment**: `WorkflowEngine` requires a `nodes: Sequence[Node]` sequence and an optional `ledger: StateLedger`. If `ledger` is omitted, it defaults to `StateLedger("data/state_ledger.db")`.
-2. **Pipeline Run Validation**: At the start of `run(run_id: str)`, `engine` queries `ledger.get_run(run_id)`. If `None`, raises `PipelineError` indicating an invalid or non-existent run ID.
-3. **Idempotency Checking**: Engine retrieves `completed_steps = ledger.get_completed_steps(run_id)`.
-   - Before executing each node in `self.nodes`, engine checks if `node.name in completed_steps` and `completed_steps[node.name].status == StepStatus.COMPLETED`.
-   - If match found, execution of `node` is skipped. The engine logs step skipping, appends `node.name` to `skipped_steps`, populates `outputs[node.name]` from `completed_steps[node.name].output_payload`, and continues to the next node.
-4. **Node Execution Lifecycle & Fault Tolerance**:
-   - For non-skipped nodes, engine calls `step_execution_id = ledger.record_step_start(run_id, node.name)`.
-   - Encloses `output = node.execute(run_id, ledger)` inside `try...except Exception as e`.
-   - **On Success**: Calls `ledger.record_step_completion(step_execution_id, output)`, appends `node.name` to `executed_steps`, stores `output` in `outputs[node.name]`.
-   - **On Exception (`e`)**: Extracts `error_message = str(e)` and formats traceback details (`traceback.format_exc()`). Calls `ledger.record_step_failure(step_execution_id, error_message, error_details)`. Halts further node loop execution immediately and returns `EngineResult` with `success=False`, `status=StepStatus.FAILED`, `failed_step=node.name`, `error_message`, `error_details`. This prevents python runtime crash while persisting failure context in SQLite.
-5. **Execution Outcome Encapsulation**: Upon completing all nodes in sequence without failure, returns `EngineResult` with `success=True` and `status=StepStatus.COMPLETED`.
+2. **Secure Non-Shell Subprocess Execution**:
+   - Setting `shell=False` (by passing a list of string arguments) prevents shell-injection vulnerabilities.
+   - Setting `close_fds=True` guarantees that file descriptors opened by the parent Python process are closed in the child subprocess, avoiding FD resource leaks.
+   - Passing `timeout=300.0` ensures long-running or stalled FFmpeg renders do not hang the pipeline indefinitely.
+   - `capture_output=True` and `text=True` capture stdout/stderr strings for error reporting.
 
----
+3. **Domain Exception Mapping**:
+   - Catching `subprocess.TimeoutExpired` explicitly captures trailing output and raises `AssemblyError` with chained context (`from e`).
+   - Checking `result.returncode != 0` captures `result.stderr` (or `result.stdout`) and raises `AssemblyError`.
+   - Validating output artifact size (`_is_valid_video`) ensures that even if FFmpeg returns 0, zero-byte or missing output files raise `AssemblyError`.
+
+4. **Robust Temporary File Lifecycle & Clean Failure Recovery**:
+   - Using `tempfile.TemporaryDirectory(prefix="assembly_", dir=...)` guarantees that all intermediate files (`concat_list.txt`, `subtitles.srt`) are automatically unlinked upon exiting the context.
+   - Output files are written to a temporary destination (`tmp_dest = dest_path.parent / f"{dest_path.name}.tmp_{pid}"`).
+   - Upon successful execution and size validation, `os.replace(tmp_dest, dest_path)` atomically moves the artifact to its final destination.
+   - In case of failure, `except Exception:` block explicitly cleans up `tmp_dest` if it exists.
 
 ## 3. Caveats
-
-1. **`Node` Module Dependency**: `src/core/workflow/engine.py` imports `Node` from `src.core.workflow.node`, which is being designed concurrently by `explorer_m1_1`. Both designs use `Node` signature `execute(self, run_id: str, ledger: StateLedger) -> Dict[str, Any]`.
-2. **Return Type of `record_step_start`**: Note that `StateLedger.record_step_start` returns the string `step_execution_id` (a `str`), not a dataclass record. The engine uses this string for `record_step_completion` and `record_step_failure`.
-3. **StateLedger Run Status Update**: `StateLedger.record_step_failure` automatically sets the parent `pipeline_run` record status to `FAILED` in SQLite. For successful execution, `EngineResult` reports `status=StepStatus.COMPLETED`.
-
----
+- No caveats. The design covers all security, timeout, error mapping, and temporary directory cleanup requirements.
 
 ## 4. Conclusion
-
-The implementation design for `src/core/workflow/engine.py` is fully specified in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/analysis.md`. It satisfies all Milestone 1 requirements, providing:
-1. `WorkflowEngine` constructor with `nodes: Sequence[Node]` and optional `ledger: StateLedger`.
-2. `run(self, run_id: str) -> EngineResult` method (with `execute` and `run_pipeline` aliases).
-3. Step skipping idempotency check against `ledger.get_completed_steps(run_id)`.
-4. Execution lifecycle wrapping node execution in `try...except Exception as e` with step start/completion/failure recording in `StateLedger`, halting on failure and returning `EngineResult(success=False, status=FAILED)` without crashing the Python process.
-
----
+The complete design specification and drop-in code snippet for `VideoAssembler` in `src/assembly/assembler.py` has been formulated and published to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/analysis.md`. The implementer can directly copy or adapt the code snippet from `analysis.md` to populate `src/assembly/assembler.py`.
 
 ## 5. Verification Method
-
-Once implemented in `src/core/workflow/engine.py`:
-1. Run unit test suite: `pytest tests/workflow/test_engine.py`.
-2. Validate mock exception handling:
-   - Create mock node that raises `RuntimeError("Mock exception")`.
-   - Run `engine.run(run_id)`.
-   - Verify process does NOT raise/crash, return object is `EngineResult` with `success is False`, `status == StepStatus.FAILED`, `failed_step == mock_node.name`.
-   - Inspect SQLite database or in-memory `StateLedger` to verify `step_executions` record has status `FAILED` and error details populated.
-3. Validate idempotency check:
-   - Run pipeline with 2 nodes. Re-run pipeline with same `run_id`.
-   - Verify `EngineResult.skipped_steps` contains both node names and no node methods were re-executed.
+1. **Inspect Handoff & Analysis**:
+   - Read `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/analysis.md` to review class definition, method signatures, error handling, and complete implementation snippet.
+2. **Implementation & Unit Test Verification**:
+   - Once implemented in `src/assembly/assembler.py`, run unit tests: `pytest tests/pipeline/test_assembly_node.py` or dedicated unit test file.
+   - Assert `subprocess.run` parameters include `close_fds=True`, `capture_output=True`, `text=True`, `timeout=300.0`.
+   - Assert `subprocess.TimeoutExpired` and non-zero exit codes raise `AssemblyError`.
+   - Assert temporary directories created by `tempfile.TemporaryDirectory` are absent after completion or exception.

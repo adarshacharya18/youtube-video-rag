@@ -1,78 +1,45 @@
-# Handoff Report — Phase 07 Milestone 2 Reviewer 1
+# Handoff Report: Milestone 2 Reviewer (reviewer_m2_1)
 
 ## 1. Observation
-
-- **Reviewed Templates**:
-  - `src/core/llm/prompts/v1/educational_plan.j2`: System prompt template for `EducationalPlan` structured generation. Verified `is defined and var` safety guards at lines 14, 21, 28, 36 and dynamic audience branching at lines 51-61.
-  - `src/core/llm/prompts/v1/code_explanation.j2`: System prompt template for line-by-line code explanation. Verified safe fallback for `pitfalls`/`common_pitfalls` at line 23, `line_highlights` JSON filter at line 51, and language nuance branching at lines 34-42.
-- **Reviewed Documentation**:
-  - `PromptBook/Phase07/01_Prompt_Library.md`: Architectural documentation covering Jinja2 engine, `PromptLoader` API, exception hierarchy, versioning policy, prompt engineering standards, template catalog, and testing strategy.
-- **Verification Commands & Verbatim Outputs**:
-  - Verification script run:
-    ```bash
-    ./.venv/bin/python -c "
-    from src.core.llm.prompt_loader import PromptLoader
-    loader = PromptLoader()
-
-    # Minimal educational_plan
-    p_min = loader.render('educational_plan', topic='Binary Search', slug='binary-search', target_audience='Beginner', difficulty='Easy', problem_description='Search target in sorted array.', target_duration_seconds=120.0)
-    # Full educational_plan
-    p_full = loader.render('educational_plan', topic='Binary Search', slug='binary-search', target_audience='Advanced', difficulty='Easy', problem_description='Search target in sorted array.', target_duration_seconds=120.0, constraints=['1 <= N <= 10^5'], learning_objectives=['Logarithmic runtime'], rag_context=['Divides space.'], code_implementations={'python': 'def s(): pass'})
-    # Minimal code_explanation
-    c_min = loader.render('code_explanation', topic='Binary Search', language='python', code='def s(): pass', time_complexity='O(log N)', space_complexity='O(1)')
-    # Full code_explanation
-    c_full = loader.render('code_explanation', topic='Binary Search', language='cpp', code='int s() {}', time_complexity='O(log N)', space_complexity='O(1)', line_highlights=[1, 2], common_pitfalls=['Overflow'])
-
-    print('p_min len:', len(p_min))
-    print('p_full len:', len(p_full))
-    print('c_min len:', len(c_min))
-    print('c_full len:', len(c_full))
-    "
-    ```
-    Output:
-    ```
-    p_min len: 3650
-    p_full len: 3858
-    c_min len: 1486
-    c_full len: 1869
-    ```
-  - Test suite command:
-    `./.venv/bin/pytest tests/llm/`
-    Output: `24 passed in 2.62s`
+- **Target File**: `tests/pipeline/test_animation_node.py` (1,232 lines, 34 test functions)
+- **Implementation Files**:
+  - `src/pipeline/nodes/animation_generator_node.py` (321 lines)
+  - `src/animation/renderer.py` (135 lines)
+- **Test Command**: Executed `pytest tests/pipeline/test_animation_node.py`
+- **Test Command Output**:
+  ```
+  ======================== 34 passed, 9 warnings in 2.69s ========================
+  ```
+- **Visual Cue Coverage**: Verified lines 955–1002 in `tests/pipeline/test_animation_node.py` test all 8 cue types:
+  - `array_highlight` -> `src/animation/scenes/array_scene.py` (`ArrayScene`)
+  - `tree_traversal` -> `src/animation/scenes/tree_scene.py` (`TreeScene`)
+  - `code_highlight` -> `src/animation/scenes/code_scene.py` (`CodeScene`)
+  - `linkedlist_operation` -> `src/animation/scenes/linkedlist_scene.py` (`LinkedListScene`)
+  - `graph_traversal` -> `src/animation/scenes/graph_scene.py` (`GraphScene`)
+  - `hashmap_operation` -> `src/animation/scenes/hashmap_scene.py` (`HashmapScene`)
+  - `stack_queue_operation` -> `src/animation/scenes/stack_queue_scene.py` (`StackQueueScene`)
+  - `complexity_chart` -> `src/animation/scenes/complexity_scene.py` (`ComplexityScene`)
+- **CLI Flag Mapping & Command Array Verification**: Lines 786–901 test `-ql`, `-qm`, `-qh`, `-qk`, `--format=mp4`, `--media_dir`, and `-o` in exact argument sequence order.
+- **RenderSegment Schema & output_directory**: Lines 1181–1232 test `RenderSegment` Pydantic model completeness and assert `result["output_directory"] == str(out_dir / run_id)`.
 
 ## 2. Logic Chain
-
-1. From Observation 1, `educational_plan.j2` and `code_explanation.j2` correctly implement Jinja2 variable interpolation, conditionals, loops, and safe definedness checks for optional parameters.
-2. From Observation 1, the output specifications in the Jinja2 templates map directly to the Pydantic V2 schemas in `src/core/models/plan.py` (`EducationalPlan`, `CodeSnippet`, `PlanSection`, `VisualCue`).
-3. From Observation 2, `PromptBook/Phase07/01_Prompt_Library.md` accurately documents the architectural implementation, template contracts, versioning rules, and testing approach.
-4. From Observation 3, runtime execution under `StrictUndefined` mode succeeded without errors for minimal contexts, full contexts, and varying target audience/language parameters. Existing LLM provider tests pass without regressions.
+1. **Observation**: `pytest tests/pipeline/test_animation_node.py` passed all 34 unit & integration tests in 2.69 seconds without any failure or error.
+2. **Observation**: Parametrized test `test_all_required_visual_cue_types_mapping_and_execution` explicitly evaluates all 8 requested visual cue types, verifying scene file existence, map lookups, and execution.
+3. **Observation**: `test_cli_flags_and_command_array_construction` captures `subprocess.run` command arrays across quality flags (`-ql`, `-qm`, `-qh`, `-qk`) and checks argument positions for `--format=mp4`, `--media_dir`, and `-o`.
+4. **Observation**: `test_render_segment_schema_completeness` validates Pydantic model hydration for `RenderSegment` and `AssetReference` alongside explicit assertions for `output_directory`.
+5. **Observation**: Fail-safe and cleanup tests (`test_temp_directory_cleaned_up`, `test_tempdir_cleanup_on_subprocess_failure`, `test_tempdir_cleanup_on_timeout`, `test_no_file_descriptor_leak_on_execution`, `test_partial_output_cleanup_on_midway_failure`) confirm memory/tempdir/FD safety on success and failure.
+6. **Inference**: The test suite completely satisfies all requirements for Milestone 2, enforces strict integrity, and contains no shortcuts or facade implementations.
 
 ## 3. Caveats
-
-No caveats. All deliverables for Milestone 2 have been reviewed and verified.
+No caveats.
 
 ## 4. Conclusion
-
-Verdict: **APPROVE**
-
-Phase 07 Milestone 2 deliverables (`educational_plan.j2`, `code_explanation.j2`, and `01_Prompt_Library.md`) are complete, correct, and fully meet all architectural and quality criteria.
+**Verdict**: **APPROVE**  
+The enhanced test suite in `tests/pipeline/test_animation_node.py` is healthy, comprehensive, free of integrity violations, and meets all criteria for Milestone 2.
 
 ## 5. Verification Method
-
-1. Verify template rendering in Python:
-   ```bash
-   ./.venv/bin/python -c "
-   from src.core.llm.prompt_loader import PromptLoader
-   loader = PromptLoader()
-   p = loader.render('educational_plan', topic='Two Sum', slug='two-sum', target_audience='Beginner', difficulty='Easy', problem_description='Find indices', target_duration_seconds=180.0)
-   c = loader.render('code_explanation', topic='Two Sum', language='python', code='def two_sum(): pass', time_complexity='O(N)', space_complexity='O(N)')
-   assert 'Two Sum' in p and 'Pydantic model' in p
-   assert 'python' in c and 'def two_sum' in c
-   print('Template rendering verified!')
-   "
-   ```
-
-2. Run test suite:
-   ```bash
-   ./.venv/bin/pytest tests/llm/
-   ```
+- **Command**: `pytest tests/pipeline/test_animation_node.py`
+- **Files to Inspect**:
+  - `tests/pipeline/test_animation_node.py`
+  - `.agents/reviewer_m2_1/review.md`
+- **Invalidation Conditions**: Any failure during `pytest tests/pipeline/test_animation_node.py` or removal/omission of any of the 8 required visual cue types.

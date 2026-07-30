@@ -1,346 +1,544 @@
-# Milestone 1: Node Abstraction Design & State Ledger Integration (`src/core/workflow/node.py`)
+# Technical Specification & Design Analysis: FFmpeg Command Generator (`src/assembly/ffmpeg_commands.py`)
 
-## 1. Architectural Overview & Context
+## Executive Summary
 
-Phase 08 implements the synchronous, fault-tolerant execution engine for the Automated DSA Educational YouTube Video Pipeline. The pipeline executes sequential processing steps:
-1. **Ingest**: Ingest problem statements and initial configuration.
-2. **Plan**: Generate educational lesson plan and animation script structures.
-3. **Script**: Generate script text and voice/narration timings.
-4. **Render**: Render visual assets via Manim / FFmpeg.
+This document presents the detailed design specification and exact implementation logic for `src/assembly/ffmpeg_commands.py`. As part of Phase 13 (Media Production: Video Assembly), this module provides a set of pure helper functions that construct FFmpeg Command Line Interface (CLI) argument arrays (`List[str]`) for 4K video rendering, multi-segment video/audio concatenation, audio resampling, and hard-coded (burned-in) subtitle overlay.
 
-To guarantee true pipeline idempotency, crash safety, resumeability, and component isolation, pipeline nodes must **strictly communicate via the SQLite State Ledger (`StateLedger`) using `run_id`**. Passing in-memory state objects or DTOs between node instances is prohibited.
-
-`src/core/workflow/node.py` defines the foundational abstract base class `Node(ABC)` that all workflow nodes implement.
+By maintaining strict separation of concerns, `src/assembly/ffmpeg_commands.py` contains **zero side effects** (no I/O, no subprocess execution). Subprocess execution, timeout management, and file sanitation are delegated to `VideoAssembler` (`src/assembly/assembler.py`).
 
 ---
 
-## 2. Abstract Node Contract (`Node(ABC)`)
+## 1. Design Requirements & Architectural Objectives
 
-### 2.1 Abstract Class Signature
-`Node` inherits from `abc.ABC` to establish a mandatory interface for pipeline steps.
+### 1.1 Non-Shell List Format (`List[str]`)
+- All command builders MUST return Python lists of strings (`List[str]`).
+- Commands are passed to `subprocess.run(cmd, shell=False, close_fds=True)` without shell invocation.
+- Shell interpolation vulnerabilities, space-splitting issues, and shell quote injection risks are eliminated by design.
 
-```python
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
-from src.core.orchestrator.state_ledger import StateLedger, StepExecutionRecord, PipelineRunRecord
-from src.core.exceptions import PipelineError, PipelineStageError
-from src.core.logger import get_logger
+### 1.2 Video & Audio Parameter Baselines
+| Parameter | Default Value | Flag / FFmpeg Argument | Description / Rationale |
+|---|---|---|---|
+| **Target Resolution** | `3840x2160` | Filter graph `scale=3840:2160:force_original_aspect_ratio=decrease,pad=3840:2160:(ow-iw)/2:(oh-ih)/2,setsar=1` | YouTube 4K UHD standard |
+| **Frame Rate** | `30` | `-r 30` | 30 FPS standard framerate |
+| **Video Codec** | `libx264` | `-c:v libx264` | H.264 High Profile 5.1 |
+| **Preset** | `medium` | `-preset medium` | Optimal balance between render speed and file size |
+| **Rate Control (CRF)** | `18` | `-crf 18` | Visually lossless quality for 4K video |
+| **Pixel Format** | `yuv420p` | `-pix_fmt yuv420p` | 8-bit 4:2:0 subsampling required for browser playback |
+| **Audio Codec** | `aac` | `-c:a aac` | Universal YouTube stereo audio standard |
+| **Audio Bitrate** | `384k` | `-b:a 384k` | High fidelity audio bitrate |
+| **Audio Sample Rate** | `48000` Hz | `-ar 48000` / `aresample=48000` | Standard video production sample rate |
+| **Audio Channels** | `2` (Stereo) | `-ac 2` | 2-channel stereo output |
 
-logger = get_logger(__name__)
-
-class Node(ABC):
-    """
-    Abstract Base Class for all workflow execution nodes in the pipeline.
-
-    Nodes represent individual, modular pipeline stages (e.g., Ingest, Plan, Script, Render).
-    Nodes are strictly stateless execution handlers; all input state must be retrieved from
-    the SQLite StateLedger via run_id, and all output state must be returned as a JSON-serializable
-    dictionary payload to be recorded in the StateLedger.
-    """
-```
-
-### 2.2 Abstract Property `name`
-Every concrete `Node` subclass must define a unique `name` string identifier.
-
-```python
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """
-        Unique name identifier for the workflow node step.
-
-        Used as the step_name key when recording step execution in StateLedger
-        and when querying prior step outputs.
-
-        Returns:
-            str: The unique step name (e.g., 'ingest', 'plan', 'script', 'render').
-        """
-        pass
-```
-
-### 2.3 Abstract Execution Signature
-The execution entrypoint for a node is `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`.
-
-```python
-    @abstractmethod
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        """
-        Execute the node's specific processing logic.
-
-        Args:
-            run_id: The unique identifier of the active pipeline run in SQLite StateLedger.
-            ledger: The thread-safe StateLedger instance for querying run metadata and
-                    outputs of previously completed steps.
-
-        Returns:
-            dict[str, Any]: Key-value output payload dictionary to be recorded in SQLite
-                            StateLedger upon step completion.
-
-        Raises:
-            PipelineError: If step execution encounters an error.
-            PipelineStageError: If required prior step outputs or run metadata are missing.
-        """
-        pass
-```
+### 1.3 Subtitle Burning & Filter Graph Escaping
+- Subtitles are burned directly into the video stream via the FFmpeg `subtitles` filter graph.
+- Filter string syntax: `subtitles='<escaped_path>':force_style='<force_style_string>'`.
+- Special characters in paths (`:`, `'`, `\`, `[`, `]`) MUST be escaped using `escape_ffmpeg_filter_path` to prevent FFmpeg filter graph parser errors.
 
 ---
 
-## 3. State-Ledger-Only Communication Protocol
+## 2. API Design & Helper Function Specifications
 
-### 3.1 Elimination of In-Memory State Object Passing
-Traditional pipeline frameworks often pass output objects directly down the execution chain (e.g. `node2.execute(node1_output)`). This introduces several critical failure modes:
-- **Tight Coupling**: Node 2 relies directly on Node 1's transient in-memory objects.
-- **No Crash Recovery**: If the process crashes mid-pipeline, Node 2 cannot resume because in-memory state is lost.
-- **Non-Idempotent Execution**: Re-executing a single failed step requires re-executing all preceding steps in memory.
+`src/assembly/ffmpeg_commands.py` exposes 6 pure functions:
 
-**State-Ledger Enforcement**:
-- Nodes do **NOT** accept preceding step outputs via `__init__` or `execute()`.
-- Nodes do **NOT** store transient cross-run state in instance variables (`self._state`).
-- Nodes accept only `run_id: str` and `ledger: StateLedger`.
-- Node output is returned exclusively as a JSON-serializable `dict[str, Any]`.
+### 2.1 `escape_ffmpeg_filter_path(path: Union[str, Path]) -> str`
+Escapes file paths for inclusion inside FFmpeg filter graph strings.
 
-### 3.2 Reading Inputs from `StateLedger`
-During execution, a node retrieves prior state using two `StateLedger` methods:
+**Escaping Rules**:
+1. Converts input `path` to absolute resolved string path (`Path(path).resolve()`).
+2. Escapes backslashes: `\` -> `\\\\`.
+3. Escapes colons: `:` -> `\\:`. (Crucial: FFmpeg filter graphs use `:` as key-value parameter delimiters; unescaped colons in paths like `/tmp/run:1/sub.srt` crash the filter parser).
+4. Escapes single quotes: `'` -> `\\'`.
+5. Escapes square brackets: `[` -> `\\[`, `]` -> `\\]`.
 
-1. **Retrieving Run Metadata**:
-   ```python
-   run_record: PipelineRunRecord | None = ledger.get_run(run_id)
-   ```
-   Contains `pipeline_run_id`, `slug` (problem identifier), `status`, `created_at`, `updated_at`, and `metadata` (`dict[str, Any] | None`).
+### 2.2 `build_4k_scale_filter(...)`
+Generates an FFmpeg video filter graph segment that scales and pads any input video stream to 4K resolution (3840x2160) while maintaining aspect ratio and enforcing 1:1 Sample Aspect Ratio (SAR).
 
-2. **Retrieving Prior Step Outputs**:
-   ```python
-   completed_steps: dict[str, StepExecutionRecord] = ledger.get_completed_steps(run_id)
-   ```
-   Returns a mapping of `step_name -> StepExecutionRecord`. Each `StepExecutionRecord` contains:
-   - `step_name: str`
-   - `status: StepStatus` (StepStatus.COMPLETED)
-   - `input_payload: dict[str, Any] | None`
-   - `output_payload: dict[str, Any] | None`
-
-   To read the output of a prior step `ingest`:
-   ```python
-   ingest_record = completed_steps.get("ingest")
-   if not ingest_record or not ingest_record.output_payload:
-       raise PipelineStageError("Required step 'ingest' output missing from StateLedger")
-   raw_data = ingest_record.output_payload.get("raw_data")
-   ```
-
-### 3.3 Returning Outputs to `WorkflowEngine`
-When `node.execute(run_id, ledger)` finishes, it returns a `dict[str, Any]`.
-`WorkflowEngine` manages step execution tracking:
-1. Engine calls `ledger.record_step_start(run_id, node.name) -> step_execution_id`.
-2. Engine executes `output = node.execute(run_id, ledger)`.
-3. Engine calls `ledger.record_step_completion(step_execution_id, output_payload=output)`.
-4. If an exception occurs, engine calls `ledger.record_step_failure(step_execution_id, error_message=str(e))`.
-
-This separation of concerns keeps `Node` implementation simple: nodes concentrate purely on domain logic and state queries, while `WorkflowEngine` handles transaction logging and exception containment.
-
----
-
-## 4. Helper Utility Methods on `Node`
-
-To eliminate boilerplate across concrete nodes, `Node` provides built-in helper methods:
-
+**Signature**:
 ```python
-    def get_run_record(self, run_id: str, ledger: StateLedger) -> PipelineRunRecord:
-        """
-        Fetch the PipelineRunRecord for the given run_id.
+def build_4k_scale_filter(
+    input_label: str = "0:v",
+    output_label: str = "v_scaled",
+    width: int = 3840,
+    height: int = 2160,
+) -> str
+```
 
-        Raises:
-            PipelineStageError: If the run_id is not found in the ledger.
-        """
-        record = ledger.get_run(run_id)
-        if record is None:
-            raise PipelineStageError(f"Pipeline run '{run_id}' not found in StateLedger.")
-        return record
+**Output Syntax**:
+`"[{input_label}]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[{output_label}]"`
 
-    def get_step_output(self, run_id: str, ledger: StateLedger, step_name: str) -> dict[str, Any]:
-        """
-        Fetch the completed output_payload of a prior step.
+### 2.3 `build_subtitle_filter(...)`
+Generates the FFmpeg `subtitles` filter graph string fragment with custom ASS/SSA typography styling.
 
-        Args:
-            run_id: Pipeline run identifier.
-            ledger: StateLedger instance.
-            step_name: Name of the prior step whose output is required.
+**Signature**:
+```python
+def build_subtitle_filter(
+    subtitle_path: Union[str, Path],
+    force_style: Optional[Dict[str, str]] = None,
+    input_label: str = "v_concat",
+    output_label: str = "v_out",
+) -> str
+```
 
-        Returns:
-            dict[str, Any]: The output payload dictionary.
+**Default Typography Style**:
+```python
+DEFAULT_SUBTITLE_STYLE = {
+    "FontName": "Sans",
+    "FontSize": "28",
+    "PrimaryColour": "&H00FFFFFF",  # White
+    "OutlineColour": "&H00000000",  # Black outline
+    "BorderStyle": "1",             # Outline + shadow
+    "Outline": "2",
+    "Shadow": "1",
+    "Alignment": "2",               # Bottom-center
+}
+```
 
-        Raises:
-            PipelineStageError: If prior step was not completed or output_payload is missing.
-        """
-        completed_steps = ledger.get_completed_steps(run_id)
-        if step_name not in completed_steps:
-            raise PipelineStageError(
-                f"Node '{self.name}' requires output from prior step '{step_name}', "
-                f"but step '{step_name}' is not recorded as completed for run '{run_id}'."
-            )
-        output = completed_steps[step_name].output_payload
-        if output is None:
-            raise PipelineStageError(
-                f"Prior step '{step_name}' has null output_payload in StateLedger for run '{run_id}'."
-            )
-        return output
+**Output Syntax**:
+`"[{input_label}]subtitles='{escaped_path}':force_style='{force_style_str}'[{output_label}]"`
+
+### 2.4 `build_concat_filter_graph(...)`
+Constructs a complete complex filter graph string (`-filter_complex`) that:
+1. Scales each input video stream to 4K using `build_4k_scale_filter`.
+2. Concatenates video streams into a single video track.
+3. Concatenates and resamples audio streams to 48kHz.
+4. Applies subtitle burning via `build_subtitle_filter` if a subtitle path is provided.
+
+**Signature**:
+```python
+def build_concat_filter_graph(
+    num_video_inputs: int,
+    num_audio_inputs: int,
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    width: int = 3840,
+    height: int = 2160,
+    fps: int = 30,
+) -> Tuple[str, str, Optional[str]]
+```
+Returns a 3-tuple `(filter_graph_str, final_video_label, final_audio_label)`.
+
+### 2.5 `build_assembly_command(...)`
+Constructs the full FFmpeg command list (`List[str]`) using single-pass `-filter_complex`.
+
+**Signature**:
+```python
+def build_assembly_command(
+    video_inputs: List[Union[str, Path]],
+    audio_inputs: List[Union[str, Path]],
+    output_path: Union[str, Path],
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    fps: int = 30,
+    video_codec: str = "libx264",
+    preset: str = "medium",
+    crf: int = 18,
+    pixel_format: str = "yuv420p",
+    audio_codec: str = "aac",
+    audio_bitrate: str = "384k",
+    audio_sample_rate: int = 48000,
+    width: int = 3840,
+    height: int = 2160,
+    ffmpeg_binary: str = "ffmpeg",
+) -> List[str]
+```
+
+### 2.6 `build_demuxer_assembly_command(...)`
+Constructs an alternate FFmpeg command list (`List[str]`) for demuxer mode when using pre-generated `concat_video.txt` and `concat_audio.txt` text manifest files.
+
+**Signature**:
+```python
+def build_demuxer_assembly_command(
+    video_manifest_path: Union[str, Path],
+    audio_manifest_path: Union[str, Path],
+    output_path: Union[str, Path],
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    fps: int = 30,
+    video_codec: str = "libx264",
+    preset: str = "medium",
+    crf: int = 18,
+    pixel_format: str = "yuv420p",
+    audio_codec: str = "aac",
+    audio_bitrate: str = "384k",
+    audio_sample_rate: int = 48000,
+    width: int = 3840,
+    height: int = 2160,
+    ffmpeg_binary: str = "ffmpeg",
+) -> List[str]
 ```
 
 ---
 
-## 5. Complete Implementation Draft for `src/core/workflow/node.py`
+## 3. Proposed Source Code Implementation for `src/assembly/ffmpeg_commands.py`
+
+Below is the complete, proposed implementation code for `src/assembly/ffmpeg_commands.py`:
 
 ```python
-"""
-Abstract Node Base Class for Phase 08 Workflow Engine.
+"""FFmpeg CLI Command Builders for 4K Video Assembly.
 
-Defines the contract for pipeline execution nodes and enforces strict
-StateLedger-based state passing via run_id.
+This module provides pure functions to construct non-shell FFmpeg command argument
+lists (List[str]) for 4K UHD video rendering, multi-stream concatenation, audio
+mixing/resampling, and hard-coded subtitle burning.
+
+All functions are pure and have zero side effects (no file I/O or process execution).
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
-from src.core.exceptions import PipelineError, PipelineStageError
-from src.core.logger import get_logger
-from src.core.orchestrator.state_ledger import PipelineRunRecord, StateLedger, StepExecutionRecord
+DEFAULT_SUBTITLE_STYLE: Dict[str, str] = {
+    "FontName": "Sans",
+    "FontSize": "28",
+    "PrimaryColour": "&H00FFFFFF",  # White text (ASS/SSA format)
+    "OutlineColour": "&H00000000",  # Black outline
+    "BorderStyle": "1",             # 1 = Outline + drop shadow
+    "Outline": "2",                 # Outline thickness
+    "Shadow": "1",                  # Shadow depth
+    "Alignment": "2",               # 2 = Bottom-center aligned
+}
 
-logger = get_logger(__name__)
 
+def escape_ffmpeg_filter_path(path: Union[str, Path]) -> str:
+    """Escapes special characters in file paths for FFmpeg filter graph syntax.
 
-class Node(ABC):
+    FFmpeg's filter graph parser treats colons as parameter delimiters, single quotes
+    as string enclosures, backslashes as escape characters, and square brackets
+    as stream labels.
+
+    Args:
+        path: Absolute or relative file path.
+
+    Returns:
+        Escaped path string safe for insertion into FFmpeg filter graph strings.
     """
-    Abstract Base Class for all workflow nodes in the execution pipeline.
+    path_str = str(Path(path).resolve()) if isinstance(path, Path) else str(path)
+    # Order matters: backslashes must be escaped first
+    path_str = path_str.replace("\\", "\\\\")
+    path_str = path_str.replace(":", "\\:")
+    path_str = path_str.replace("'", "\\'")
+    path_str = path_str.replace("[", "\\[").replace("]", "\\]")
+    return path_str
 
-    Nodes execute modular processing steps (e.g., Ingest, Plan, Script, Render).
-    They communicate strictly via the SQLite StateLedger using run_id to ensure
-    idempotency, crash recovery, and component isolation. Passing in-memory state
-    objects between node instances is prohibited.
+
+def build_4k_scale_filter(
+    input_label: str = "0:v",
+    output_label: str = "v_scaled",
+    width: int = 3840,
+    height: int = 2160,
+) -> str:
+    """Generates a video scaling and padding filter graph clause for 4K UHD output.
+
+    Args:
+        input_label: Input stream label (e.g. "0:v" or "v0").
+        output_label: Output stream label (e.g. "v_scaled").
+        width: Target video width in pixels. Default 3840 (4K).
+        height: Target video height in pixels. Default 2160 (4K).
+
+    Returns:
+        Filter graph string clause.
     """
+    return (
+        f"[{input_label}]"
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
+        f"setsar=1"
+        f"[{output_label}]"
+    )
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """
-        Unique name identifier for the workflow node step.
 
-        Used as step_name in StateLedger tracking and for prior step output lookups.
+def build_subtitle_filter(
+    subtitle_path: Union[str, Path],
+    force_style: Optional[Dict[str, str]] = None,
+    input_label: str = "v_concat",
+    output_label: str = "v_out",
+) -> str:
+    """Generates the subtitles filter graph clause with custom ASS/SSA typography.
 
-        Returns:
-            str: Unique step identifier (e.g., 'ingest', 'plan', 'script', 'render').
-        """
-        pass
+    Args:
+        subtitle_path: Path to the .srt or .ass subtitle file.
+        force_style: Optional dict overriding default subtitle style attributes.
+        input_label: Input video stream label. Default "v_concat".
+        output_label: Output video stream label. Default "v_out".
 
-    @abstractmethod
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        """
-        Execute node processing logic for the specified run_id.
+    Returns:
+        Subtitles filter graph clause string.
+    """
+    escaped_path = escape_ffmpeg_filter_path(subtitle_path)
+    style_dict = dict(DEFAULT_SUBTITLE_STYLE)
+    if force_style:
+        style_dict.update(force_style)
 
-        Args:
-            run_id: Unique pipeline run identifier.
-            ledger: Thread-safe StateLedger instance for reading inputs and metadata.
+    style_str = ",".join(f"{k}={v}" for k, v in style_dict.items())
+    return f"[{input_label}]subtitles='{escaped_path}':force_style='{style_str}'[{output_label}]"
 
-        Returns:
-            dict[str, Any]: Output dictionary payload to record in StateLedger.
 
-        Raises:
-            PipelineError: If step processing fails.
-            PipelineStageError: If required prior step outputs or run records are missing.
-        """
-        pass
+def build_concat_filter_graph(
+    num_video_inputs: int,
+    num_audio_inputs: int,
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    width: int = 3840,
+    height: int = 2160,
+    fps: int = 30,
+) -> Tuple[str, str, Optional[str]]:
+    """Constructs a complex filter graph string for multi-input video/audio assembly.
 
-    def get_run_record(self, run_id: str, ledger: StateLedger) -> PipelineRunRecord:
-        """
-        Retrieve PipelineRunRecord for the run_id, raising PipelineStageError if not found.
-        """
-        record = ledger.get_run(run_id)
-        if record is None:
-            logger.error("Pipeline run record not found", run_id=run_id, node=self.name)
-            raise PipelineStageError(f"Pipeline run '{run_id}' not found in StateLedger for node '{self.name}'.")
-        return record
+    Args:
+        num_video_inputs: Number of video input files (-i options).
+        num_audio_inputs: Number of audio input files (-i options).
+        subtitle_path: Optional path to .srt subtitle file to burn in.
+        subtitle_style: Optional custom subtitle styling override dict.
+        width: Target width in pixels (3840 for 4K).
+        height: Target height in pixels (2160 for 4K).
+        fps: Target framerate.
 
-    def get_step_output(self, run_id: str, ledger: StateLedger, step_name: str) -> dict[str, Any]:
-        """
-        Retrieve output payload dictionary of a previously completed step.
+    Returns:
+        Tuple of (filter_complex_string, video_output_label, audio_output_label).
 
-        Args:
-            run_id: Pipeline run identifier.
-            ledger: StateLedger instance.
-            step_name: Name of prior completed step.
+    Raises:
+        ValueError: If num_video_inputs < 1.
+    """
+    if num_video_inputs < 1:
+        raise ValueError("num_video_inputs must be at least 1")
 
-        Returns:
-            dict[str, Any]: Output payload dictionary.
+    clauses: List[str] = []
 
-        Raises:
-            PipelineStageError: If step is missing, incomplete, or output is null.
-        """
-        completed_steps = ledger.get_completed_steps(run_id)
-        if step_name not in completed_steps:
-            logger.error(
-                "Missing required step completion",
-                run_id=run_id,
-                node=self.name,
-                required_step=step_name,
-            )
-            raise PipelineStageError(
-                f"Node '{self.name}' requires step '{step_name}' completion, "
-                f"but '{step_name}' was not completed for run '{run_id}'."
-            )
+    # 1. Scale all video inputs to 4K
+    for i in range(num_video_inputs):
+        clauses.append(build_4k_scale_filter(f"{i}:v", f"v{i}", width, height))
 
-        step_record = completed_steps[step_name]
-        if step_record.output_payload is None:
-            logger.error(
-                "Step output payload is null",
-                run_id=run_id,
-                node=self.name,
-                required_step=step_name,
-            )
-            raise PipelineStageError(
-                f"Prior step '{step_name}' has null output_payload in StateLedger for run '{run_id}'."
-            )
+    # 2. Concat video streams
+    if num_video_inputs > 1:
+        v_inputs = "".join(f"[v{i}]" for i in range(num_video_inputs))
+        clauses.append(f"{v_inputs}concat=n={num_video_inputs}:v=1:a=0[v_concat]")
+        current_v_label = "v_concat"
+    else:
+        current_v_label = "v0"
 
-        return step_record.output_payload
+    # 3. Burn subtitles if provided
+    if subtitle_path is not None:
+        sub_clause = build_subtitle_filter(
+            subtitle_path,
+            force_style=subtitle_style,
+            input_label=current_v_label,
+            output_label="v_out",
+        )
+        clauses.append(sub_clause)
+        final_v_label = "v_out"
+    else:
+        final_v_label = current_v_label
+
+    # 4. Concat and resample audio streams if present
+    final_a_label: Optional[str] = None
+    if num_audio_inputs > 1:
+        audio_offset = num_video_inputs
+        a_inputs = "".join(f"[{audio_offset + j}:a]" for j in range(num_audio_inputs))
+        clauses.append(f"{a_inputs}concat=n={num_audio_inputs}:v=0:a=1,aresample=48000[a_out]")
+        final_a_label = "a_out"
+    elif num_audio_inputs == 1:
+        audio_offset = num_video_inputs
+        clauses.append(f"[{audio_offset}:a]aresample=48000[a_out]")
+        final_a_label = "a_out"
+
+    filter_complex_str = "; ".join(clauses)
+    return filter_complex_str, final_v_label, final_a_label
+
+
+def build_assembly_command(
+    video_inputs: List[Union[str, Path]],
+    audio_inputs: List[Union[str, Path]],
+    output_path: Union[str, Path],
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    fps: int = 30,
+    video_codec: str = "libx264",
+    preset: str = "medium",
+    crf: int = 18,
+    pixel_format: str = "yuv420p",
+    audio_codec: str = "aac",
+    audio_bitrate: str = "384k",
+    audio_sample_rate: int = 48000,
+    width: int = 3840,
+    height: int = 2160,
+    ffmpeg_binary: str = "ffmpeg",
+) -> List[str]:
+    """Builds a complete non-shell FFmpeg CLI command argument list for 4K video assembly.
+
+    Args:
+        video_inputs: List of input video file paths (.mp4).
+        audio_inputs: List of input audio file paths (.wav).
+        output_path: Target output video file path (.mp4).
+        subtitle_path: Optional path to subtitle file (.srt) to burn in.
+        subtitle_style: Optional subtitle style overrides.
+        fps: Target framerate (default 30).
+        video_codec: Encoder name (default "libx264").
+        preset: Encoding speed preset (default "medium").
+        crf: Quality setting (default 18 for visually lossless).
+        pixel_format: Pixel format (default "yuv420p").
+        audio_codec: Audio encoder (default "aac").
+        audio_bitrate: Audio bitrate (default "384k").
+        audio_sample_rate: Audio sampling frequency in Hz (default 48000).
+        width: Target width (default 3840).
+        height: Target height (default 2160).
+        ffmpeg_binary: Path or binary name for FFmpeg executable (default "ffmpeg").
+
+    Returns:
+        List[str] representing exact subprocess argument array.
+
+    Raises:
+        ValueError: If video_inputs is empty.
+    """
+    if not video_inputs:
+        raise ValueError("video_inputs list cannot be empty")
+
+    cmd: List[str] = [ffmpeg_binary, "-y"]
+
+    # Append video input files
+    for vp in video_inputs:
+        cmd.extend(["-i", str(vp)])
+
+    # Append audio input files
+    for ap in audio_inputs:
+        cmd.extend(["-i", str(ap)])
+
+    # Build filter complex graph
+    filter_graph, v_map, a_map = build_concat_filter_graph(
+        num_video_inputs=len(video_inputs),
+        num_audio_inputs=len(audio_inputs),
+        subtitle_path=subtitle_path,
+        subtitle_style=subtitle_style,
+        width=width,
+        height=height,
+        fps=fps,
+    )
+
+    cmd.extend(["-filter_complex", filter_graph])
+    cmd.extend(["-map", f"[{v_map}]"])
+
+    if a_map is not None:
+        cmd.extend(["-map", f"[{a_map}]"])
+
+    # Add video encoding flags
+    cmd.extend([
+        "-c:v", video_codec,
+        "-preset", preset,
+        "-crf", str(crf),
+        "-pix_fmt", pixel_format,
+        "-r", str(fps),
+    ])
+
+    # Add audio encoding flags if audio is present
+    if a_map is not None:
+        cmd.extend([
+            "-c:a", audio_codec,
+            "-b:a", audio_bitrate,
+            "-ar", str(audio_sample_rate),
+            "-ac", "2",
+        ])
+
+    cmd.append(str(output_path))
+    return cmd
+
+
+def build_demuxer_assembly_command(
+    video_manifest_path: Union[str, Path],
+    audio_manifest_path: Union[str, Path],
+    output_path: Union[str, Path],
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_style: Optional[Dict[str, str]] = None,
+    fps: int = 30,
+    video_codec: str = "libx264",
+    preset: str = "medium",
+    crf: int = 18,
+    pixel_format: str = "yuv420p",
+    audio_codec: str = "aac",
+    audio_bitrate: str = "384k",
+    audio_sample_rate: int = 48000,
+    width: int = 3840,
+    height: int = 2160,
+    ffmpeg_binary: str = "ffmpeg",
+) -> List[str]:
+    """Builds an FFmpeg CLI command using concat demuxer text manifest files.
+
+    Args:
+        video_manifest_path: Path to concat_video.txt demuxer manifest.
+        audio_manifest_path: Path to concat_audio.txt demuxer manifest.
+        output_path: Target output video file path.
+        subtitle_path: Optional path to .srt subtitle file.
+        subtitle_style: Optional custom subtitle style dict.
+        fps: Target framerate (default 30).
+        video_codec: Video encoder (default "libx264").
+        preset: Encoder preset (default "medium").
+        crf: Quality setting (default 18).
+        pixel_format: Pixel format (default "yuv420p").
+        audio_codec: Audio encoder (default "aac").
+        audio_bitrate: Audio bitrate (default "384k").
+        audio_sample_rate: Sample rate (default 48000).
+        width: Width (default 3840).
+        height: Height (default 2160).
+        ffmpeg_binary: FFmpeg executable binary (default "ffmpeg").
+
+    Returns:
+        List[str] representing exact subprocess argument array.
+    """
+    cmd: List[str] = [
+        ffmpeg_binary, "-y",
+        "-f", "concat", "-safe", "0", "-i", str(video_manifest_path),
+        "-f", "concat", "-safe", "0", "-i", str(audio_manifest_path),
+    ]
+
+    vf_filters: List[str] = [
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+    ]
+
+    if subtitle_path is not None:
+        escaped_path = escape_ffmpeg_filter_path(subtitle_path)
+        style_dict = dict(DEFAULT_SUBTITLE_STYLE)
+        if subtitle_style:
+            style_dict.update(subtitle_style)
+        style_str = ",".join(f"{k}={v}" for k, v in style_dict.items())
+        vf_filters.append(f"subtitles='{escaped_path}':force_style='{style_str}'")
+
+    cmd.extend(["-vf", ",".join(vf_filters)])
+
+    cmd.extend([
+        "-c:v", video_codec,
+        "-preset", preset,
+        "-crf", str(crf),
+        "-pix_fmt", pixel_format,
+        "-r", str(fps),
+        "-c:a", audio_codec,
+        "-b:a", audio_bitrate,
+        "-ar", str(audio_sample_rate),
+        "-ac", "2",
+        str(output_path),
+    ])
+
+    return cmd
 ```
 
 ---
 
-## 6. Concrete Example Usage (Mock Nodes for Testing & Pipeline Setup)
+## 4. Analysis of Edge Cases & Vulnerabilities
 
-```python
-class MockIngestNode(Node):
-    @property
-    def name(self) -> str:
-        return "ingest"
-
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        run = self.get_run_record(run_id, ledger)
-        return {
-            "slug": run.slug,
-            "raw_problem": f"Problem content for {run.slug}",
-            "ingested_at": "2026-07-29T12:00:00Z",
-        }
-
-
-class MockPlanNode(Node):
-    @property
-    def name(self) -> str:
-        return "plan"
-
-    def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
-        ingest_output = self.get_step_output(run_id, ledger, "ingest")
-        return {
-            "plan_title": f"Educational Plan for {ingest_output['slug']}",
-            "steps": ["Introduction", "Algorithm", "Code", "Complexity"],
-        }
-```
+| # | Edge Case / Scenario | Mitigation in Design |
+|---|---|---|
+| 1 | **Colons / Single Quotes in Subtitle Path** | `escape_ffmpeg_filter_path()` replaces `:` with `\\:`, `'` with `\\'`, `\` with `\\\\`, and `[`/`]` with `\\[`/`\\]`. |
+| 2 | **Input Video Aspect Ratio Mismatch** | `build_4k_scale_filter()` uses `force_original_aspect_ratio=decrease` and `pad=3840:2160:(ow-iw)/2:(oh-ih)/2` to letterbox/pillarbox without distorting geometry. |
+| 3 | **Empty Video Inputs List** | `build_assembly_command()` checks `if not video_inputs:` and raises `ValueError("video_inputs list cannot be empty")`. |
+| 4 | **No Audio Inputs Provided** | `build_concat_filter_graph()` returns `final_a_label = None`. `build_assembly_command()` omits `-map [a_out]` and `-c:a`/`-b:a` audio parameters cleanly. |
+| 5 | **Sub-100 Byte Output / Render Failure** | Command builders strictly produce pure command arrays; output file size validation (`st_size > 100`) is handled in `VideoAssembler` (`src/assembly/assembler.py`). |
+| 6 | **Mock Subprocess Execution in Unit Tests** | Binary name can be overridden via `ffmpeg_binary="python_mock.py"`, allowing tests to inspect returned `List[str]` command arguments without calling real `ffmpeg`. |
 
 ---
 
-## 7. Verification Strategy for Implementer
+## 5. Verification Method
 
-1. **Unit Test Suite**: `tests/workflow/test_node.py`
-   - Test subclassing `Node` without defining `name` raises `TypeError` (can't instantiate abstract class).
-   - Test subclassing `Node` without defining `execute` raises `TypeError`.
-   - Test `get_run_record` returns `PipelineRunRecord` or raises `PipelineStageError` when invalid `run_id` is passed.
-   - Test `get_step_output` returns `output_payload` dictionary when step is completed in `StateLedger`.
-   - Test `get_step_output` raises `PipelineStageError` when prior step was not executed or failed.
-2. **Integration with WorkflowEngine**:
-   - Verify `WorkflowEngine` can iterate through a sequence of `Node` instances, invoking `node.execute(run_id, ledger)` and updating `StateLedger`.
+Unit tests in `tests/pipeline/test_assembly_node.py` will verify:
+1. `test_escape_ffmpeg_filter_path()`: Validates that paths containing colons (`/tmp/run:1/sub's.srt`) escape to `/tmp/run\:1/sub\'s.srt`.
+2. `test_build_4k_scale_filter()`: Asserts that output contains `scale=3840:2160`, `pad=3840:2160`, and `setsar=1`.
+3. `test_build_subtitle_filter()`: Asserts subtitle string syntax and style parameter format (`force_style='FontName=Sans...'`).
+4. `test_build_assembly_command_list_format()`: Verifies that returned value is a `list`, contains `libx264`, `yuv420p`, `384k`, `-crf`, `18`, `-r`, `30`, `-filter_complex`, and does NOT contain shell strings.
+5. `test_empty_video_inputs_raises_value_error()`: Asserts `ValueError` raised when empty list is passed.

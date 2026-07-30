@@ -1,444 +1,395 @@
-# Detailed Technical Analysis & Design for `src/core/workflow/engine.py`
+# Design Specification: VideoAssembler (`src/assembly/assembler.py`)
 
 ## Executive Summary
-
-This document presents the comprehensive architectural and implementation design for `WorkflowEngine` (`src/core/workflow/engine.py`) in Milestone 1 of Phase 08. The `WorkflowEngine` orchestrates the sequential, fault-tolerant execution of pipeline nodes (e.g. Ingest, Plan, Script, Render), strictly using the SQLite-backed `StateLedger` (`src/core/orchestrator/state_ledger.py`) for state persistence, step idempotency checking, and crash recovery.
-
----
-
-## 1. Architectural Alignment & Key Requirements
-
-| Requirement | Implementation Strategy | StateLedger Contract |
-|-------------|-------------------------|----------------------|
-| **Constructor & Dependency Injection** | Accepts `nodes: Sequence[Node]` and optional `ledger: StateLedger \| None`. Defaults `ledger` to `StateLedger("data/state_ledger.db")` if not provided. | Instantiates thread-safe SQLite WAL connection. |
-| **Execution Method Signature** | Implements `run(self, run_id: str) -> EngineResult`. Provides `execute` and `run_pipeline` aliases for full interface contract compliance. | Queries `ledger.get_run(run_id)` to validate existence. |
-| **Step Idempotency & Resumption** | Queries `completed_steps = ledger.get_completed_steps(run_id)`. If `node.name` exists in `completed_steps` with `StepStatus.COMPLETED`, execution of `node` is skipped. | Reads `step_executions` table filtered by `pipeline_run_id` and `status = 'COMPLETED'`. |
-| **Fault-Tolerant Node Execution** | Wraps `node.execute(run_id, ledger)` in `try...except Exception as e`. Captures `e`, records failure to `ledger.record_step_failure()`, halts execution, and returns `EngineResult` with `success=False`. | Updates step and parent run status in SQLite to `FAILED`. Prevents process crash. |
+This document provides the complete architectural design, method signatures, error handling mapping, security specifications, temporary directory management, and full code implementation for `VideoAssembler` in `src/assembly/assembler.py`. `VideoAssembler` is responsible for low-level secure FFmpeg execution in Phase 13 of the Automated DSA Educational YouTube Video Pipeline.
 
 ---
 
-## 2. Interface Contracts & Data Models
+## 1. Requirements & Security Specifications
 
-### 2.1 `EngineResult` Dataclass (`src/core/workflow/engine.py`)
-
-```python
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from src.core.orchestrator.state_ledger import StepStatus
-
-@dataclass
-class EngineResult:
-    """
-    Execution outcome container produced by WorkflowEngine.
-    
-    Attributes:
-        run_id: Unique pipeline run identifier tracked in StateLedger.
-        success: True if all nodes executed or were skipped successfully; False if any node failed.
-        status: Final StepStatus enum value (COMPLETED or FAILED).
-        executed_steps: List of node names executed during this run.
-        skipped_steps: List of node names skipped due to step idempotency.
-        outputs: Dict mapping step_name -> node output payload dictionary.
-        failed_step: Name of the node that failed, or None if successful.
-        error_message: Exception message string if execution failed, or None.
-        error_details: Dict containing 'error_type' and 'traceback' if execution failed, or None.
-    """
-    run_id: str
-    success: bool
-    status: StepStatus
-    executed_steps: List[str] = field(default_factory=list)
-    skipped_steps: List[str] = field(default_factory=list)
-    outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    failed_step: Optional[str] = None
-    error_message: Optional[str] = None
-    error_details: Optional[Dict[str, Any]] = None
-```
+### 1.1 Key Objectives
+1. Design `VideoAssembler` class with `assemble(...)` and `run_command(...)` methods.
+2. Secure `subprocess.run(...)` invocation:
+   - `shell=False` (explicitly enforced for parameter array isolation).
+   - `close_fds=True` (prevents file descriptor leaks into child subprocesses).
+   - `timeout=300.0` (configurable default wall-clock limit).
+   - `capture_output=True` (captures stdout/stderr).
+   - `text=True` (decodes output streams to UTF-8 strings).
+3. Exception Mapping:
+   - `subprocess.TimeoutExpired` -> `AssemblyError` (`src/core/exceptions.py:140`).
+   - Non-zero exit code (`returncode != 0`) -> `AssemblyError` with captured `stderr`/`stdout`.
+   - Output file missing or < 100 bytes -> `AssemblyError`.
+4. Temporary File Management:
+   - Use `tempfile.TemporaryDirectory(prefix="assembly_", dir=...)` for context-managed cleanup.
+   - Write intermediate `concat_list.txt` and `subtitles.srt` files inside the temporary directory.
+   - Atomic file creation via temporary output path (`tmp_dest`) and `os.replace()`.
+   - `try...finally` / `try...except` explicit deletion of partial destination files on failure.
 
 ---
 
-## 3. Workflow Engine Execution Flow
+## 2. Class Architecture & Interface Contract
 
 ```
-                     +---------------------------------------+
-                     |         WorkflowEngine.run()          |
-                     +---------------------------------------+
-                                         |
-                                         v
-                     +---------------------------------------+
-                     |  Verify pipeline run exists in ledger |
-                     +---------------------------------------+
-                                         |
-                                         v
-                     +---------------------------------------+
-                     | Query completed steps from ledger     |
-                     | ledger.get_completed_steps(run_id)    |
-                     +---------------------------------------+
-                                         |
-                                         v
-                      +-------------------------------------+
-                      |    For each node in self.nodes      |
-                      +-------------------------------------+
-                                         |
-                       +-----------------+-----------------+
-                       |                                   |
-            [Is node.name completed?]            [Not yet completed]
-                       |                                   |
-                       v                                   v
-        +----------------------------+   +------------------------------------+
-        |  Log skipping step         |   | ledger.record_step_start()         |
-        |  Add to skipped_steps      |   | returns step_execution_id          |
-        |  Populate output from db   |   +------------------------------------+
-        +----------------------------+                     |
-                       |                                   v
-                       |                 +------------------------------------+
-                       |                 |      try:                          |
-                       |                 |        output = node.execute()     |
-                       |                 +------------------------------------+
-                       |                                   |
-                       |                +------------------+------------------+
-                       |                |                                     |
-                       |           [On Success]                          [On Exception]
-                       |                |                                     |
-                       |                v                                     v
-                       |   +--------------------------+          +---------------------------+
-                       |   | ledger.record_step_      |          | Format traceback & details|
-                       |   |   completion()           |          | ledger.record_step_       |
-                       |   | Add to executed_steps    |          |   failure()               |
-                       |   +--------------------------+          | Return EngineResult with  |
-                       |                |                        |   success=False & FAILED  |
-                       |                |                        +---------------------------+
-                       +----------------+
-                                        |
-                               (Next node in sequence)
-                                        |
-                                        v
-                       +----------------------------------+
-                       |  All nodes processed             |
-                       |  Return EngineResult (COMPLETED) |
-                       +----------------------------------+
++-------------------------------------------------------------------+
+|                          VideoAssembler                           |
++-------------------------------------------------------------------+
+| - ffmpeg_binary: Optional[str]                                    |
+| - timeout: float = 300.0                                          |
+| - temp_dir: Optional[Path]                                        |
++-------------------------------------------------------------------+
+| + __init__(ffmpeg_binary, timeout, temp_dir)                      |
+| + run_command(args, timeout, cwd) -> CompletedProcess             |
+| + assemble(video_segments, audio_path, subtitle_path, ...) -> Path|
+| - _resolve_binary_command() -> List[str]                          |
+| - _is_valid_video(file_path, min_bytes) -> bool                   |
++-------------------------------------------------------------------+
 ```
 
----
+### 2.1 Method Signatures
 
-## 4. Detailed Component Specifications
-
-### 4.1 Constructor (`__init__`)
+#### `__init__`
 ```python
 def __init__(
     self,
-    nodes: Sequence[Node],
-    ledger: Optional[StateLedger] = None,
-) -> None:
-    if not nodes:
-        raise ValueError("WorkflowEngine requires a non-empty sequence of Node instances.")
-    
-    self.nodes: List[Node] = list(nodes)
-    self.ledger: StateLedger = (
-        ledger if ledger is not None else StateLedger("data/state_ledger.db")
-    )
+    ffmpeg_binary: Optional[str] = None,
+    timeout: float = 300.0,
+    temp_dir: Optional[Union[str, Path]] = None,
+) -> None
 ```
-- **Validation**: Ensures `nodes` is a non-empty sequence.
-- **Ledger Injection**: Accepts an existing `StateLedger` instance (crucial for unit testing with `:memory:` SQLite databases) or defaults to `"data/state_ledger.db"`.
+- **`ffmpeg_binary`**: Optional custom path or binary name (e.g. `/usr/bin/ffmpeg` or mock python script ending in `.py`). If `None`, defaults to `"ffmpeg"`.
+- **`timeout`**: Default execution timeout limit in seconds (default: `300.0`).
+- **`temp_dir`**: Custom parent directory for temporary directory creation (useful for testing or dedicated scratch mounts).
 
-### 4.2 Step Idempotency & Skipping Check
+#### `run_command`
 ```python
-completed_steps = self.ledger.get_completed_steps(run_id)
-
-if node.name in completed_steps and completed_steps[node.name].status == StepStatus.COMPLETED:
-    logger.info(
-        "Skipping node execution (already COMPLETED)",
-        run_id=run_id,
-        step_name=node.name,
-    )
-    skipped_steps.append(node.name)
-    if completed_steps[node.name].output_payload is not None:
-        outputs[node.name] = completed_steps[node.name].output_payload
-    continue
+def run_command(
+    self,
+    args: List[str],
+    timeout: Optional[float] = None,
+    cwd: Optional[Path] = None,
+) -> subprocess.CompletedProcess
 ```
-- **Mechanics**: Before calling `record_step_start`, the engine queries `get_completed_steps(run_id)` which returns a map of completed `StepExecutionRecord`s.
-- **Idempotency Guarantee**: If node execution crashed mid-pipeline previously (e.g. at step 3), re-running the engine for the same `run_id` skips steps 1 and 2, picking up exactly at step 3.
+- Executes low-level non-shell FFmpeg command using `subprocess.run(..., close_fds=True, capture_output=True, text=True)`.
+- Catches `subprocess.TimeoutExpired` and process returncode errors, mapping them to `AssemblyError`.
 
-### 4.3 Node Lifecycle & Exception Wrapping
+#### `assemble`
 ```python
-step_execution_id = self.ledger.record_step_start(run_id, node.name)
+def assemble(
+    self,
+    video_segments: List[Union[str, Path]],
+    audio_path: Optional[Union[str, Path]] = None,
+    subtitle_path: Optional[Union[str, Path]] = None,
+    subtitle_text: Optional[str] = None,
+    output_path: Union[str, Path] = None,
+    resolution: str = "3840x2160",
+    fps: int = 30,
+    crf: int = 18,
+    preset: str = "medium",
+    timeout: Optional[float] = None,
+) -> Path
+```
+- Main entry point for video assembly.
+- Creates `tempfile.TemporaryDirectory()`, writes `concat_list.txt` and `subtitles.srt` (if string provided), builds FFmpeg command via `src.assembly.ffmpeg_commands`, executes `run_command(...)`, validates artifact size, performs atomic rename to `output_path`, and guarantees temp file cleanup.
 
-try:
-    node_output = node.execute(run_id, self.ledger)
-    if node_output is None:
-        node_output = {}
+---
 
-    self.ledger.record_step_completion(step_execution_id, node_output)
-    executed_steps.append(node.name)
-    outputs[node.name] = node_output
-    logger.info(
-        "Node execution completed successfully",
-        run_id=run_id,
-        step_name=node.name,
-        step_execution_id=step_execution_id,
-    )
-except Exception as e:
-    error_msg = str(e)
-    error_details = {
-        "error_type": type(e).__name__,
-        "traceback": traceback.format_exc(),
-    }
-    logger.error(
-        "Node execution failed with exception",
-        run_id=run_id,
-        step_name=node.name,
-        step_execution_id=step_execution_id,
-        error=error_msg,
-        error_type=type(e).__name__,
-        exc_info=True,
-    )
+## 3. Subprocess Execution & Error Mapping Matrix
 
-    # Record failure in StateLedger (updates step_execution to FAILED and pipeline_run to FAILED)
-    self.ledger.record_step_failure(
-        step_execution_id,
-        error_message=error_msg,
-        error_details=error_details,
-    )
+| Failure Condition | Internal Exception / Event | Mapped Result Exception | Informative Details Captured |
+|---|---|---|---|
+| Timeout reached during render | `subprocess.TimeoutExpired` | `AssemblyError` | Wall-clock timeout duration, trailing 500 chars of stdout/stderr |
+| FFmpeg exits with code != 0 | `result.returncode != 0` | `AssemblyError` | Exit code number, formatted stderr / stdout error output |
+| Missing input segment clip | `not seg_path.exists()` | `AssemblyError` | Exact segment path missing on disk |
+| Output file missing or < 100B | `_is_valid_video(...) == False` | `AssemblyError` | Target destination path, file size in bytes |
+| Command binary execution failure | `FileNotFoundError` / `OSError` | `AssemblyError` | Binary path, underlying OS error message |
 
-    # Stop pipeline execution immediately and return EngineResult
-    return EngineResult(
-        run_id=run_id,
-        success=False,
-        status=StepStatus.FAILED,
-        executed_steps=executed_steps,
-        skipped_steps=skipped_steps,
-        outputs=outputs,
-        failed_step=node.name,
-        error_message=error_msg,
-        error_details=error_details,
-    )
+---
+
+## 4. Temporary File & Directory Lifecycle
+
+```
+[Start assemble()]
+       |
+       v
+Validate Input Paths (segments, audio, subtitles)
+       |
+       v
+Create tempfile.TemporaryDirectory(prefix="assembly_")
+       |
+       +---> Write concat_list.txt (escaping single quotes)
+       |
+       +---> Write subtitles.srt (if subtitle_text provided)
+       |
+       +---> Build FFmpeg command list via ffmpeg_commands
+       |
+       v
+Execute subprocess.run(..., cwd=temp_dir, close_fds=True, timeout=300.0)
+       |
+  +----+----+
+  |         |
+[Success] [Failure]
+  |         |
+  v         v
+Validate   Clean up tmp_dest file
+Output     Raise AssemblyError
+Artifact
+  |
+  v
+Atomic Rename (os.replace)
+  |
+  v
+Exit Context Manager (tempfile.TemporaryDirectory auto-deleted)
 ```
 
 ---
 
-## 5. Complete Implementation Specification (`src/core/workflow/engine.py`)
+## 5. Complete Code Implementation Specification for `src/assembly/assembler.py`
+
+Below is the exact code formulation to be written to `src/assembly/assembler.py`:
 
 ```python
+"""FFmpeg Video Assembler for Phase 13 Media Production.
+
+Executes FFmpeg commands securely via non-shell subprocess.run(), manages timeouts,
+maps errors to AssemblyError, and enforces temporary file cleanup.
 """
-Workflow Engine for Phase 08 Synchronous Batch Pipeline Execution.
 
-Coordinates sequential execution of pipeline Nodes, enforcing strict state-ledger-only
-communication, step idempotency, and crash-safe fault tolerance.
-"""
+import logging
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any, Dict, List, Optional, Union
 
-from dataclasses import dataclass, field
-import traceback
-from typing import Any, Dict, List, Optional, Sequence
+from src.assembly.ffmpeg_commands import (
+    build_assembly_command,
+    write_concat_file,
+)
+from src.core.exceptions import AssemblyError
 
-from src.core.exceptions import PipelineError
-from src.core.logger import get_logger
-from src.core.orchestrator.state_ledger import StateLedger, StepStatus
-from src.core.workflow.node import Node
-
-logger = get_logger(__name__)
-
-
-@dataclass
-class EngineResult:
-    """
-    Encapsulates the outcome of a WorkflowEngine execution run.
-
-    Attributes:
-        run_id: Unique pipeline run identifier in StateLedger.
-        success: True if all nodes completed or were skipped; False if a node failed.
-        status: Final StepStatus enum value (COMPLETED or FAILED).
-        executed_steps: List of node names executed during this run.
-        skipped_steps: List of node names skipped due to step idempotency.
-        outputs: Dict mapping node name to node output payload dict.
-        failed_step: Name of the node that failed, if any.
-        error_message: Error message string if execution failed.
-        error_details: Dict with error classification and stack trace if execution failed.
-    """
-
-    run_id: str
-    success: bool
-    status: StepStatus
-    executed_steps: List[str] = field(default_factory=list)
-    skipped_steps: List[str] = field(default_factory=list)
-    outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    failed_step: Optional[str] = None
-    error_message: Optional[str] = None
-    error_details: Optional[Dict[str, Any]] = None
+logger = logging.getLogger(__name__)
 
 
-class WorkflowEngine:
-    """
-    Synchronous, fault-tolerant execution engine for video pipeline workflows.
-
-    Iterates through a sequence of Node instances, ensuring step idempotency by
-    checking completed steps in SQLite StateLedger and capturing all node runtime
-    exceptions without allowing process crashes.
-    """
+class VideoAssembler:
+    """Encapsulates secure low-level FFmpeg execution for video assembly."""
 
     def __init__(
         self,
-        nodes: Sequence[Node],
-        ledger: Optional[StateLedger] = None,
+        ffmpeg_binary: Optional[str] = None,
+        timeout: float = 300.0,
+        temp_dir: Optional[Union[str, Path]] = None,
     ) -> None:
-        """
-        Initialize WorkflowEngine.
+        """Initialize VideoAssembler.
 
         Args:
-            nodes: Sequence of Node instances to execute in order.
-            ledger: Optional StateLedger instance. Defaults to StateLedger("data/state_ledger.db") if None.
-
-        Raises:
-            ValueError: If nodes sequence is empty.
+            ffmpeg_binary: Optional path or executable name for FFmpeg binary or mock script.
+            timeout: Subprocess wall-clock timeout limit in seconds (default: 300.0).
+            temp_dir: Optional custom directory for temporary file creation.
         """
-        if not nodes:
-            raise ValueError("WorkflowEngine requires a non-empty sequence of Node instances.")
+        self.ffmpeg_binary = ffmpeg_binary
+        self.timeout = timeout
+        self.temp_dir = Path(temp_dir) if temp_dir else None
 
-        self.nodes: List[Node] = list(nodes)
-        self.ledger: StateLedger = (
-            ledger if ledger is not None else StateLedger("data/state_ledger.db")
-        )
+    def _resolve_binary_command(self) -> List[str]:
+        """Resolve binary prefix for FFmpeg execution."""
+        if self.ffmpeg_binary:
+            if self.ffmpeg_binary.endswith(".py"):
+                return [sys.executable, self.ffmpeg_binary]
+            return [self.ffmpeg_binary]
+        return ["ffmpeg"]
 
-    def run(self, run_id: str) -> EngineResult:
-        """
-        Execute the pipeline node sequence for the given run_id.
+    def _is_valid_video(self, file_path: Path, min_bytes: int = 100) -> bool:
+        """Validate that output video exists and is at least min_bytes."""
+        if not file_path.exists():
+            return False
+        try:
+            return file_path.stat().st_size >= min_bytes
+        except Exception:
+            return False
+
+    def run_command(
+        self,
+        args: List[str],
+        timeout: Optional[float] = None,
+        cwd: Optional[Path] = None,
+    ) -> subprocess.CompletedProcess:
+        """Execute non-shell FFmpeg command with secure flags and error mapping.
 
         Args:
-            run_id: Pipeline run identifier in StateLedger.
+            args: Command arguments starting after binary name (or including full command).
+            timeout: Optional custom timeout override (seconds).
+            cwd: Optional working directory for execution.
 
         Returns:
-            EngineResult detailing execution outcome, steps executed/skipped, and output payloads.
+            subprocess.CompletedProcess: Executed process result.
 
         Raises:
-            PipelineError: If run_id does not exist in StateLedger.
+            AssemblyError: On non-zero exit code, process failure, or timeout.
         """
-        run_record = self.ledger.get_run(run_id)
-        if run_record is None:
-            logger.error("Pipeline run not found in StateLedger", run_id=run_id)
-            raise PipelineError(f"Pipeline run ID '{run_id}' not found in StateLedger.")
+        binary_prefix = self._resolve_binary_command()
+        
+        # Check if args already starts with binary prefix
+        if args and (args[0] == binary_prefix[0] or (len(binary_prefix) > 1 and args[:len(binary_prefix)] == binary_prefix)):
+            full_cmd = list(args)
+        else:
+            full_cmd = binary_prefix + list(args)
 
-        executed_steps: List[str] = []
-        skipped_steps: List[str] = []
-        outputs: Dict[str, Dict[str, Any]] = {}
+        effective_timeout = timeout if timeout is not None else self.timeout
+        work_dir = cwd or (self.temp_dir if self.temp_dir and self.temp_dir.exists() else Path.cwd())
 
-        # Query completed steps for idempotency check
-        completed_steps = self.ledger.get_completed_steps(run_id)
+        logger.debug("Running FFmpeg command: %s (cwd=%s)", " ".join(full_cmd), work_dir)
 
-        logger.info(
-            "Starting workflow engine execution",
-            run_id=run_id,
-            total_nodes=len(self.nodes),
-            completed_steps_count=len(completed_steps),
-        )
+        try:
+            result = subprocess.run(
+                full_cmd,
+                capture_output=True,
+                text=True,
+                close_fds=True,
+                timeout=effective_timeout,
+                cwd=str(work_dir),
+            )
+        except subprocess.TimeoutExpired as e:
+            stdout_str = (e.stdout or "") if isinstance(e.stdout, str) else ""
+            stderr_str = (e.stderr or "") if isinstance(e.stderr, str) else ""
+            raise AssemblyError(
+                f"FFmpeg process timed out after {effective_timeout}s. "
+                f"Stdout: {stdout_str[-500:]} Stderr: {stderr_str[-500:]}"
+            ) from e
+        except Exception as e:
+            raise AssemblyError(f"Failed to execute FFmpeg subprocess: {e}") from e
 
-        for node in self.nodes:
-            # Idempotency Check: Skip node if already COMPLETED in StateLedger
-            if (
-                node.name in completed_steps
-                and completed_steps[node.name].status == StepStatus.COMPLETED
-            ):
-                logger.info(
-                    "Skipping node execution (already COMPLETED)",
-                    run_id=run_id,
-                    step_name=node.name,
+        if result.returncode != 0:
+            error_output = result.stderr.strip() if result.stderr else result.stdout.strip()
+            raise AssemblyError(
+                f"FFmpeg assembly failed with exit code {result.returncode}:\n{error_output}"
+            )
+
+        return result
+
+    def assemble(
+        self,
+        video_segments: List[Union[str, Path]],
+        audio_path: Optional[Union[str, Path]] = None,
+        subtitle_path: Optional[Union[str, Path]] = None,
+        subtitle_text: Optional[str] = None,
+        output_path: Union[str, Path] = None,
+        resolution: str = "3840x2160",
+        fps: int = 30,
+        crf: int = 18,
+        preset: str = "medium",
+        timeout: Optional[float] = None,
+    ) -> Path:
+        """Assemble video clips, audio narration, and subtitles into final video artifact.
+
+        Args:
+            video_segments: List of input video segment file paths (.mp4).
+            audio_path: Optional path to combined audio narration file (.wav / .mp3).
+            subtitle_path: Optional path to SRT subtitle file (.srt).
+            subtitle_text: Optional raw SRT content string.
+            output_path: Target destination path for final assembled video artifact (.mp4).
+            resolution: Output resolution string (e.g. '3840x2160' or '1080p').
+            fps: Frame rate for final output (default: 30).
+            crf: Constant Rate Factor quality parameter (default: 18).
+            preset: H.264 encoding preset (default: 'medium').
+            timeout: Wall-clock timeout override in seconds.
+
+        Returns:
+            Path: Absolute path to valid final assembled video file.
+
+        Raises:
+            AssemblyError: If input files are invalid, FFmpeg fails, or output generation fails.
+        """
+        if not video_segments:
+            raise AssemblyError("Cannot assemble video: video_segments list is empty")
+
+        if not output_path:
+            raise AssemblyError("Cannot assemble video: output_path is required")
+
+        dest_path = Path(output_path).resolve()
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Validate input segment files exist
+        valid_segments: List[Path] = []
+        for p in video_segments:
+            seg_p = Path(p).resolve()
+            if not seg_p.exists():
+                raise AssemblyError(f"Input video segment does not exist: {seg_p}")
+            valid_segments.append(seg_p)
+
+        valid_audio = Path(audio_path).resolve() if audio_path else None
+        if valid_audio and not valid_audio.exists():
+            raise AssemblyError(f"Input audio file does not exist: {valid_audio}")
+
+        valid_sub = Path(subtitle_path).resolve() if subtitle_path else None
+        if valid_sub and not valid_sub.exists():
+            raise AssemblyError(f"Input subtitle file does not exist: {valid_sub}")
+
+        parent_temp = str(self.temp_dir) if self.temp_dir else None
+        if self.temp_dir:
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+        tmp_dest = dest_path.parent / f"{dest_path.name}.tmp_{os.getpid()}"
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="assembly_", dir=parent_temp) as temp_dir_str:
+                temp_dir = Path(temp_dir_str)
+
+                # 1. Write concat list file in temp_dir
+                concat_list_file = temp_dir / "concat_list.txt"
+                write_concat_file(valid_segments, concat_list_file)
+
+                # 2. Handle subtitle path or string content
+                effective_sub_path = valid_sub
+                if not effective_sub_path and subtitle_text:
+                    temp_srt_path = temp_dir / "subtitles.srt"
+                    temp_srt_path.write_text(subtitle_text, encoding="utf-8")
+                    effective_sub_path = temp_srt_path
+
+                # 3. Build FFmpeg command
+                cmd_args = build_assembly_command(
+                    concat_list_path=concat_list_file,
+                    audio_path=valid_audio,
+                    subtitle_path=effective_sub_path,
+                    output_path=tmp_dest,
+                    resolution=resolution,
+                    fps=fps,
+                    crf=crf,
+                    preset=preset,
                 )
-                skipped_steps.append(node.name)
-                if completed_steps[node.name].output_payload is not None:
-                    outputs[node.name] = completed_steps[node.name].output_payload  # type: ignore[assignment]
-                continue
 
-            # Record step execution start
-            step_execution_id = self.ledger.record_step_start(run_id, node.name)
+                # 4. Execute FFmpeg
+                self.run_command(cmd_args, timeout=timeout, cwd=temp_dir)
 
-            # Fault-tolerant execution wrapper
-            try:
-                node_output = node.execute(run_id, self.ledger)
-                if node_output is None:
-                    node_output = {}
+                # 5. Validate output file
+                if not self._is_valid_video(tmp_dest, min_bytes=100):
+                    raise AssemblyError(
+                        f"FFmpeg assembly execution completed but produced invalid or empty file at {tmp_dest}"
+                    )
 
-                self.ledger.record_step_completion(step_execution_id, node_output)
-                executed_steps.append(node.name)
-                outputs[node.name] = node_output
-                logger.info(
-                    "Node execution completed successfully",
-                    run_id=run_id,
-                    step_name=node.name,
-                    step_execution_id=step_execution_id,
-                )
-            except Exception as e:
-                error_msg = str(e)
-                error_details = {
-                    "error_type": type(e).__name__,
-                    "traceback": traceback.format_exc(),
-                }
-                logger.error(
-                    "Node execution failed with exception",
-                    run_id=run_id,
-                    step_name=node.name,
-                    step_execution_id=step_execution_id,
-                    error=error_msg,
-                    error_type=type(e).__name__,
-                    exc_info=True,
-                )
+                # 6. Atomic rename to destination path
+                os.replace(tmp_dest, dest_path)
+                logger.info("Successfully assembled video artifact: %s", dest_path)
+                return dest_path
 
-                # Record step failure in StateLedger
-                self.ledger.record_step_failure(
-                    step_execution_id,
-                    error_message=error_msg,
-                    error_details=error_details,
-                )
-
-                # Halt execution and return EngineResult with failure status
-                return EngineResult(
-                    run_id=run_id,
-                    success=False,
-                    status=StepStatus.FAILED,
-                    executed_steps=executed_steps,
-                    skipped_steps=skipped_steps,
-                    outputs=outputs,
-                    failed_step=node.name,
-                    error_message=error_msg,
-                    error_details=error_details,
-                )
-
-        logger.info(
-            "Workflow engine completed all nodes successfully",
-            run_id=run_id,
-            executed_count=len(executed_steps),
-            skipped_count=len(skipped_steps),
-        )
-
-        return EngineResult(
-            run_id=run_id,
-            success=True,
-            status=StepStatus.COMPLETED,
-            executed_steps=executed_steps,
-            skipped_steps=skipped_steps,
-            outputs=outputs,
-            failed_step=None,
-            error_message=None,
-            error_details=None,
-        )
-
-    def execute(self, run_id: str) -> EngineResult:
-        """Alias for run(run_id)."""
-        return self.run(run_id)
-
-    def run_pipeline(self, run_id: str) -> EngineResult:
-        """Alias for run(run_id) matching PROJECT.md interface signature."""
-        return self.run(run_id)
+        except Exception:
+            # Clean up temporary output file on failure
+            if tmp_dest.exists():
+                try:
+                    tmp_dest.unlink()
+                except Exception as cleanup_err:
+                    logger.warning("Failed to clean up temporary file %s: %s", tmp_dest, cleanup_err)
+            raise
 ```
 
 ---
 
-## 6. Verification & Test Plan
+## 6. Verification & Test Guidance
 
-1. **Idempotency Test**:
-   - Create a run in SQLite `:memory:` ledger.
-   - Execute nodes `[NodeA, NodeB]`.
-   - Re-run engine with `[NodeA, NodeB, NodeC]`. Verify `NodeA` and `NodeB` are in `skipped_steps` and `NodeC` is in `executed_steps`.
-2. **Fault Tolerance Test**:
-   - Create mock `FailingNode` that raises `RuntimeError("Simulated Node Failure")`.
-   - Run engine with `[NodeA, FailingNode, NodeB]`.
-   - Assert return object is `EngineResult` with `success=False`, `status=StepStatus.FAILED`, `failed_step="FailingNode"`.
-   - Assert Python process did not crash.
-   - Query `StateLedger` and assert step execution status is `FAILED` and pipeline run status is `FAILED`.
-3. **Invalid Run ID Test**:
-   - Call `engine.run("non_existent_run_id")`. Assert `PipelineError` is raised.
+To verify `VideoAssembler` implementation in unit tests (`tests/pipeline/test_assembly_node.py` or `tests/assembly/test_assembler.py`):
+1. **Mock Execution**: Pass a mock python script as `ffmpeg_binary` that creates dummy MP4 outputs (or exits with code 1 / sleeps past timeout).
+2. **Timeout Handling**: Assert `pytest.raises(AssemblyError)` when subprocess exceeds specified timeout.
+3. **Non-Zero Exit Code**: Assert `AssemblyError` when subprocess returns exit code 1 with stderr.
+4. **Temp Directory Cleanup**: Assert that `tempfile.TemporaryDirectory` paths and intermediate `.tmp` files are deleted after completion or failure.
+5. **FD Leak Check**: Measure open file descriptors before and after execution using `len(os.listdir('/proc/self/fd'))`.

@@ -1,61 +1,50 @@
-# Handoff Report — Phase 07 Milestone 2 (Challenger 2)
+# Handoff Report — Milestone 2 Visual Cue Mapping & Caching Behavior Challenge
 
 ## 1. Observation
 
-- **Inspected Templates**:
-  - `src/core/llm/prompts/v1/educational_plan.j2`: Contains required parameters `topic`, `slug`, `target_audience`, `difficulty`, `target_duration_seconds`, and `problem_description`. Guarded optional blocks: `constraints`, `learning_objectives`, `rag_context`, `code_implementations`.
-  - `src/core/llm/prompts/v1/code_explanation.j2`: Contains required parameters `topic`, `language`, `code`, `time_complexity`, and `space_complexity`. Guarded optional blocks: `line_highlights`, `pitfalls`/`common_pitfalls`.
-- **Inspected Prompt Loader**:
-  - `src/core/llm/prompt_loader.py`: Initializes `jinja2.Environment(undefined=jinja2.StrictUndefined)` and catches `jinja2.UndefinedError` in `render()`, raising `TemplateRenderError` with detailed error message and logging.
-- **Empirical Execution Commands & Results**:
-  - Command: `./.venv/bin/pytest tests/core tests/llm`
-    - Result: `38 passed in 2.38s`
-  - Command: Empirical test harness executing `loader.render()` for all required and optional variable permutations.
-    - Result:
-      - `educational_plan.j2` missing `topic`, `slug`, `target_audience`, `difficulty`, `target_duration_seconds`, or `problem_description` each raised `TemplateRenderError` with `__cause__` equal to `jinja2.UndefinedError`.
-      - `code_explanation.j2` missing `topic`, `language`, `code`, `time_complexity`, or `space_complexity` each raised `TemplateRenderError` with `__cause__` equal to `jinja2.UndefinedError`.
-      - Omitting optional parameters or passing them as `None`/`[]`/`{}` rendered cleanly without error.
+- **Test Execution Commands & Results**:
+  - `pytest tests/pipeline/test_animation_node.py -k "mapping or cache or fallback" -v` -> **13 passed**, 21 deselected in 2.03s.
+  - `pytest tests/pipeline/test_animation_node.py -v` -> **34 passed**, 0 failed in 2.52s.
+- **Visual Cue Mapping Inspection**:
+  - `ANIMATION_TYPE_MAP` in `src/pipeline/nodes/animation_generator_node.py` contains 21 distinct animation type entries across 8 scene categories (`array`, `tree`, `code`, `graph`, `hashmap`, `linkedlist`, `stack_queue`, `complexity`).
+  - Verified that 100% of mapped scene template files exist on disk under `src/animation/scenes/` and contain their respective class definitions.
+  - Unknown animation types fall back cleanly to `DEFAULT_SCENE` (`("src/animation/scenes/array_scene.py", "ArrayScene")`).
+- **Caching Mechanism Inspection**:
+  - `_compute_cache_hash(anim_type, parameters)` uses `hashlib.sha256(f"{anim_type}:{json.dumps(parameters, sort_keys=True)}:{self.quality}".encode("utf-8")).hexdigest()`.
+  - Cache hits bypass subprocess execution. Cache misses re-render. 0-byte corrupt cache files are correctly ignored, re-rendered, and overwritten.
+- **Fallback Visual Cue Extraction Inspection**:
+  - `_extract_visual_cues(script_payload)` attempts Pydantic validation via `YouTubeScript.model_validate(script_data)`.
+  - Upon validation failure, it falls back to top-level `script_data["visual_cues"]` or iterates across section dicts (`hook`, `context`, `solution`, `complexity`) to gather nested visual cues.
+  - Also handles direct `script_payload["visual_cues"]` and `YouTubeScript` model instances.
 
 ## 2. Logic Chain
 
-1. **Observation 1**: `PromptLoader` in `src/core/llm/prompt_loader.py` configures Jinja2 environment with `undefined=jinja2.StrictUndefined` and wraps `jinja2.UndefinedError` exceptions into `TemplateRenderError`.
-2. **Observation 2**: Direct inspection of `educational_plan.j2` shows unguarded references `{{ topic }}`, `{{ slug }}`, `{{ target_audience }}`, `{{ difficulty }}`, `{{ target_duration_seconds }}`, and `{{ problem_description }}`.
-3. **Observation 3**: Direct inspection of `code_explanation.j2` shows unguarded references `{{ topic }}`, `{{ language }}`, `{{ code }}`, `{{ time_complexity }}`, and `{{ space_complexity }}`.
-4. **Observation 4**: Empirical execution of test harness confirmed that missing any of the 6 required parameters in `educational_plan.j2` or any of the 5 required parameters in `code_explanation.j2` triggers `TemplateRenderError`.
-5. **Observation 5**: Optional fields in both templates use `{% if var is defined and var %}` checks or `is defined` fallback ternary expressions, preventing false `UndefinedError` triggers when optional parameters are absent.
-6. **Conclusion**: Both templates strictly enforce required context parameters under Jinja2 `StrictUndefined` mode as required by Phase 07 requirements.
+1. **Mapping Logic**: All 21 mappings in `ANIMATION_TYPE_MAP` reference existing Python module files in `src/animation/scenes/` and valid scene class names (`ArrayScene`, `TreeScene`, `CodeScene`, `GraphScene`, `HashmapScene`, `LinkedListScene`, `StackQueueScene`, `ComplexityScene`). When an unrecognized animation type is provided, `ANIMATION_TYPE_MAP.get(anim_type, DEFAULT_SCENE)` safely resolves to `ArrayScene` without throwing an unhandled KeyError or crashing the node execution.
+2. **Caching Logic**: The SHA-256 cache key includes `anim_type`, `quality`, and `json.dumps(parameters, sort_keys=True)`. Using `sort_keys=True` ensures key-order invariance for parameter dictionaries. Parameter value/type modifications produce unique hashes, invalidating stale cache entries. The file size check (`cached_file.stat().st_size > 0`) prevents zero-byte corrupted files from being copied as cache hits.
+3. **Fallback Extraction Logic**: The fallback extraction cascade covers primary model validation (`YouTubeScript`), top-level dictionary cue lists, section-level dictionary cue lists, and raw payload cue lists. This guarantees visual cues are extracted even if upstream LLM output slightly violates strict script schema invariants.
 
 ## 3. Caveats
 
-- Passing `None` explicitly as a context dictionary value (e.g. `{"topic": None}`) does not trigger `UndefinedError` because `None` is a defined object in Python. Upstream Pydantic models validate non-null types before passing context to `PromptLoader`.
+- Case Sensitivity: `ANIMATION_TYPE_MAP.get(anim_type)` uses exact string matching without `.lower()`. Uppercase strings like `"ARRAY_HIGHLIGHT"` fall back to `DEFAULT_SCENE` (`ArrayScene`). Standard script generation uses lower snake_case strings.
+- Float vs Int Parameter Hashes: `{"duration": 5}` vs `{"duration": 5.0}` produce different SHA-256 hashes, leading to a benign cache miss rather than a cache hit.
 
 ## 4. Conclusion
 
-Verdict: **APPROVE**
+**Verdict**: **APPROVE**
 
-`educational_plan.j2` and `code_explanation.j2` strictly enforce required variable handling under Jinja2 `StrictUndefined` mode. Missing required parameters trigger `TemplateRenderError` as specified, while optional parameters render safely when omitted.
+The visual cue mapping, SHA-256 render caching mechanism, and fallback visual cue extraction logic in `tests/pipeline/test_animation_node.py` and `src/pipeline/nodes/animation_generator_node.py` meet all architectural requirements, handle edge cases cleanly, and pass all verification tests with 100% pass rate.
 
 ## 5. Verification Method
 
-To independently verify strict variable handling:
+To independently verify these findings, run:
 
 ```bash
-./.venv/bin/python -c "
-from src.core.llm.prompt_loader import PromptLoader
-from src.core.exceptions import TemplateRenderError
+# 1. Run selective mapping, caching, and fallback tests
+pytest tests/pipeline/test_animation_node.py -k "mapping or cache or fallback" -v
 
-loader = PromptLoader()
+# 2. Run full test suite for AnimationGeneratorNode
+pytest tests/pipeline/test_animation_node.py -v
 
-# Test missing required parameter on educational_plan
-try:
-    loader.render('educational_plan', {'topic': 'Testing', 'slug': 'test'})
-except TemplateRenderError as e:
-    print('educational_plan missing param correctly caught:', e)
-
-# Test missing required parameter on code_explanation
-try:
-    loader.render('code_explanation', {'topic': 'Testing', 'language': 'python'})
-except TemplateRenderError as e:
-    print('code_explanation missing param correctly caught:', e)
-"
+# 3. Run empirical stress test harness
+python .agents/challenger_m2_2/test_harness.py
 ```

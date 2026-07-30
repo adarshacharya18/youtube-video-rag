@@ -1,12 +1,26 @@
-## 2026-07-29T17:27:18Z
-Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for full context.
-Read /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase08/PROJECT.md for milestone scope.
-Read /home/adarsh/Documents/Youtube-Channel/src/core/base.py and exceptions.py for base types and exceptions.
+## 2026-07-30T16:35:22Z
+You are Explorer M1-3 (teamwork_preview_explorer).
+Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3.
 
-Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3
-Your task is to design the module exports, result objects, and integration for Milestone 1:
-1. Define `EngineResult` dataclass or Pydantic model (`success: bool`, `run_id: str`, `completed_steps: List[str]`, `failed_step: Optional[str]`, `error: Optional[str]`).
-2. Design `src/core/workflow/__init__.py` to export `Node`, `WorkflowEngine`, `EngineResult`.
-3. Check alignment with `src/core/base.py` (`BasePipelineResult`) and `src/core/exceptions.py` (`PipelineError`, `PipelineStageError`).
+OBJECTIVE:
+Formulate exact design specifications and code snippets for `src/pipeline/nodes/video_assembly_node.py`.
+Specifically:
+1. Design `VideoAssemblyNode` subclassing `Node` (`src/core/workflow/node.py`).
+2. Set `@property def name(self) -> str: return "video_assembly"`.
+3. Implement `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`:
+   - Retrieve `animation_generator` step output (for `.mp4` visual segments) and `script_generator`/`voice_generator` step outputs (for `.wav` audio and timing/narration data).
+   - Instantiate `VideoAssembler` and run assembly.
+   - Validate resulting payload dictionary against `AssembledVideo` schema (`src/core/models/assets.py`).
+   - Handle missing input step payloads or assembly errors by raising `AssemblyError` or `PipelineStageError`.
 
-Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/handoff.md`. Send a message when finished.
+INPUT INFORMATION:
+- Read ORIGINAL_REQUEST.md: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
+- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
+- Prior survey analysis: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_1/analysis.md`.
+
+OUTPUT REQUIREMENTS:
+Write detailed design to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/handoff.md`.
+
+COMPLETION CRITERIA:
+- Complete class definition and `execute()` method logic for `VideoAssemblyNode` in `src/pipeline/nodes/video_assembly_node.py`.
+- Handoff report published and message sent to orchestrator parent.

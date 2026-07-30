@@ -1,13 +1,22 @@
-## 2026-07-29T11:57:18Z
-Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for full context.
-Read /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase08/PROJECT.md for milestone scope.
-Read /home/adarsh/Documents/Youtube-Channel/src/core/orchestrator/state_ledger.py for StateLedger API.
+## 2026-07-30T16:35:22Z
+You are Explorer M1-1 (teamwork_preview_explorer).
+Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1.
 
-Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1
-Your task is to design the implementation of `src/core/workflow/node.py` for Milestone 1:
-1. Define abstract class `Node(ABC)` with `@abstractmethod` or `@property` for `name: str`.
-2. Define abstract execution signature `execute(self, run_id: str, ledger: StateLedger) -> Dict[str, Any]`.
-3. Detail how `Node` enforces state-ledger-only communication using `run_id` (reading inputs via `ledger.get_completed_steps(run_id)` or `ledger.get_run(run_id)` and returning output dictionary, prohibiting in-memory state object passing).
-4. Outline exact class hierarchy, imports, docstrings, and typing needed.
+OBJECTIVE:
+Formulate exact design specifications and code snippets for `src/assembly/ffmpeg_commands.py`.
+Specifically:
+1. Design pure helper functions: `build_assembly_command(...)`, `build_concat_filter_graph(...)`, `build_subtitle_filter(...)`, `build_4k_scale_filter(...)`.
+2. Ensure command options use list format (never shell string): `["ffmpeg", "-y", "-i", ...]` with parameters for 4K resolution (3840x2160), 30 fps, video codec (`libx264`), pixel format (`yuv420p`), audio codec (`aac`), audio bitrate (`384k`), CRF (`18`), and subtitle burning (`subtitles=...`).
+3. Handle edge cases like escaping path strings for FFmpeg `subtitles` filter graph.
 
-Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/handoff.md`. Send a message when finished.
+INPUT INFORMATION:
+- Read ORIGINAL_REQUEST.md: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
+- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
+- Prior survey analysis: `/home/adarsh/Documents/Youtube-Channel/.agents/spec_miner_1/spec_analysis.md`.
+
+OUTPUT REQUIREMENTS:
+Write detailed design to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/handoff.md`.
+
+COMPLETION CRITERIA:
+- Complete function signatures and implementation logic for `src/assembly/ffmpeg_commands.py`.
+- Handoff report published and message sent to orchestrator parent.

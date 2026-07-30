@@ -1,13 +1,25 @@
-## 2026-07-29T12:04:14Z
-Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for task context.
-Read deliverable: /home/adarsh/Documents/Youtube-Channel/PromptBook/Phase08/01_Workflow_Engine.md
+## 2026-07-30T12:37:07Z
+You are challenger_m3_2 in working directory /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m3_2.
+Your task is to empirically verify the documentation's claims against real runtime execution and test suite behavior for `PromptBook/Phase12/01_Animation_Production.md`.
 
-Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m3_2
+MANDATORY CHALLENGE ASSIGNMENT:
+1. Read `PromptBook/Phase12/01_Animation_Production.md` Section 7 (Verification Matrix) and the codebase:
+   - `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase12/01_Animation_Production.md`
+   - `/home/adarsh/Documents/Youtube-Channel/tests/pipeline/test_animation_node.py`
+   - `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/animation_generator_node.py`
 
-Your task is to verify the exception failure matrix and state ledger status transitions documented in `PromptBook/Phase08/01_Workflow_Engine.md`.
+2. Empirically verify:
+   - Re-run `pytest tests/pipeline/test_animation_node.py` with verbose output `-v`.
+   - Verify every test listed in the 37-test matrix in Section 7 exists in `tests/pipeline/test_animation_node.py` and passes cleanly.
+   - Verify that test coverage includes:
+     - All 8 visual cue types (`array_highlight`, `tree_traversal`, `code_highlight`, `linkedlist_operation`, `graph_traversal`, `hashmap_operation`, `stack_queue_operation`, `complexity_chart`)
+     - Quality flag mapping (`-ql`, `-qm`, `-qh`, `-qk`)
+     - CLI flags and custom arguments
+     - Tempdir deletion on success and simulated failure
+     - Sub-100 byte corrupt cache invalidation and re-rendering
+     - Path traversal sanitization (`_sanitize_cue_id`)
+     - FD leak check (`/proc/self/fd`)
 
-Check:
-1. Verify that status enum names (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`) match `StepStatus` in `src/core/orchestrator/state_ledger.py`.
-2. Verify exception type mapping in Section 6 matches Python exception handling in `engine.py`.
+3. Deliver your empirical challenge report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m3_2/analysis.md` and `handoff.md` in your working directory. State your verdict clearly as `APPROVE` or `REJECT`. Write progress updates to `progress.md`.
 
-Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m3_2/challenge.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m3_2/handoff.md`. State your verdict explicitly as APPROVE or REQUEST_CHANGES. Send a message when finished.
+Send a message back to parent upon finishing.

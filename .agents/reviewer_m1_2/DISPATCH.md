@@ -1,15 +1,26 @@
-## 2026-07-29T17:30:23+05:30
-Read /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md for task requirements.
-Read /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase08/PROJECT.md for milestone scope.
-Read worker changes report: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/changes.md
+## 2026-07-30T16:38:38Z
+You are Reviewer M1-2 (teamwork_preview_reviewer).
+Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2.
 
-Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2
+OBJECTIVE:
+Independently review the code changes made in Phase 13 Milestone 1:
+- `src/assembly/ffmpeg_commands.py`
+- `src/assembly/assembler.py`
+- `src/pipeline/nodes/video_assembly_node.py`
 
-Your task is to review the test suite implementation in `tests/workflow/test_engine.py`.
+Check for:
+1. Code quality, type hints, docstrings, and error message clarity.
+2. State Ledger retrieval logic and state isolation.
+3. Edge case handling (empty inputs, missing files, timeout during rendering, special characters in subtitle paths).
+4. Full alignment with project standards and Phase 13 requirements (R1, R2).
 
-Check:
-1. Acceptance Criteria verification: Does `tests/workflow/test_engine.py` use mock nodes that intentionally throw exceptions, asserting the engine catches them, prevents process crash, and updates SQLite state ledger step and run status to `FAILED`?
-2. Coverage & Edge Cases: Does it test step execution success, step skipping (idempotency), multiple sequential steps, and exception handling?
-3. Run `pytest tests/workflow/test_engine.py` and `pytest tests/core tests/models tests/llm tests/orchestrator tests/workflow`.
+INPUT INFORMATION:
+- Read MANDATORY original requirements: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
+- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
+- Worker M1 handoff: `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/handoff.md`.
 
-Write findings to `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2/review.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2/handoff.md`. State your verdict explicitly as APPROVE or REQUEST_CHANGES. Send a message when finished.
+OUTPUT REQUIREMENTS:
+Run python checks / tests, write detailed review to `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2/review.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2/handoff.md`. Include explicit verdict: `APPROVE` or `REQUEST_CHANGES`.
+
+COMPLETION CRITERIA:
+- Handoff report published with clear verdict (`APPROVE` or `REQUEST_CHANGES`) and message sent to orchestrator parent.

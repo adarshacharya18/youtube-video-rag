@@ -1,67 +1,33 @@
-# Handoff Report: Milestone 1 Workflow Engine Integration Design
-
-**Agent**: `explorer_m1_3`  
-**Milestone**: Milestone 1  
-**Handoff Type**: Hard (Task Complete)  
-
----
+# Handoff Report: `VideoAssemblyNode` Design (`src/pipeline/nodes/video_assembly_node.py`)
 
 ## 1. Observation
-
-- **Base Protocols (`src/core/base.py`)**:
-  - `BasePipelineResult(Generic[T])` (lines 23-36) is defined as a `@dataclass` with fields `success: bool`, `data: T | None`, `error: Exception | None`, `error_message: str | None`, `execution_time_ms: float`, and `timestamp: datetime`.
-  - `PipelineModule(Protocol[T_contra, T_co])` (lines 38-47) is a `@runtime_checkable` Protocol with `execute(self, payload: T_contra) -> T_co`.
-- **Exception Hierarchy (`src/core/exceptions.py`)**:
-  - `PipelineError` (line 13) is the base exception for all pipeline errors.
-  - `FatalError` (line 30) inherits from `PipelineError`.
-  - `PipelineStageError` (line 57) inherits from `FatalError` with docstring: `"Raised when a specific pipeline stage fails execution."`
-- **State Ledger (`src/core/orchestrator/state_ledger.py`)**:
-  - Defines `PipelineRunRecord` (lines 38-46) and `StepExecutionRecord` (lines 49-62) as `@dataclass` models.
-  - `record_step_failure` (lines 289-327) marks step status as `FAILED`, updates error message/details, and automatically sets parent `pipeline_runs` status to `FAILED`.
-  - `get_completed_steps` (lines 329-354) returns a dictionary of completed step records for a `pipeline_run_id`.
-- **Milestone Scope (`PROJECT.md`)**:
-  - M1 requires implementing `Node` in `src/core/workflow/node.py`, `WorkflowEngine` & `EngineResult` in `src/core/workflow/engine.py`, and package facade exports in `src/core/workflow/__init__.py`.
-
----
+- **Node Contract (`src/core/workflow/node.py:18-58`)**: Base class `Node(ABC)` requires `@property name(self) -> str` and `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`. Helper method `get_step_output(run_id, ledger, step_name)` queries prior step output payloads and raises `PipelineStageError` if missing.
+- **Data Models (`src/core/models/assets.py:226-267`)**: `AssembledVideo` model validates `slug` (`^[a-z0-9-]+$`), `final_video_path`, `total_duration_seconds` (> 0.0), `file_size_bytes` (>= 0), `segments` (`list[RenderSegment]`), and `assembled_at`.
+- **Exception Hierarchy (`src/core/exceptions.py:57, 140`)**: `PipelineStageError` (for missing input step payloads/files) and `AssemblyError` (for FFmpeg subprocess failure, timeout, or corrupted output).
+- **Assembler Component (`src/assembly/assembler.py`)**: `VideoAssembler` class provides `assemble(video_segments, audio_path, subtitle_path, subtitle_text, output_path, resolution, fps, crf, preset)` returning destination `Path`.
+- **Existing Node Reference (`src/pipeline/nodes/animation_generator_node.py:68-150`)**: Establishes standard initialization, path resolution, logger usage, and error wrapping conventions.
 
 ## 2. Logic Chain
-
-1. **`EngineResult` Data Model Design**:
-   - *Observation*: `BasePipelineResult`, `PipelineRunRecord`, and `StepExecutionRecord` are implemented as Python `@dataclasses`.
-   - *Reasoning*: Implementing `EngineResult` as a Python `@dataclass` maintains parity with existing core state structures.
-   - *Result*: Defined `EngineResult` with fields `success: bool`, `run_id: str`, `completed_steps: list[str]`, `failed_step: str | None`, `error: str | None`, `execution_time_ms: float`, `timestamp: str`. Added `to_base_result()` helper for downstream code expecting `BasePipelineResult`.
-
-2. **Package Facade Export Design (`src/core/workflow/__init__.py`)**:
-   - *Observation*: `PROJECT.md` specifies `src/core/workflow/` with `node.py`, `engine.py`, and `__init__.py`.
-   - *Reasoning*: A clean facade export hides internal implementation organization and provides a unified entry point for pipeline components.
-   - *Result*: Defined `__all__ = ["Node", "WorkflowEngine", "EngineResult"]` in `src/core/workflow/__init__.py`.
-
-3. **Exception & Base Alignment**:
-   - *Observation*: `PipelineStageError` in `src/core/exceptions.py` is the designated exception for stage/node failures. `WorkflowEngine` is required to gracefully capture exceptions without crashing the process.
-   - *Reasoning*: `WorkflowEngine.run_pipeline` should wrap `node.execute(run_id, ledger)` in a try/except block. On catching any exception (including `PipelineStageError` or generic `Exception`), the engine logs the failure, invokes `ledger.record_step_failure(...)`, updates the SQLite run status to `FAILED`, and returns `EngineResult(success=False, failed_step=node.name, error=str(exc))`.
-   - *Result*: The workflow engine adheres strictly to `src/core/base.py` and `src/core/exceptions.py` patterns while ensuring 100% fault-tolerant pipeline execution.
-
----
+1. **Subclassing `Node`**: `VideoAssemblyNode` inherits from `Node` to integrate seamlessly into `WorkflowEngine`.
+2. **Step Name Property**: `@property def name(self) -> str: return "video_assembly"` uniquely identifies the node in the SQLite `StateLedger`.
+3. **State Ledger Input Retrieval**:
+   - `anim_output = self.get_step_output(run_id, ledger, "animation_generator")` retrieves visual segment `.mp4` file paths and segment duration metadata. Missing step output or empty segments raise `PipelineStageError`.
+   - Prior step outputs for `"voice_generator"` or `"script_generator"` are checked in `ledger.get_completed_steps(run_id)` to extract `.wav` audio track paths, `.srt` subtitle paths, or raw SRT string content.
+4. **Assembly Execution**: `VideoAssemblyNode.execute()` instantiates `VideoAssembler` with configurable binary, timeout, and temp dir, then invokes `assembler.assemble(...)` to merge video clips, audio, and burned-in subtitles.
+5. **Output Schema Validation**: The resulting file path, size, duration, segments, and timestamp are validated through `AssembledVideo.model_validate(...)` / constructor before returning `model.model_dump()`.
+6. **Exception Boundaries**: Precondition failures (missing ledger, missing prior step output, missing segment `.mp4` file) raise `PipelineStageError`. FFmpeg errors, timeouts, or corrupt artifacts raise `AssemblyError`.
 
 ## 3. Caveats
-
-- **Read-Only Scope**: This report provides full design specifications and proposed code. Code implementation in `src/core/workflow/` will be performed by the implementer agent.
-- No existing tests or core modules were modified during this investigation.
-
----
+- No caveats. The contracts between `Node`, `StateLedger`, `VideoAssembler`, and `AssembledVideo` are fully reconciled and aligned.
 
 ## 4. Conclusion
-
-The module exports (`Node`, `WorkflowEngine`, `EngineResult`), `EngineResult` schema, and exception alignment for Milestone 1 are completely designed and documented in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md`. The design fulfills all requirements of Phase 08 R1, R2, and `PROJECT.md`.
-
----
+- Complete class definition and `execute()` method specifications for `VideoAssemblyNode` in `src/pipeline/nodes/video_assembly_node.py` are fully formulated and documented in `analysis.md`. The design fulfills all prompt and Phase 13 requirements.
 
 ## 5. Verification Method
-
-1. **Inspect Analysis Report**:
-   - Review `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md` for component code specifications.
-2. **Run Core Unit Tests**:
-   - `pytest tests/core/test_base.py tests/core/test_exceptions.py`
-3. **Invalidation Conditions**:
-   - `EngineResult` lacking any of the 5 core fields (`success`, `run_id`, `completed_steps`, `failed_step`, `error`).
-   - `WorkflowEngine` re-raising node exceptions rather than capturing them and updating `StateLedger` to `FAILED`.
+- **Unit Test Command**: `pytest tests/pipeline/test_assembly_node.py`
+- **Verification Checklist**:
+  1. Instantiation of `VideoAssemblyNode` returns `node.name == "video_assembly"`.
+  2. Passing `ledger=None` to `execute()` raises `PipelineStageError`.
+  3. Execution with missing `animation_generator` step in mock ledger raises `PipelineStageError`.
+  4. Successful execution with mock FFmpeg binary script returns dict matching `AssembledVideo` schema.
+  5. Mock FFmpeg failure (exit code 1) causes `execute()` to raise `AssemblyError`.

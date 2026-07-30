@@ -1,89 +1,54 @@
-# Handoff Report — Milestone M1_2 Challenge
-
-## Verdict
-**APPROVE**
-
----
+# Handoff Report: Phase 13 Milestone 1-2 Challenge
 
 ## 1. Observation
 
-### Code Inspection Observations
-- File `src/core/workflow/node.py` (lines 42, 81-131): `Node.execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]` defines signature taking only `run_id` and `ledger`. Helper methods `get_completed_step_outputs` and `get_step_output` query `ledger.get_completed_steps(run_id)`.
-- File `src/core/workflow/engine.py` (lines 131-154): `WorkflowEngine.run(run_id)` queries `completed_steps_map = self.ledger.get_completed_steps(run_id)`. If `node.name in completed_steps_map` and `completed_steps_map[node.name].status == StepStatus.COMPLETED`, the node is skipped without calling `node.execute()`, and `outputs[node.name] = completed_steps_map[node.name].output_payload or {}`.
-- File `src/core/orchestrator/state_ledger.py` (lines 267, 338-351): `record_step_completion()` executes `output_json = json.dumps(output_payload)`. `get_completed_steps()` executes `SELECT * FROM step_executions WHERE pipeline_run_id = ? AND status = 'COMPLETED'` and deserializes `output_payload` via `json.loads()`.
+- **Implementation Files Inspected**:
+  - `src/pipeline/nodes/video_assembly_node.py` (259 lines): Node implementation inheriting from `Node`, querying `StateLedger` for step outputs (`animation_generator`, `voice_generator`, `script_generator`), constructing video clip list, invoking `VideoAssembler`, and returning dictionary validating `AssembledVideo` schema.
+  - `src/assembly/assembler.py` (243 lines): Core FFmpeg execution class with non-shell `subprocess.run()`, `close_fds=True`, timeout enforcement (300.0s), size checks (>= 100 bytes), and atomic file renaming.
+  - `src/assembly/ffmpeg_commands.py` (430 lines): Pure FFmpeg command builder for 4K video scaling, concat filter graphs, and subtitle burning.
 
-### Empirical Test Command & Execution Results
-1. Command: `pytest tests/workflow/test_engine.py`
-   Output:
-   ```
-   tests/workflow/test_engine.py::test_node_abstract_instantiation_raises PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_empty_nodes_raises PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_invalid_run_id_raises PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_successful_pipeline_execution PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_idempotency_skipping PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_node_failure_handling PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_missing_prior_step_error PASSED
-   tests/workflow/test_engine.py::test_workflow_engine_aliases PASSED
-   ======================== 8 passed, 4 warnings in 0.23s =========================
-   ```
+- **Empirical Test Suite Created**:
+  - Created `tests/pipeline/test_assembly_node.py` with 31 test cases covering command builders, assembler subprocess execution, state ledger missing step handling, malformed segment payloads, fallback script artifacts, and Pydantic schema validation.
 
-2. Command: `pytest .agents/challenger_m1_2/test_empirical_challenges.py`
-   Output:
-   ```
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_unserializable_in_memory_object_rejected PASSED
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_mutation_isolation_via_state_ledger PASSED
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_multi_engine_instance_state_isolation PASSED
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_completed_step_skipped_cleanly PASSED
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_crash_resume_idempotency PASSED
-   .agents/challenger_m1_2/test_empirical_challenges.py::test_challenge_preseeded_sqlite_completed_step PASSED
-   ============================== 6 passed in 0.31s ===============================
-   ```
-
----
+- **Command Execution & Verification Results**:
+  - `PYTHONPATH=. pytest tests/pipeline/test_assembly_node.py --cov=src/pipeline/nodes/video_assembly_node.py --cov=src/assembly -v`
+  - Output:
+    ```
+    ======================== 31 passed, 10 warnings in 1.87s ========================
+    src/pipeline/nodes/video_assembly_node.py    118      2    98%
+    src/assembly/assembler.py                    102     27    74%
+    src/assembly/ffmpeg_commands.py              116     14    88%
+    ```
 
 ## 2. Logic Chain
 
-1. **State Passing Isolation**:
-   - `Node.execute()` accepts only `run_id` and `ledger` (Observation: `node.py:42`).
-   - Prior step outputs are loaded via `StateLedger.get_completed_steps()` which executes SQL queries and deserializes JSON strings using `json.loads()` (Observation: `state_ledger.py:338`).
-   - Attempts to return non-serializable in-memory Python objects fail at `json.dumps()` with a `TypeError` (Observation: `state_ledger.py:267`, verified in `test_challenge_unserializable_in_memory_object_rejected`).
-   - Because `json.loads()` constructs fresh dictionary instances on every read, mutating a returned dictionary in memory in Node B does not affect Node C or alter SQLite records (verified in `test_challenge_mutation_isolation_via_state_ledger`).
-   - Therefore, nodes cannot pass in-memory state objects down the chain.
-
-2. **Step Idempotency & Clean Skipping**:
-   - `WorkflowEngine.run()` checks `ledger.get_completed_steps(run_id)` before calling each node (Observation: `engine.py:131`).
-   - If a step is `COMPLETED`, `WorkflowEngine` skips node execution (`node.execute()` is not invoked) and populates `EngineResult.outputs` from SQLite `output_payload` (Observation: `engine.py:143-154`, verified in `test_challenge_completed_step_skipped_cleanly`).
-   - If a step failed in a prior run, it is omitted from `get_completed_steps()` and is re-executed on subsequent pipeline runs while completed prior steps remain skipped (verified in `test_challenge_crash_resume_idempotency`).
-   - Therefore, `WorkflowEngine.run(run_id)` skips completed node execution cleanly and returns output payloads directly from SQLite.
-
-3. **Test Suite Verification**:
-   - `pytest tests/workflow/test_engine.py` passes completely with 8 passed tests (Observation: `pytest` output).
-
----
+1. **Observation 1**: `VideoAssemblyNode` interacts with `StateLedger` via `get_step_output(run_id, ledger, "animation_generator")`.
+   - *Reasoning*: If `animation_generator` is missing from `StateLedger`, `get_step_output` raises `PipelineStageError`. Tested in `test_execute_missing_animation_step`.
+2. **Observation 2**: Voice and subtitle artifacts may come from `voice_generator` or `script_generator` prior steps.
+   - *Reasoning*: `VideoAssemblyNode` checks `completed_steps` for `voice_generator` first, then falls back to `script_generator`. If neither provides audio, assembly proceeds with video-only clips. Tested in `test_execute_fallback_script_generator_artifacts`.
+3. **Observation 3**: Visual segments may have invalid enum types or missing top-level `visual_path` keys.
+   - *Reasoning*: `VideoAssemblyNode` fallback mechanism extracts video paths from `asset_references` and repairs invalid segment types to `"visual_anim"`, ensuring `RenderSegment` models are valid. Tested in `test_execute_visual_path_from_asset_references` and `test_execute_fallback_segment_repair`.
+4. **Observation 4**: Output dictionary must conform to `AssembledVideo` schema.
+   - *Reasoning*: `VideoAssemblyNode` sanitizes the `slug` to lowercase alphanumeric with hyphens (`re.sub(r"[^a-z0-9-]", "-", ...)`), validates `AssembledVideo(...)`, and returns `model_dump()`. Tested in `test_execute_success_end_to_end`.
+5. **Observation 5**: FFmpeg execution failure, timeouts, or corrupt output artifacts must be surfaced cleanly.
+   - *Reasoning*: `VideoAssembler` catches non-zero exit codes, `subprocess.TimeoutExpired`, and checks output size >= 100 bytes, raising `AssemblyError` in all failure cases. Tested in `test_assembler_subprocess_failure`, `test_assembler_subprocess_timeout`, and `test_execute_corrupted_assembled_artifact`.
 
 ## 3. Caveats
 
-- `pipeline_runs.status` column in SQLite remains `IN_PROGRESS` after all nodes complete because `record_step_completion` only updates `step_executions.status`. However, `WorkflowEngine.run()` returns `EngineResult(status=StepStatus.COMPLETED)`, and step idempotency relies solely on `step_executions.status == 'COMPLETED'`, so pipeline execution and idempotency functions correctly. No bugs impair the required functionality.
-
----
+- Hardware acceleration (e.g. NVENC/VAAPI) is not tested as per project standard CPU libx264 execution constraints.
 
 ## 4. Conclusion
 
-The implementation of `WorkflowEngine` and `Node` in Phase 08 meets all idempotency, fault-tolerance, and state-ledger-only communication requirements.
-- Nodes cannot pass in-memory state objects to subsequent nodes.
-- `WorkflowEngine.run(run_id)` skips completed nodes cleanly and returns output payloads from SQLite.
-- `pytest tests/workflow/test_engine.py` passes all unit tests.
+**Verdict**: `APPROVE`
 
-**Verdict**: **APPROVE**
-
----
+`VideoAssemblyNode` and `VideoAssembler` pass all 31 empirical test cases, correctly handle missing or malformed prior step outputs from `StateLedger`, validate output against `AssembledVideo` Pydantic models, execute FFmpeg safely via non-shell subprocesses, and clean up temporary files reliably.
 
 ## 5. Verification Method
 
-To independently verify this evaluation:
-1. Run standard unit test suite:
-   `pytest tests/workflow/test_engine.py`
-2. Run empirical challenge test suite:
-   `pytest .agents/challenger_m1_2/test_empirical_challenges.py`
-3. Inspect challenge findings report at:
-   `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/challenge.md`
+To independently verify the empirical test suite and implementation:
+
+```bash
+PYTHONPATH=. pytest tests/pipeline/test_assembly_node.py -v
+```
+
+All 31 tests must pass with exit code 0.

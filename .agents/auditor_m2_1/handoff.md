@@ -1,50 +1,36 @@
-# Handoff Report — Phase 07 Milestone 2 Forensic Audit
+# Handoff Report — Milestone 2 Forensic Audit
 
 ## 1. Observation
-- Target deliverables inspected:
-  - `src/core/llm/prompts/v1/educational_plan.j2` (90 lines, 4,956 bytes)
-  - `src/core/llm/prompts/v1/code_explanation.j2` (52 lines, 2,767 bytes)
-  - `PromptBook/Phase07/01_Prompt_Library.md` (258 lines, 12,962 bytes)
-- Environment execution:
-  - Ran Jinja2 rendering test via `./.venv/bin/python`: Both `educational_plan.j2` and `code_explanation.j2` rendered successfully without `UndefinedError` or rendering errors under Jinja2 `StrictUndefined`.
-  - Output sizes: `educational_plan.j2` rendered 4,042 characters; `code_explanation.j2` rendered 2,058 characters.
-  - Ran `pytest tests/llm/`: 24 passed in 2.46s.
-- Code analysis:
-  - `educational_plan.j2` includes Jinja2 loops over `constraints`, `learning_objectives`, `rag_context`, `code_implementations`, conditional branching for `target_audience` (`Beginner`, `Advanced`, `Intermediate`), deep CoT instructions, and Pydantic V2 `EducationalPlan` schema invariants.
-  - `code_explanation.j2` includes Jinja2 loops over `line_highlights`, dynamic pitfall selection (`active_pitfalls`), language-specific nuances (`python`, `cpp`, `java`), and `CodeSnippet` output contract.
-  - `01_Prompt_Library.md` contains comprehensive architectural documentation including Mermaid diagrams, `PromptLoader` API specs, versioning rules, prompt engineering guidelines, template catalogs, and verification commands.
-- No facade implementations, hardcoded test strings, or pre-populated verification artifacts were observed.
+- **Required Source Paths Audited**:
+  - `tests/pipeline/test_animation_node.py` (1232 lines)
+  - `src/pipeline/nodes/animation_generator_node.py` (321 lines)
+  - `src/animation/renderer.py` (135 lines)
+- **Subprocess Execution**: In `src/animation/renderer.py:102-109`, `subprocess.run()` is invoked with `close_fds=True`, `timeout=self.timeout`, `capture_output=True`, `text=True`, `cwd=str(output_dir)`.
+- **Tempdir Cleanup**: In `src/pipeline/nodes/animation_generator_node.py:287-289`, isolated execution occurs within `with tempfile.TemporaryDirectory(...) as temp_dir_str:`. Partial outputs on error are explicitly unlinked in an `except Exception:` block in `AnimationGeneratorNode.execute()`.
+- **Test Suite Results**:
+  - `pytest tests/pipeline/test_animation_node.py`: 34 passed out of 34 tests in 2.66s.
+  - `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ tests/llm/`: 147 passed out of 147 tests in 3.61s.
 
 ## 2. Logic Chain
-1. Ground truth constraints from `ORIGINAL_REQUEST.md` (Phase 07, `development` mode) require foundational Jinja2 templates for Educational Plan Generation and Code Explanation, and comprehensive documentation in `PromptBook/Phase07/01_Prompt_Library.md`.
-2. Inspection of `educational_plan.j2` and `code_explanation.j2` verified genuine Jinja2 template logic featuring dynamic variable interpolation, control flow loops, conditional persona/audience logic, and schema contracts.
-3. Verification of `PromptBook/Phase07/01_Prompt_Library.md` confirmed detailed, accurate documentation aligned 1-to-1 with system implementation and prompt engineering standards.
-4. Empirical execution confirmed both templates render valid, complete system prompts using the `PromptLoader` engine and all tests in `tests/llm/` pass cleanly.
-5. Therefore, the work product fulfills all user requirements without any integrity violations.
+1. The user requested a forensic audit of Milestone 2 targeting `tests/pipeline/test_animation_node.py`, `src/pipeline/nodes/animation_generator_node.py`, and `src/animation/renderer.py`.
+2. Inspection of production modules (`animation_generator_node.py` and `renderer.py`) confirmed that no dummy MP4 bytes or fabricated strings are generated. Production code delegates rendering strictly to `subprocess.run()` and validates output existence (`stat().st_size > 0`).
+3. Inspection of `tests/pipeline/test_animation_node.py` confirmed 34 robust test cases verifying Pydantic model validation, LEDGER integration, CLI command construction, timeout/failure exceptions, tempdir deletion, and FD leaks.
+4. Execution of the test suite confirmed zero test failures or regressions.
+5. All 5 specified audit checks passed cleanly.
 
 ## 3. Caveats
-- No caveats. Full empirical execution and static analysis performed on all Milestone 2 deliverables.
+- `manim` binary is simulated in unit tests using a mock python script fixture (`mock_manim_script`) as explicitly required by Phase 12 acceptance criteria when running tests without full Manim binary installed. Full system rendering with real Manim binary depends on system environment dependencies.
 
 ## 4. Conclusion
 **Verdict**: CLEAN
 
-Phase 07 Milestone 2 deliverables (`educational_plan.j2`, `code_explanation.j2`, `01_Prompt_Library.md`) pass all forensic integrity checks. Implementation logic is genuine, highly functional, and fully documented.
+Milestone 2 implementation strictly satisfies all forensic integrity criteria. There are no fake MP4 byte fabrications, no hardcoded test assertions, genuine subprocess execution is used with `close_fds=True`, resources are explicitly cleaned up, and all 34 milestone tests (and 147 core pipeline tests) pass cleanly without regressions.
 
 ## 5. Verification Method
-To independently verify this audit result, execute the following commands in the workspace root:
-
-```bash
-# 1. Verify template discovery and dynamic rendering via PromptLoader
-./.venv/bin/python -c "
-from src.core.llm.prompt_loader import PromptLoader
-loader = PromptLoader()
-print('Templates:', loader.list_templates('v1'))
-p_plan = loader.render('educational_plan', {'topic': 'Two Sum', 'slug': 'two-sum', 'difficulty': 'Easy', 'target_audience': 'Beginner', 'problem_description': 'Find pair', 'target_duration_seconds': 180.0})
-p_code = loader.render('code_explanation', {'topic': 'Two Sum', 'language': 'python', 'code': 'seen = {}', 'time_complexity': 'O(N)', 'space_complexity': 'O(N)'})
-print('Educational Plan Length:', len(p_plan))
-print('Code Explanation Length:', len(p_code))
-"
-
-# 2. Run test suite
-./.venv/bin/pytest tests/llm/
-```
+To independently verify this audit:
+1. Inspect source files:
+   - `view_file` on `src/animation/renderer.py` (lines 102-109) to confirm `subprocess.run` with `close_fds=True`.
+   - `view_file` on `src/pipeline/nodes/animation_generator_node.py` (lines 287-289) to confirm `tempfile.TemporaryDirectory()`.
+2. Run test commands:
+   - `pytest tests/pipeline/test_animation_node.py`
+   - `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ tests/llm/`

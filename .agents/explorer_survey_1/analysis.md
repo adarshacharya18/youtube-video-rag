@@ -1,240 +1,300 @@
-# Phase 10 Event Bus & Workflow Engine Survey Analysis
+# Codebase Analysis Report: Node Abstractions, State Ledger, and Manim Visual Cue Mapping for Phase 12
 
 ## 1. Executive Summary
 
-This report presents a detailed code survey and architectural analysis of the **Phase 10 Event Bus Integration** for the Automated DSA Educational YouTube Video Pipeline.
-
-The survey examined the codebase located under `/home/adarsh/Documents/Youtube-Channel/src/core/`, specifically focusing on `src/core/events/` and `src/core/workflow/engine.py`, along with corresponding test suites in `tests/` and documentation in `PromptBook/Phase10/`.
-
-### Key Summary Findings
-1. **Existing Dataclasses**: `BaseEvent`, `NodeStarted`, `NodeCompleted`, and `NodeFailed` are fully defined in `src/core/events/bus.py` (and re-exported in `src/core/events/__init__.py`). All models utilize Python standard `@dataclass` decorators, with `BaseEvent` providing an ISO 8601 UTC timestamp keyword-only default factory.
-2. **In-Memory Event Bus**: `EventBus` is implemented in `src/core/events/bus.py` with subscriber management (`subscribe`, `unsubscribe`, `clear`) and synchronous event dispatching (`publish`). It implements a fault-tolerant boundary where listener exceptions (such as `RuntimeError`) are caught, logged via `logger.error(..., exc_info=True)`, and suppressed without stopping publisher execution.
-3. **Workflow Engine Integration**: `WorkflowEngine` in `src/core/workflow/engine.py` accepts an optional `event_bus: Optional[EventBus] = None` in its `__init__` constructor and emits lifecycle events at exact state transition points during `run()`:
-   - `NodeStarted` is emitted immediately after `ledger.record_step_start(run_id, node.name)`.
-   - `NodeCompleted` is emitted immediately after `ledger.record_step_completion(step_id, node_output)`.
-   - `NodeFailed` is emitted inside the `except Exception as e:` handler immediately after `ledger.record_step_failure(...)`.
-   - Skipped steps (which are already marked `COMPLETED` in `StateLedger`) do not re-emit `NodeStarted` or `NodeCompleted` events, respecting step idempotency.
-4. **Testing & Documentation Integrity**: The test suite in `tests/events/test_bus.py` and `tests/workflow/test_engine.py` passes 100% (17/17 tests passing), explicitly testing listener exception suppression and engine lifecycle emissions. SDK documentation is present in `PromptBook/Phase10/01_Event_Bus.md`.
+This report presents a comprehensive codebase survey and architectural analysis to support **Phase 12: Media Production: Animation (Manim)**. We examine:
+1. **Node Abstractions & Workflow Engine**: Execution mechanics of abstract `Node` classes (`src/core/workflow/node.py`) and execution orchestration by `WorkflowEngine` (`src/core/workflow/engine.py`).
+2. **State Ledger Integration**: How nodes maintain pipeline idempotency, read prior step outputs from SQLite State Ledger (`src/core/orchestrator/state_ledger.py`), and write JSON payload results using `run_id`.
+3. **Reference Node Pattern**: Detailed inspection of `ScriptGeneratorNode` (`src/pipeline/nodes/script_generator_node.py`) and its Error-Feedback Retry Loop.
+4. **Visual Cue Structure & Mapping**: Structural analysis of `YouTubeScript` and `VisualCue` Pydantic models (`src/models/script.py`, `src/core/models/assets.py`), and how `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py`) will map visual cues to pre-built Manim scene templates via CLI execution.
+5. **Exceptions & Fault Tolerance**: Centralized exception hierarchy (`src/core/exceptions.py`) and error propagation inside `WorkflowEngine`.
 
 ---
 
-## 2. Codebase Layout & File Mapping
+## 2. Core Architecture & Node Abstraction Mechanics
 
-The core architecture for Phase 10 is laid out across the following directories and files:
+### 2.1 The `Node` Abstract Base Class (`src/core/workflow/node.py`)
+
+The abstract base class `Node` enforces component isolation and true pipeline idempotency across execution stages.
 
 ```
-src/core/
-├── events/
-│   ├── __init__.py         # Re-exports EventBus, BaseEvent, NodeStarted, NodeCompleted, NodeFailed
-│   └── bus.py              # Implementation of BaseEvent, lifecycle models, and fault-tolerant EventBus
-└── workflow/
-    ├── __init__.py         # Re-exports Node, WorkflowEngine, EngineResult
-    ├── engine.py           # Synchronous WorkflowEngine with EventBus lifecycle emissions
-    └── node.py             # Abstract Node base class
-
-tests/
-├── events/
-│   └── test_bus.py         # Unit tests for EventBus, event models, polymorphism, and fault tolerance
-└── workflow/
-    └── test_engine.py      # Unit tests for WorkflowEngine, step idempotency, node failures, and lifecycle event emissions
-
-PromptBook/Phase10/
-└── 01_Event_Bus.md         # Comprehensive Event Bus Architecture & SDK Documentation Manual
++-------------------------------------------------------------------------+
+|                               Node (ABC)                                |
++-------------------------------------------------------------------------+
+| + name: str [abstract property]                                         |
+| + execute(run_id: str, ledger: StateLedger) -> dict[str, Any] [abstract]|
+| + get_run_record(run_id: str, ledger: StateLedger) -> PipelineRunRecord  |
+| + get_completed_step_outputs(run_id, ledger) -> dict[str, dict]         |
+| + get_step_output(run_id, ledger, step_name: str) -> dict               |
++-------------------------------------------------------------------------+
 ```
 
----
-
-## 3. Analysis of Event Models & Data Contracts
-
-All event dataclasses reside in `src/core/events/bus.py`.
-
-### 3.1 `BaseEvent`
-```python
-@dataclass
-class BaseEvent:
-    """Base event model containing an ISO 8601 UTC timestamp."""
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
-        kw_only=True,
-    )
-```
-- **Role**: Base class for all pipeline event models.
-- **Attributes**:
-  - `timestamp`: ISO 8601 UTC string generated at instantiation time via `datetime.now(timezone.utc).isoformat()`.
-
-### 3.2 `NodeStarted`
-```python
-@dataclass
-class NodeStarted(BaseEvent):
-    """Event emitted when a workflow node execution starts."""
-    run_id: str
-    node_name: str
-    step_id: str
-```
-- **Trigger**: Emitted when `WorkflowEngine` starts node execution after creating a step entry in `StateLedger`.
-
-### 3.3 `NodeCompleted`
-```python
-@dataclass
-class NodeCompleted(BaseEvent):
-    """Event emitted when a workflow node completes successfully."""
-    run_id: str
-    node_name: str
-    step_id: str
-    output: Any
-```
-- **Trigger**: Emitted when a node successfully completes execution and output payload is persisted in `StateLedger`.
-
-### 3.4 `NodeFailed`
-```python
-@dataclass
-class NodeFailed(BaseEvent):
-    """Event emitted when a workflow node execution fails."""
-    run_id: str
-    node_name: str
-    step_id: str
-    error_message: str
-    error_details: Any = None
-```
-- **Trigger**: Emitted when a node execution raises an exception during `node.execute()`.
-
----
-
-## 4. Analysis of `EventBus` Class & Fault Tolerance
-
-The `EventBus` class in `src/core/events/bus.py` implements an in-memory Pub/Sub mechanism:
-
-### 4.1 Internal State
-```python
-def __init__(self) -> None:
-    self._subscribers: Dict[Type[Any], List[Callable[[Any], None]]] = defaultdict(list)
-```
-
-### 4.2 Subscriber Operations
-- `subscribe(event_type: Type[Any], listener: Callable[[Any], None]) -> None`: Registers a listener for an event class. Prevents duplicate listener references under the same event type key.
-- `unsubscribe(event_type: Type[Any], listener: Callable[[Any], None]) -> None`: Removes listener from subscription list and deletes empty event keys from `_subscribers`.
-- `clear() -> None`: Empties `_subscribers` dictionary.
-
-### 4.3 Dispatch & Fault-Tolerance Boundary (`publish`)
-```python
-def publish(self, event: Any) -> None:
-    listeners_to_call: List[Callable[[Any], None]] = []
-    for sub_type, listeners in list(self._subscribers.items()):
-        try:
-            if isinstance(event, sub_type):
-                listeners_to_call.extend(listeners)
-        except TypeError:
-            if sub_type == type(event) or sub_type is Any:
-                listeners_to_call.extend(listeners)
-
-    for listener in listeners_to_call:
-        try:
-            listener(event)
-        except Exception as e:
-            logger.error(
-                "EventBus listener raised an exception",
-                event_type=type(event).__name__,
-                listener=getattr(listener, "__qualname__", str(listener)),
-                error=str(e),
-                exc_info=True,
-            )
-```
-- **Polymorphic Dispatch**: Matches subscribers registered for `isinstance(event, sub_type)`, direct class match, or `typing.Any`.
-- **Fault Tolerance**: Invokes each listener inside a dedicated `try...except Exception:` block. If a listener raises any exception (e.g. `RuntimeError`), `logger.error(...)` logs structured details and stack trace, and execution cleanly proceeds to the next listener and back to the publisher (`WorkflowEngine`).
-
----
-
-## 5. Analysis of `WorkflowEngine` Lifecycle Hooks
-
-`WorkflowEngine` in `src/core/workflow/engine.py` coordinates node execution sequence:
-
-```python
-class WorkflowEngine:
-    def __init__(
-        self,
-        nodes: Sequence[Node],
-        ledger: Optional[StateLedger] = None,
-        event_bus: Optional[EventBus] = None,
-    ) -> None:
-        ...
-        self.event_bus: Optional[EventBus] = event_bus
-```
-
-### Execution Lifecycle Sequence in `run(run_id)`:
-1. **Idempotency Check**:
-   - If node is already `COMPLETED` in `StateLedger`, step is skipped. No events are emitted for skipped nodes.
-2. **Start Lifecycle Hook**:
+#### Key Design Invariants:
+1. **Zero In-Memory Inter-Node State Passing**: Nodes must **never** accept or return live state objects from/to other node instances. All inter-node communication is strictly routed through SQLite State Ledger via `run_id`.
+2. **Contract Signature** (`node.py:42`):
    ```python
-   step_id = self.ledger.record_step_start(run_id, node.name)
-   if self.event_bus is not None:
-       self.event_bus.publish(
-           NodeStarted(run_id=run_id, node_name=node.name, step_id=step_id)
-       )
+   def execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]:
    ```
-3. **Execution & Completion Hook**:
-   ```python
-   try:
-       node_output = node.execute(run_id, self.ledger)
-       if node_output is None:
-           node_output = {}
+   `execute` takes the string `run_id` and the thread-safe `ledger: StateLedger` instance, returning a JSON-serializable output dictionary payload.
+3. **Ledger Lookup Helpers** (`node.py:59-131`):
+   - `get_run_record(run_id, ledger)` (`node.py:59-79`): Returns `PipelineRunRecord` (containing `slug`, `status`, `metadata`), or raises `PipelineStageError` if the run is missing.
+   - `get_completed_step_outputs(run_id, ledger)` (`node.py:81-98`): Queries `ledger.get_completed_steps(run_id)` and returns a mapping `{step_name: output_payload}`.
+   - `get_step_output(run_id, ledger, step_name)` (`node.py:100-131`): Retrieves the specific output dictionary for `step_name`, or raises `PipelineStageError` if the step was not completed.
 
-       self.ledger.record_step_completion(step_id, node_output)
-       if self.event_bus is not None:
-           self.event_bus.publish(
-               NodeCompleted(
-                   run_id=run_id,
-                   node_name=node.name,
-                   step_id=step_id,
-                   output=node_output,
-               )
-           )
-   ```
-4. **Exception Handling & Failure Hook**:
+---
+
+### 2.2 Workflow Engine & Fault Tolerance (`src/core/workflow/engine.py`)
+
+The `WorkflowEngine` coordinates sequential execution of pipeline nodes, enforcing idempotency and catching all node-level runtime exceptions without allowing application crashes.
+
+```
+       +-------------------------------------------------------+
+       |               WorkflowEngine.run(run_id)              |
+       +-------------------------------------------------------+
+                                   |
+                  For each node in self.nodes sequence
+                                   |
+                     [ Check Step Idempotency ]
+                   Is node.name in completed_steps?
+                       /                       \
+                     Yes                        No
+                     /                            \
+           [ Skip Node ]                   [ Ledger Record ]
+     Add cached payload to outputs        record_step_start(run_id, node.name)
+           Continue loop                          |
+                                           [ Try Execute ]
+                                        node.execute(run_id, ledger)
+                                           /              \
+                                     Success               Exception
+                                       /                      \
+                         [ Ledger Record ]              [ Ledger Failure ]
+                    record_step_completion()       record_step_failure()
+                   Publish NodeCompleted event     Publish NodeFailed event
+                   Add output to outputs payload   Return EngineResult(success=False)
+                         Continue loop                   HALT PIPELINE
+```
+
+#### Key Execution Phases:
+1. **Pre-flight Run Validation** (`engine.py:125-129`):
+   Validates `ledger.get_run(run_id)`. If missing, raises `PipelineError`.
+2. **Step Idempotency Checking** (`engine.py:146-158`):
+   Checks `completed_steps_map = ledger.get_completed_steps(run_id)`. If `node.name` status is `COMPLETED`, the node is skipped, its cached `output_payload` is loaded into `outputs`, and loop continues.
+3. **Step Start Tracking** (`engine.py:161-165`):
+   Calls `step_id = ledger.record_step_start(run_id, node.name)`, which updates step status to `IN_PROGRESS` and (if PENDING) parent run status to `IN_PROGRESS`.
+4. **Try/Except Fault Isolation** (`engine.py:168-239`):
+   - **Success Path** (`engine.py:169-192`): Calls `node.execute(run_id, ledger)`, records completion via `ledger.record_step_completion(step_id, node_output)`, and publishes `NodeCompleted` event.
+   - **Failure Path** (`engine.py:192-238`):
+     - Catches `Exception as e`.
+     - Logs structured error with stack trace `traceback.format_exc()`.
+     - Calls `ledger.record_step_failure(step_id, error_message=str(e), error_details=...)`. This sets step status to `FAILED` and updates parent pipeline run status to `FAILED`.
+     - Publishes `NodeFailed` event.
+     - Immediately returns `EngineResult(success=False, status=StepStatus.FAILED, failed_step=node.name, error=str(e))`, terminating pipeline execution cleanly.
+
+---
+
+### 2.3 Existing Node Reference: `ScriptGeneratorNode` (`src/pipeline/nodes/script_generator_node.py`)
+
+`ScriptGeneratorNode` demonstrates the concrete node implementation pattern:
+
+1. **Name Property** (`script_generator_node.py:41-42`): Returns `"script_generator"`.
+2. **Context Retrieval** (`script_generator_node.py:68-120`):
+   - Queries `self.get_run_record(run_id, ledger)` for problem `slug`.
+   - Calls `self.get_completed_step_outputs(run_id, ledger)` to read outputs from prior steps (`plan`, `educational_plan`, or `ingest`).
+   - Extracts problem details (`topic`, `difficulty`, `problem_description`, `constraints`, `code`).
+3. **Error-Feedback Retry Loop** (`script_generator_node.py:137-161`):
+   - Calls LLM via provider abstraction.
+   - Parses and validates output using `YouTubeScript` Pydantic model (`src/models/script.py`).
+   - If `PydanticValidationError`, `CoreValidationError`, or `JSONDecodeError` occurs, appends the exact error text to the prompt and retries up to `max_retries` times.
+   - If retries fail, raises `ScriptGenerationError`.
+4. **Output Payload Construction** (`script_generator_node.py:58-66`):
+   Returns a dictionary:
    ```python
-   except Exception as e:
-       error_msg = str(e)
-       error_details = {
-           "error_type": type(e).__name__,
-           "traceback": traceback.format_exc(),
+   {
+       "script": script_model.model_dump(),
+       "slug": script_model.slug,
+       "topic": script_model.topic,
+       "status": "completed"
+   }
+   ```
+
+---
+
+## 3. Core Data Contracts & Visual Cue Model Breakdown
+
+### 3.1 Script & Visual Cue Models (`src/models/script.py`)
+
+The script structure generated by `ScriptGeneratorNode` is validated by Pydantic V2 models in `src/models/script.py`:
+
+```
++---------------------------------------------------------------------------------+
+|                                 YouTubeScript                                   |
++---------------------------------------------------------------------------------+
+| + topic: str                                                                    |
+| + slug: str (pattern: ^[a-z0-9-]+$)                                            |
+| + difficulty: str                                                               |
+| + hook: HookSection                                                             |
+| + context: ContextSection                                                       |
+| + solution: SolutionSection                                                     |
+| + complexity: ComplexitySection                                                 |
+| + total_duration: float (gt=0.0)                                               |
+| + spoken_narration: List[str]                                                   |
+| + visual_cues: List[VisualCue]                                                  |
++---------------------------------------------------------------------------------+
+```
+
+#### `VisualCue` Schema Definition (`src/models/script.py:15-43`):
+```python
+class VisualCue(BaseModel):
+    cue_id: str                 # Unique visual cue identifier (e.g. "cue_solution_01")
+    animation_type: str         # Type of visual animation (e.g. "array_highlight", "code_highlight", "tree_traversal")
+    description: str            # Detailed textual description of visual action
+    timestamp_seconds: float    # Timestamp offset in seconds (ge=0.0)
+    parameters: Dict[str, Any]  # Arbitrary animation parameters (e.g. {"array": [2,7,11,15], "target": 9})
+```
+
+#### Script Section Distribution (`src/models/script.py:46-175`):
+Visual cues appear inside each section:
+- `HookSection.visual_cues` (`script.py:51`)
+- `ContextSection.visual_cues` (`script.py:82`)
+- `SolutionSection.visual_cues` (`script.py:112`)
+- `ComplexitySection.visual_cues` (`script.py:153`)
+
+In `YouTubeScript`'s post-validation model validator (`script.py:251-258`), all section visual cues are automatically aggregated into `YouTubeScript.visual_cues` if not explicitly populated.
+
+---
+
+### 3.2 Asset & Render Manifest Models (`src/core/models/assets.py`)
+
+When visual cues are rendered into video clips by Manim, `AnimationGeneratorNode` will output rendering manifest objects defined in `src/core/models/assets.py`:
+
+#### `RenderSegment` Schema (`assets.py:104-175`):
+```python
+class RenderSegment(BaseModel):
+    segment_id: str                     # Unique segment ID (e.g. "seg_cue_01")
+    segment_type: str                   # Allowed: {"intro", "code_walkthrough", "visual_anim", "outro", "narration"}
+    start_time: float                   # Offset start time (ge=0.0)
+    end_time: float                     # Offset end time (gt=0.0)
+    duration: float                     # Duration in seconds (end_time - start_time)
+    asset_references: list[AssetReference] # References to rendered MP4 video files
+    audio_path: str | None              # Optional path to section WAV audio
+    visual_path: str | None             # Path to rendered Manim MP4 video clip
+    scene_type: str | None              # Manim scene identifier (e.g. "ARRAY_HIGHLIGHT")
+    visual_parameters: dict[str, Any]   # Visual rendering parameters dictionary
+```
+
+---
+
+## 4. `AnimationGeneratorNode` Technical Strategy & Mapping Architecture
+
+### 4.1 Node Specification
+
+`AnimationGeneratorNode` will be implemented at `src/pipeline/nodes/animation_generator_node.py`.
+
+```python
+class AnimationGeneratorNode(Node):
+    @property
+    def name(self) -> str:
+        return "animation_generator"
+```
+
+### 4.2 Step Execution Workflow
+
+```
+1. Ledger Input Lookup
+   |-- get_step_output(run_id, ledger, "script_generator")
+   |-- Parse script payload dict into YouTubeScript Pydantic model (or extract visual_cues)
+
+2. Visual Cue to Manim Scene Template Mapping
+   |-- Iterate over visual_cues:
+   |   |-- Map cue.animation_type to Manim Scene Class Name
+   |   |-- Write cue.parameters / context to isolated temporary JSON file or CLI flags
+
+3. Isolated Subprocess Execution
+   |-- Create temporary working directory for rendering (e.g. /tmp/manim_render_<run_id>_<cue_id>)
+   |-- Invoke Manim CLI via subprocess.run():
+   |     cmd = [
+   |         sys.executable, "-m", "manim", "render",
+   |         "-ql", "--format=mp4",
+   |         "src/animation/scenes/<scene_file>.py",
+   |         "<SceneClassName>",
+   |         "--output_file=<cue_id>.mp4",
+   |         "--media_dir=<temp_media_dir>"
+   |     ]
+   |-- Capture stdout/stderr, check returncode == 0
+   |-- Move output MP4 to persistent asset cache/output directory
+
+4. Resource Cleanup & File Descriptor Management
+   |-- Guarantee cleanup of temporary directories using try...finally block / shutil.rmtree()
+   |-- Close all file descriptors to prevent storage/memory leaks during heavy batch renders
+
+5. Output Payload Construction & State Ledger Record
+   |-- Construct RenderSegment and VideoAsset objects for each rendered visual clip
+   |-- Return output dictionary payload to State Ledger:
+       {
+           "slug": script.slug,
+           "rendered_segments": [seg.model_dump() for seg in segments],
+           "output_directory": str(output_dir),
+           "status": "completed"
        }
-       ...
-       self.ledger.record_step_failure(
-           step_id,
-           error_message=error_msg,
-           error_details=error_details,
-       )
-       if self.event_bus is not None:
-           self.event_bus.publish(
-               NodeFailed(
-                   run_id=run_id,
-                   node_name=node.name,
-                   step_id=step_id,
-                   error_message=error_msg,
-                   error_details=error_details,
-               )
-           )
-       return EngineResult(success=False, ...)
-   ```
+```
 
 ---
 
-## 6. Verification Results
+### 4.3 Visual Cue to Manim Scene Template Mapping Table
 
-Pytest execution output for `tests/events/test_bus.py` and `tests/workflow/test_engine.py`:
-- Command: `pytest tests/events/test_bus.py tests/workflow/test_engine.py`
-- Outcome: **17 passed** in 0.28s
-- Verified features:
-  - `NodeStarted`, `NodeCompleted`, `NodeFailed` dataclass instantiation and ISO timestamp generation
-  - Pub/Sub subscription and unsubscription
-  - Polymorphic inheritance dispatch (`BaseEvent` subscriber receives all sub-events)
-  - Listener exception suppression (`RuntimeError` in listener caught without stopping `publish()`)
-  - `WorkflowEngine` emitting `NodeStarted`, `NodeCompleted`, and `NodeFailed` with correct `run_id`, `node_name`, and `step_id`
-  - Engine resilience when listeners throw `RuntimeError` during pipeline execution.
+The table below defines the mapping from `VisualCue.animation_type` to Manim scene classes in `src/animation/scenes/`:
+
+| `VisualCue.animation_type` | Scene Module | Manim Scene Class | Primary Input Parameters | Expected Visual Output |
+|----------------------------|--------------|-------------------|--------------------------|------------------------|
+| `array_highlight` / `array_traversal` | `src/animation/scenes/array_scene.py` | `ArrayScene` | `array: list[int]`, `highlight_indices: list[int]`, `target: int` | Highlighted array elements & pointers |
+| `tree_traversal` / `binary_tree` | `src/animation/scenes/tree_scene.py` | `TreeScene` | `nodes: list`, `traversal_order: list`, `active_node: int` | Node highlight in tree graph |
+| `code_highlight` / `code_typewriter` | `src/animation/scenes/code_scene.py` | `CodeScene` | `code: str`, `highlight_lines: list[int]`, `language: str` | Dark-theme code block with line highlights |
+| `hashmap_insert` / `hashmap_lookup` | `src/animation/scenes/hashmap_scene.py` | `HashmapScene` | `entries: dict`, `key: Any`, `val: Any` | Key-value slot animation |
+| `linkedlist_pointer` | `src/animation/scenes/linkedlist_scene.py` | `LinkedListScene` | `nodes: list`, `pointers: dict[str, int]` | Nodes connected with animated arrows |
+| `stack_queue_operation` | `src/animation/scenes/stack_queue_scene.py` | `StackQueueScene` | `elements: list`, `operation: str` ("push"/"pop") | Container push/pop animation |
+| `graph_traversal` | `src/animation/scenes/graph_scene.py` | `GraphScene` | `vertices: list`, `edges: list`, `visited: list` | Vertices and edge highlights |
+| `complexity_chart` | `src/animation/scenes/complexity_scene.py` | `ComplexityScene` | `time_complexity: str`, `space_complexity: str` | Animated Big-O curve comparison |
 
 ---
 
-## 7. Conclusions & Architectural Compliance
+### 4.4 Exception Mapping & Error Handling Strategy
 
-1. The Phase 10 Event Bus Integration design and implementation strictly satisfy all requirements defined in `ORIGINAL_REQUEST.md`.
-2. Clean separation of concerns is maintained: event models and bus logic reside under `src/core/events/`, engine orchestration under `src/core/workflow/`, and documentation under `PromptBook/Phase10/`.
-3. The event dispatch is strictly non-blocking for core workflow logic due to individual listener exception suppression.
+In accordance with `src/core/exceptions.py`:
+
+```
+           +---------------------------------------+
+           |           Subprocess Failure          |
+           | (non-zero return code, timeout, etc.) |
+           +---------------------------------------+
+                               |
+                               v
+               Raise AnimationError(FatalError)
+                 (subclass of PipelineError)
+                               |
+                               v
+             Caught by WorkflowEngine try/except
+                               |
+                               v
+            StateLedger record_step_failure(step_id)
+            updates step and run status to FAILED
+                               |
+                               v
+          Engine returns EngineResult(success=False)
+```
+
+1. **Custom Base Exception**: `AnimationError` (`src/core/exceptions.py:135-137`).
+2. **Failure Handling**:
+   - If Manim binary is missing, times out, or returns a non-zero exit code, `AnimationGeneratorNode` raises `AnimationError(f"Manim render failed for cue '{cue_id}': {stderr}")`.
+   - `WorkflowEngine` captures `AnimationError`, records the step and run failure in SQLite State Ledger, and halts pipeline execution safely without process crash.
+
+---
+
+## 5. Verification & Architectural Checklist
+
+- [x] Abstract base class `Node` contract (`src/core/workflow/node.py`) verified.
+- [x] State ledger communication model (`src/core/orchestrator/state_ledger.py`) verified.
+- [x] `WorkflowEngine` fault tolerance and idempotency mechanisms (`src/core/workflow/engine.py`) verified.
+- [x] Reference implementation `ScriptGeneratorNode` (`src/pipeline/nodes/script_generator_node.py`) analyzed.
+- [x] Pydantic models for visual cues (`src/models/script.py`) and render segments (`src/core/models/assets.py`) detailed.
+- [x] `AnimationGeneratorNode` visual cue to Manim scene mapping and subprocess strategy established.
+- [x] Exception hierarchy (`src/core/exceptions.py`) and error propagation mapped.

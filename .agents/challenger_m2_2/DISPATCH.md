@@ -1,17 +1,17 @@
-## 2026-07-29T11:47:48Z
+## 2026-07-30T07:54:19Z
+You are challenger_m2_2 working in working directory `.agents/challenger_m2_2/`.
+Your task is to empirically challenge visual cue mapping and caching behavior in `tests/pipeline/test_animation_node.py` (Milestone 2).
 
-You are Challenger 2 for Phase 07 Milestone 2.
+Required read paths:
+- `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
+- `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
+- `tests/pipeline/test_animation_node.py`
+- `src/pipeline/nodes/animation_generator_node.py`
+- `src/animation/renderer.py`
 
-Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2
+Challenge activities:
+1. Run `pytest tests/pipeline/test_animation_node.py -k "mapping or cache or fallback" -v`.
+2. Verify all scene template classes map cleanly and cache keys invalidate when parameters change.
+3. Challenge fallback cue extraction logic.
 
-MANDATORY READ:
-- /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md (specifically Phase 07 entry)
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase07/PROJECT.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_phase07_m2/changes.md
-
-Objective: Empirically test strict variable handling on `educational_plan.j2` and `code_explanation.j2` to ensure missing required parameters trigger `TemplateRenderError`.
-
-Deliverables:
-- Write challenge results to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2/challenge.md`.
-- Write handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2/handoff.md` containing explicit Verdict: `APPROVE` or `REQUEST_CHANGES`.
-- Send summary message back to orchestrator.
+Write your challenge report to `.agents/challenger_m2_2/challenge.md` and deliver `handoff.md` with explicit APPROVE or REJECT verdict.

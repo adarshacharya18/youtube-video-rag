@@ -1,72 +1,69 @@
-## Review Summary
+# Phase 13 Milestone 1 Code Review Report
 
-**Verdict**: APPROVE
-
-The test suite implementation in `tests/workflow/test_engine.py` provides robust, high-quality test coverage for `WorkflowEngine` and `Node` abstractions in `src/core/workflow/`. All Acceptance Criteria specified in `ORIGINAL_REQUEST.md` and `PROJECT.md` are verified and fully met.
+**Reviewer**: Reviewer M1-2 (`teamwork_preview_reviewer`)  
+**Date**: 2026-07-30  
+**Verdict**: `REQUEST_CHANGES`
 
 ---
 
-## Acceptance Criteria Verification
+## Review Summary
 
-1. **Mock Node Failure & SQLite Ledger Update**:
-   - `tests/workflow/test_engine.py` defines `FailingNode` which intentionally raises `RuntimeError("Intentional mock node failure")`.
-   - `test_workflow_engine_node_failure_handling` executes `WorkflowEngine` with `FailingNode`. It asserts that:
-     - The engine catches the exception without raising or crashing the Python process.
-     - `EngineResult` returns `success=False`, `status=StepStatus.FAILED`, `failed_step="failing_step"`, and contains the exception message.
-     - The SQLite StateLedger `PipelineRunRecord` is updated to `status=StepStatus.FAILED`.
-     - Output conversion via `result.to_base_result()` produces a `BasePipelineResult` with `success=False` and `PipelineStageError`.
+Independent review of Phase 13 Milestone 1 code implementation:
+- `src/assembly/ffmpeg_commands.py`
+- `src/assembly/assembler.py`
+- `src/pipeline/nodes/video_assembly_node.py`
 
-2. **Coverage & Edge Cases**:
-   - **Step Execution Success**: `test_workflow_engine_successful_pipeline_execution` verifies sequential execution of `MockIngestNode` and `MockPlanNode`, verifying output payload passing via ledger.
-   - **Step Skipping (Idempotency)**: `test_workflow_engine_idempotency_skipping` executes the engine twice for the same `run_id`, asserting that step execution is skipped on the second invocation (`skipped_steps == ["ingest", "plan"]`) and outputs are loaded from the SQLite ledger.
-   - **Sequential Multi-Step Pipeline**: Multi-node pipeline execution order and data dependencies are verified (`MockPlanNode` retrieving `MockIngestNode` output via state ledger).
-   - **Exception Handling & Fault Tolerance**: Includes missing prior step output error handling (`test_workflow_engine_missing_prior_step_error`), invalid run ID error handling (`test_workflow_engine_invalid_run_id_raises`), empty node sequence error (`test_workflow_engine_empty_nodes_raises`), and abstract class instantiation prevention (`test_node_abstract_instantiation_raises`).
-   - **Interface Contract Aliases**: `test_workflow_engine_aliases` verifies `execute()` and `run_pipeline()`.
+The core assembly logic, state ledger integration, FFmpeg filter graph generation, Pydantic schema validation, and temporary file cleanup are well-structured, non-shell isolated, and conform to Phase 13 requirements (R1, R2).
 
-3. **Test Suite Execution Results**:
-   - `pytest tests/workflow/test_engine.py`: **8 passed** in 0.25s.
-   - `pytest tests/core tests/models tests/llm tests/orchestrator tests/workflow`: **95 passed** in 2.52s.
+However, a **Major Bug** was discovered during adversarial stress-testing in `VideoAssembler._resolve_command` when `self.ffmpeg_binary` is set to a Python script (such as a mock script used in unit/integration testing). The binary path gets duplicated in the executed subprocess argument list, causing CLI argument parsing in mock scripts to fail.
 
 ---
 
 ## Findings
 
-### Minor Finding 1: Unclosed SQLite In-Memory Database Connections in Unit Tests
-- **What**: Test functions instantiate `StateLedger(":memory:")` directly without explicitly calling `ledger.close()` or using context management (`with StateLedger(...) as ledger:`).
-- **Where**: `tests/workflow/test_engine.py`, lines 74, 81, 89, 118, 137, 163, 176.
-- **Why**: Triggers Python `ResourceWarning: unclosed database in <sqlite3.Connection>` warnings during test execution.
-- **Suggestion**: Use context management (`with StateLedger(...) as ledger:`) or pytest fixtures with explicit tear-down to close SQLite connections cleanly.
+### Major Finding 1: Command Resolution Bug for `.py` Executables in `VideoAssembler._resolve_command`
 
-### Minor Finding 2: Direct Step Execution Table Query in Failure Test
-- **What**: `test_workflow_engine_node_failure_handling` asserts `run_record.status == StepStatus.FAILED` for the pipeline run record in SQLite, but does not query the individual `step_executions` table row for `status == StepStatus.FAILED`.
-- **Where**: `tests/workflow/test_engine.py`, lines 150-153.
-- **Why**: `StateLedger.record_step_failure()` updates both the step execution record and the parent run record in SQLite. While `EngineResult.status` and `run_record.status` are verified, adding a check for the step execution record directly in SQLite provides complete end-to-end ledger verification.
-- **Suggestion**: Consider adding `ledger.get_step_execution(...)` status check to `test_workflow_engine_node_failure_handling`.
+- **What**: `VideoAssembler._resolve_command` duplicates the Python script argument when `self.ffmpeg_binary` is a Python script (e.g. `mock_ffmpeg.py`).
+- **Where**: `src/assembly/assembler.py`, lines 52-70 (`_resolve_command`).
+- **Why**: When `assemble()` builds `cmd_args` using `build_assembly_command`, the resulting argument array starts with `self.ffmpeg_binary` (e.g., `['/path/to/mock.py', '-y', ...]`).
+  In `_resolve_command`:
+  - `prefix` is `[sys.executable, '/path/to/mock.py']`.
+  - `args[0]` is `'/path/to/mock.py'`.
+  - `args[0] == prefix[0]` evaluates to `False` (since `prefix[0]` is `python3`).
+  - `args[0] == "ffmpeg"` evaluates to `False`.
+  - The fallback `prefix + list(args)` executes, producing: `['python3', '/path/to/mock.py', '/path/to/mock.py', '-y', ...]`.
+  This passes `/path/to/mock.py` as `sys.argv[1]` to the subprocess script, causing position-based argument parsing in mock scripts (e.g., expecting `-y` at `sys.argv[1]`) to crash or fail.
+- **Suggestion**: Update `_resolve_command` in `src/assembly/assembler.py` to replace `args[0]` whenever `args[0] == self.ffmpeg_binary`:
+  ```python
+  if self.ffmpeg_binary and (args[0] == "ffmpeg" or args[0] == self.ffmpeg_binary):
+      return prefix + list(args[1:])
+  ```
 
 ---
 
 ## Verified Claims
 
-- [Mock Node Exception Handling & Failure Record] → verified via `test_workflow_engine_node_failure_handling` executing `FailingNode`, asserting engine catches exception, prevents crash, returns `status=FAILED`, and updates SQLite StateLedger `run_record.status` to `FAILED` → PASS
-- [Step Execution Success & Sequential Nodes] → verified via `test_workflow_engine_successful_pipeline_execution` executing `MockIngestNode` followed by `MockPlanNode`, verifying output dictionary mapping and completion statuses → PASS
-- [Step Idempotency & Skipping] → verified via `test_workflow_engine_idempotency_skipping` running pipeline twice, asserting completed steps are skipped on second run (`skipped_steps == ["ingest", "plan"]`) → PASS
-- [Edge Cases & Error Handling] → verified via `test_node_abstract_instantiation_raises`, `test_workflow_engine_empty_nodes_raises`, `test_workflow_engine_invalid_run_id_raises`, and `test_workflow_engine_missing_prior_step_error` → PASS
-- [Method Aliases] → verified via `test_workflow_engine_aliases` testing `execute()` and `run_pipeline()` → PASS
-- [Test Execution] → ran `pytest tests/workflow/test_engine.py` (8 passed in 0.25s) and `pytest tests/core tests/models tests/llm tests/orchestrator tests/workflow` (95 passed in 2.52s) → PASS
+1. **State Ledger Integration & State Isolation**:
+   - `VideoAssemblyNode` subclassing `Node` retrieves step outputs strictly from `StateLedger` (`animation_generator` for visual clips, `voice_generator` / `script_generator` for audio/subtitles). -> **PASS**
+2. **FFmpeg Filter Graph Generation & Escaping**:
+   - `escape_ffmpeg_filter_path` properly escapes backslashes, colons, single quotes, and square brackets in subtitle paths. -> **PASS**
+   - `build_concat_filter_graph` generates valid 4K scaling, pad, SAR, concat, subtitle, and audio resampling filter graphs. -> **PASS**
+3. **Pydantic Model Payload Validation**:
+   - Output payload strictly conforms to `AssembledVideo` schema with sanitized slug matching `^[a-z0-9-]+$`. -> **PASS**
+4. **Temporary File & Directory Cleanup**:
+   - `VideoAssembler` uses `tempfile.TemporaryDirectory` and unlinks temporary output files (`.tmp_*`) on error. -> **PASS**
+5. **Exception Handling & Process Isolation**:
+   - `VideoAssembler.run_command` executes via non-shell `subprocess.run(..., close_fds=True, shell=False)` and maps timeouts and non-zero exit codes to `AssemblyError`. -> **PASS**
+6. **Integrity Violations Check**:
+   - Checked for hardcoded test outputs, dummy implementations, shortcuts, or fabricated artifacts. None detected. -> **PASS**
 
 ---
 
-## Stress Test & Adversarial Analysis
+## Stress Test Results
 
-- **Assumption Tested**: Engine catches all standard Python exceptions raised inside `Node.execute()`.
-- **Attack Scenario**: A node raises an unhandled standard exception (e.g. `RuntimeError`, `KeyError`, `PipelineStageError`).
-- **Result**: Engine's `try...except Exception as e:` block catches the exception, logs error traceback, records step failure to SQLite ledger, halts pipeline loop, and returns `EngineResult` with `success=False` and `status=StepStatus.FAILED`. No process crash occurs.
-- **Integrity Check**: Code uses real execution logic and real SQLite transactions. No hardcoded mock shortcuts or facade implementations detected.
-
----
-
-## Coverage Gaps
-- None. `src/core/workflow/engine.py` test coverage is 99% (72/73 statements), `src/core/workflow/node.py` is 80%.
-
-## Unverified Items
-- None. All requirements verified via live test execution and direct inspection.
+- **Edge Case: Special characters in subtitle paths** (`C:\Video:Special's[1].srt`) -> `escape_ffmpeg_filter_path` produces `C\:\\Video\:Special\'s\[1\].srt` -> **PASS**
+- **Edge Case: Empty video_segments input** -> raises `AssemblyError` / `ValueError` -> **PASS**
+- **Edge Case: Non-existent input segment file** -> raises `AssemblyError` / `PipelineStageError` -> **PASS**
+- **Edge Case: Missing StateLedger instance** -> raises `PipelineStageError` -> **PASS**
+- **Edge Case: Subprocess timeout handling** -> raises `AssemblyError` ("FFmpeg process timed out...") -> **PASS**
+- **Edge Case: Mock Python script CLI args** -> `VideoAssembler` passes `['python3', '/tmp/mock.py', '/tmp/mock.py', ...]` -> **FAIL** (Major Finding 1)

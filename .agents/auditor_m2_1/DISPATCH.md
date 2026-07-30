@@ -1,18 +1,19 @@
-## 2026-07-29T06:17:48Z
-<USER_REQUEST>
-You are Forensic Auditor 1 for Phase 07 Milestone 2.
+## 2026-07-30T07:54:19Z
+You are auditor_m2_1 working in working directory `.agents/auditor_m2_1/`.
+Your task is to perform a forensic integrity audit of Milestone 2 (`tests/pipeline/test_animation_node.py`, `src/pipeline/nodes/animation_generator_node.py`, `src/animation/renderer.py`).
 
-Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/auditor_m2_1
+Required read paths:
+- `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
+- `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
+- `tests/pipeline/test_animation_node.py`
+- `src/pipeline/nodes/animation_generator_node.py`
+- `src/animation/renderer.py`
 
-MANDATORY READ:
-- /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md (specifically Phase 07 entry)
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase07/PROJECT.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_phase07_m2/changes.md
+Audit checks:
+1. Verify no fake MP4 byte generation or dummy output fabrication.
+2. Verify no hardcoded test assertions or fake test passes.
+3. Verify genuine subprocess execution via `subprocess.run()`.
+4. Verify explicit tempdir and file descriptor cleanup logic.
+5. Run full pytest suite across project to verify zero regressions: `pytest tests/pipeline/test_animation_node.py`.
 
-Objective: Perform forensic audit on `src/core/llm/prompts/v1/educational_plan.j2`, `code_explanation.j2`, and `PromptBook/Phase07/01_Prompt_Library.md`. Ensure genuine prompt logic and documentation.
-
-Deliverables:
-- Write audit report to `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m2_1/audit.md`.
-- Write handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m2_1/handoff.md` containing explicit Verdict: `CLEAN` or `INTEGRITY VIOLATION`.
-- Send summary message back to orchestrator.
-</USER_REQUEST>
+Write your forensic audit report to `.agents/auditor_m2_1/audit.md` and deliver `handoff.md` with explicit CLEAN or INTEGRITY VIOLATION verdict.

@@ -1,77 +1,72 @@
-# Quality & Adversarial Review Report — Phase 07 Milestone 2
+# Milestone 2 Review Report: Animation Node Test Suite (`tests/pipeline/test_animation_node.py`)
 
-## Review Summary
+**Reviewer**: reviewer_m2_2  
+**Date**: 2026-07-30  
+**Verdict**: **APPROVE**  
+**Target Codebase**: `tests/pipeline/test_animation_node.py`, `src/pipeline/nodes/animation_generator_node.py`, `src/animation/renderer.py`
 
-**Verdict**: APPROVE
+---
 
-Phase 07 Milestone 2 implementation introduces the foundational Jinja2 prompt templates (`educational_plan.j2` and `code_explanation.j2`) under `src/core/llm/prompts/v1/` alongside comprehensive architectural documentation in `PromptBook/Phase07/01_Prompt_Library.md`. 
+## Executive Summary
 
-The implementation adheres to all requirements from `ORIGINAL_REQUEST.md` and `PROJECT.md`. The Jinja2 templates are syntactically sound, correctly integrated with `PromptLoader`, safely handle Jinja2 `StrictUndefined` variable checks, enforce Chain-of-Thought (CoT) reasoning, and specify Pydantic V2 model schema contracts. Independent verification confirms successful template discovery, zero rendering errors across minimal/full/edge-case contexts, and clean test execution.
+The enhanced test suite in `tests/pipeline/test_animation_node.py` (Milestone 2) has been thoroughly reviewed and independently executed. All **34 test cases** pass cleanly in 2.57 seconds. The test suite provides robust, comprehensive verification of subprocess isolation, memory/storage cleanup, SHA-256 render caching, error propagation, OS-level file descriptor leak inspection, and visual cue template mapping.
+
+No integrity violations, facade implementations, hardcoded test shortcuts, or unverified claims were found.
+
+---
+
+## Detailed Review by Criteria
+
+### 1. Temporary Directory Cleanup Guarantees
+- **Success Case**: Verified in `test_temp_directory_cleaned_up` (lines 222–258). Passing `temp_dir` to `AnimationGeneratorNode` ensures `tempfile.TemporaryDirectory` context manager creates and deletes isolated subdirectories inside the custom parent. Asserts `list(explicit_temp_parent.iterdir()) == []`.
+- **Subprocess Failure Case**: Verified in `test_tempdir_cleanup_on_subprocess_failure` (lines 485–523). A mock script returning exit code `1` triggers `AnimationError`; the context manager ensures complete temp directory deletion.
+- **Timeout Case**: Verified in `test_tempdir_cleanup_on_timeout` (lines 524–564). A sleeping subprocess exceeding `timeout=0.2` triggers `AnimationError` ("timed out"); temp directory deletion is verified.
+- **Missing Artifact Case**: Verified in `test_render_produces_no_mp4_raises_animation_error` (lines 259–298) and `test_zero_byte_mp4_artifact_raises_animation_error` (lines 700–750). If the process exits 0 without creating an MP4 or produces a 0-byte file, `AnimationError` is raised and temporary state is cleaned up.
+
+### 2. OS-Level File Descriptor Leak Inspection
+- **Inspection Method**: Verified in `test_no_file_descriptor_leak_on_execution` (lines 667–698). Direct inspection of Linux system file descriptors via `len(os.listdir("/proc/self/fd"))` before vs. after `node.execute()`. Asserts `fds_after == fds_before`.
+- **Subprocess FD Management**: Verified in `test_subprocess_close_fds_verified` (lines 627–666) and `test_subprocess_invocation_kwargs` (lines 902–954) via monkeypatched `subprocess.run` kwarg assertions confirming `close_fds=True`.
+
+### 3. `AnimationError` Propagation & Cause Chaining (`__cause__`)
+- **Exception Chaining**: Verified in `test_invalid_binary_path_raises_animation_error` (lines 751–785). When `manim_binary` is set to a non-existent path, `ManimRenderer.render` catches `FileNotFoundError` and re-raises `AnimationError` using `raise AnimationError(...) from e`. The test explicitly asserts `isinstance(exc_info.value.__cause__, FileNotFoundError)`.
+- **Subprocess Exit Error**: Verified in `test_subprocess_failure_raises_animation_error` (lines 186–220) asserting `AnimationError` contains process stderr output.
+- **Timeout Exception Chaining**: Verified in `ManimRenderer` (line 115) `raise AnimationError(...) from e` wrapping `subprocess.TimeoutExpired`.
+
+### 4. Partial Failure Cleanup & Cache Retention
+- **Partial Failure Handling**: Verified in `test_partial_output_cleanup_on_midway_failure` (lines 565–626). In a multi-cue payload (`cue_ok` followed by `cue_fail`), when `cue_fail` throws an exception, `AnimationGeneratorNode.execute()` catches it and unlinks created MP4 files in `run_output_dir` and removes the empty `run_output_dir`.
+- **Cache Retention Assertion**: Verified in lines 622–624 of `test_partial_output_cleanup_on_midway_failure`. The test asserts `len(list(cache_dir.glob("*.mp4"))) == 1`, proving that the SHA-256 rendered clip for `cue_ok` remains safely retained in `cache_dir` for future runs despite the execution failure of a subsequent cue.
+
+### 5. Execution Confirmation & Test Coverage
+- **Command Executed**: `pytest tests/pipeline/test_animation_node.py`
+- **Result**: `34 passed, 9 warnings in 2.57s`
+- **Coverage**:
+  - `src/pipeline/nodes/animation_generator_node.py`: **90% coverage** (134 lines, 14 missed)
+  - `src/animation/renderer.py`: **91% coverage** (46 lines, 4 missed)
+
+---
+
+## Adversarial Integrity Checklist
+
+| Integrity Dimension | Assessment | Notes |
+|---|---|---|
+| **Hardcoded Test Results** | **PASS** | Dynamic mock Python scripts (`mock_manim_script`) simulate CLI binary execution, writing real bytes to disk and returning actual exit codes. |
+| **Dummy / Facade Logic** | **PASS** | Real `subprocess.run` calls, real SHA-256 hash computations, real Pydantic validation (`RenderSegment`, `AssetReference`), real SQLite ledger operations. |
+| **Shortcut / Bypassing** | **PASS** | Full end-to-end node execution tested against SQLite `StateLedger`. |
+| **Fabricated Outputs** | **PASS** | Independently executed via shell `pytest` command. |
+| **Self-Certifying Work** | **PASS** | Verifiable assertions on disk state, file system directories, `/proc/self/fd`, and exception causes. |
 
 ---
 
 ## Findings
 
-### Minor Findings & Recommendations
+### Major / Critical Findings
+*None.*
 
-#### [Minor] Finding 1: Case Sensitivity in Audience Calibration Conditionals (`educational_plan.j2`)
-- **What**: In `educational_plan.j2`, the conditional `{% if target_audience == 'Beginner' %}` performs an exact string comparison.
-- **Where**: `src/core/llm/prompts/v1/educational_plan.j2`, lines 51 & 55.
-- **Why**: If a caller passes `target_audience="beginner"` (lowercase), it falls through to the `{% else %}` block (Intermediate calibration) rather than the Beginner block.
-- **Suggestion**: Use Jinja2 filter lower casing: `{% if target_audience|lower == 'beginner' %}` and `{% elif target_audience|lower == 'advanced' %}`.
-
-#### [Minor] Finding 2: Case Sensitivity in Language Nuance Conditionals (`code_explanation.j2`)
-- **What**: In `code_explanation.j2`, language checks use exact equality `{% if language == 'python' %}` and `{% elif language == 'cpp' or language == 'c++' %}`.
-- **Where**: `src/core/llm/prompts/v1/code_explanation.j2`, lines 34 & 36.
-- **Why**: Passing `language="Python"` or `language="C++"` falls back to the generic `{% else %}` branch.
-- **Suggestion**: Use `language|lower` or `language|lower in ['cpp', 'c++']` for case-insensitive matching.
+### Minor Findings / Observations
+- *Observation*: The 9 pytest warnings are standard Pydantic V2 deprecation notices regarding `json_encoders` in existing model configurations (`src/core/models/assets.py` and `plan.py`), which do not affect test validity or node execution.
 
 ---
 
-## Verified Claims
+## Final Verdict
 
-- **Template Discovery**: Verified that `PromptLoader().list_templates('v1')` returns `['code_explanation.j2', 'educational_plan.j2']` → **PASS** (verified via Python invocation).
-- **Jinja2 Syntax Correctness**: Both `.j2` files parse and compile cleanly with `jinja2.Environment` → **PASS** (verified via `load_template()`).
-- **StrictUndefined Variable Enforcement**: Required context variables raise `TemplateRenderError` when missing, while optional variables safely render using `{% if var is defined and var %}` → **PASS** (verified via custom Python edge-case test).
-- **Template Rendering Accuracy**: `educational_plan.j2` renders ~3.6k characters with minimal context and ~3.8k with full context; `code_explanation.j2` renders ~1.5k minimal and ~1.8k full context → **PASS** (verified via `render()`).
-- **Pydantic Model Schema Contract Alignment**: Prompt text explicitly references Phase 05 Pydantic V2 models (`EducationalPlan`, `CodeSnippet`, `PlanSection`, `VisualCue`, `LearningObjective`) and lists invariants → **PASS** (verified via template inspection).
-- **Architectural Documentation**: `PromptBook/Phase07/01_Prompt_Library.md` contains all 7 mandatory sections, Mermaid diagrams, API descriptions, and template catalogs → **PASS** (verified via file inspection).
-- **Existing LLM Test Suite Execution**: `pytest tests/llm/` executes 24/24 passing tests → **PASS** (verified via `pytest`).
-
----
-
-## Coverage Gaps
-
-- **No material coverage gaps**: All deliverables required for Milestone 2 were implemented and verified. Unit tests specifically targeting `PromptLoader` (`tests/llm/test_prompt_loader.py`) are scheduled for Milestone 3 (E2E Test Suite) as defined in `PROJECT.md`.
-
----
-
-## Challenge & Stress Test Results
-
-### 1. Assumption Stress-Testing
-- **Assumption 1**: Optional template variables might be `None` or empty lists/dicts.
-  - *Stress Test*: Rendered `educational_plan` with `constraints=None`, `learning_objectives=[]`, `rag_context=[]`, `code_implementations={}`; rendered `code_explanation` with `line_highlights=[]`, `pitfalls=None`, `common_pitfalls=[]`.
-  - *Result*: **PASS**. Both templates rendered cleanly without Jinja2 `UndefinedError` or rendering empty block headers.
-
-- **Assumption 2**: In-memory template caching in `PromptLoader` handles multiple calls efficiently.
-  - *Stress Test*: Invoked `render()` multiple times sequentially.
-  - *Result*: **PASS**. Compiled template objects served from `_template_cache`.
-
-### 2. Edge Case Mining
-- **Edge Case 1**: Unsupplied required variable (e.g. `topic` omitted).
-  - *Result*: **PASS**. `PromptLoader` catches `jinja2.UndefinedError` and translates it to `TemplateRenderError`.
-- **Edge Case 2**: Non-existent template name requested.
-  - *Result*: **PASS**. `PromptLoader` raises `TemplateNotFoundError`.
-
-### 3. Integrity Violations Check
-- Hardcoded test results or expected outputs embedded in source code: **None found**.
-- Dummy/facade implementations: **None found**.
-- Bypassed requirements or shortcuts: **None found**.
-- Fabricated verification logs: **None found**.
-- Self-certifying work without verification: **None found**.
-
----
-
-## Unverified Items
-
-- None. All claims and implementation files within Milestone 2 scope have been independently verified.
+**APPROVE** — The test suite `tests/pipeline/test_animation_node.py` meets all quality, safety, leak-prevention, and architectural requirements outlined in `PROJECT.md` and `ORIGINAL_REQUEST.md`.

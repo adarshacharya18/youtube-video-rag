@@ -1,36 +1,36 @@
-# BRIEFING — 2026-07-29T11:57:18Z
+# BRIEFING — 2026-07-30T16:36:00Z
 
 ## Mission
-Design the implementation of `src/core/workflow/node.py` for Milestone 1 (Abstract Node contract, StateLedger integration, class hierarchy, imports, docstrings, typing).
+Formulate exact design specifications and code snippets for `src/assembly/ffmpeg_commands.py` (M1-1 helper functions).
 
 ## 🔒 My Identity
-- Archetype: explorer
-- Roles: Teamwork explorer (read-only investigation, design synthesis)
+- Archetype: teamwork_preview_explorer
+- Roles: Explorer M1-1
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1
-- Original parent: f40d11c8-d7b3-4890-8907-9d50d3f027bf
-- Milestone: Milestone 1
+- Original parent: d923a045-299b-4c90-81b7-06a3023ac0eb
+- Milestone: Phase 13 M1-1 (FFmpeg Command Generator Specs)
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement src/ core files directly, produce design reports in explorer directory
-- Enforce state-ledger-only communication via run_id (no in-memory state object passing)
+- Read-only investigation — do NOT implement src/assembly/ffmpeg_commands.py directly (only output analysis and handoff).
+- Ensure commands use list format `List[str]` (never shell strings).
+- Must adhere to 4K resolution (3840x2160), 30 fps, video codec (`libx264`), pixel format (`yuv420p`), audio codec (`aac`), audio bitrate (`384k`), CRF (`18`), and subtitle burning (`subtitles=...`).
 
 ## Current Parent
-- Conversation ID: f40d11c8-d7b3-4890-8907-9d50d3f027bf
-- Updated: 2026-07-29T12:00:00Z
+- Conversation ID: d923a045-299b-4c90-81b7-06a3023ac0eb
+- Updated: 2026-07-30T16:36:00Z
 
 ## Investigation State
-- **Explored paths**: `ORIGINAL_REQUEST.md`, `.agents/orchestrator_phase08/PROJECT.md`, `src/core/orchestrator/state_ledger.py`, `src/core/base.py`, `src/core/exceptions.py`, `PromptBook/Phase01/01_Global_Rules.md`
-- **Key findings**: Complete design for `Node(ABC)` with abstract property `name: str`, abstract execution method `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`, state isolation mechanics, and helper methods (`get_run_record`, `get_step_output`).
-- **Unexplored areas**: None for M1 Node design.
+- **Explored paths**: `ORIGINAL_REQUEST.md`, `.agents/orchestrator_phase13/SCOPE.md`, `.agents/spec_miner_1/spec_analysis.md`, `src/assembly/ffmpeg_commands.py`, `src/animation/renderer.py`, `src/core/exceptions.py`.
+- **Key findings**: Formulated 6 pure helper functions (`escape_ffmpeg_filter_path`, `build_4k_scale_filter`, `build_subtitle_filter`, `build_concat_filter_graph`, `build_assembly_command`, `build_demuxer_assembly_command`) returning non-shell `List[str]`. Designed path escaping for filter graph colons/quotes and resolution normalization to 4K.
+- **Unexplored areas**: None. Design specifications completed.
 
 ## Key Decisions Made
-- Established `@property @abstractmethod def name(self) -> str` signature for step name identification.
-- Enforced state-ledger-only communication protocol preventing in-memory object passing down pipeline.
-- Designed helper methods on `Node` base class for standard input reading and error raising (`PipelineStageError`).
-- Authored `analysis.md` and `handoff.md` in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/`.
+- Provided complete Python implementation snippets in `analysis.md`.
+- Published 5-component handoff report in `handoff.md`.
 
 ## Artifact Index
-- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/DISPATCH.md — Incoming request log
-- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/BRIEFING.md — Working memory index
-- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/analysis.md — Comprehensive technical design analysis
-- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/handoff.md — 5-Component Handoff report
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/DISPATCH.md — Dispatch log
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/BRIEFING.md — Persistent briefing index
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/progress.md — Progress tracking log
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/analysis.md — Technical design specification for ffmpeg_commands.py
+- /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/handoff.md — 5-component handoff report

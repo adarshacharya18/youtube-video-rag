@@ -1,33 +1,80 @@
-# Handoff Report — Explorer 2 (Survey Phase)
+# Handoff Report: Phase 12 Animation Node Test Strategy Survey
+
+**Agent**: Explorer 2 (Phase 12 Survey)  
+**Date**: 2026-07-30  
+**Target Path**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/handoff.md`
+
+---
 
 ## 1. Observation
-- **Original Request**: `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` details Phase 10 Event Bus Integration. R1 requires fault-tolerant `EventBus` suppressing listener exceptions; R2 requires lifecycle event emissions (`NodeStarted`, `NodeCompleted`, `NodeFailed`) in `WorkflowEngine`; R3 requires SDK documentation.
-- **Pytest Configuration**: `pytest.ini` defines test directory `tests`, options `--strict-markers --cov=src --cov-report=term-missing -v`, and test markers (`unit`, `integration`, `e2e`, `performance`). Global fixtures in `tests/conftest.py` set `ENVIRONMENT=testing` and mock logging.
-- **Event Bus Tests (`tests/events/test_bus.py`)**: 7 unit test functions covering event model initialization, subscribe/publish/unsubscribe operations, inheritance dispatch (`BaseEvent`), `RuntimeError` suppression during publish (`test_fault_tolerant_exception_suppression`), `Any` subscriber matching, and subscriber clearing.
-- **Workflow Engine Tests (`tests/workflow/test_engine.py`)**: 10 unit test functions covering node abstractions, engine input validation, execution workflow, idempotency skipping, node failure handling, and specifically event emissions (`test_workflow_engine_event_bus_lifecycle_emissions`) and listener crash fault-tolerance (`test_workflow_engine_event_bus_listener_runtime_error_suppression`).
-- **Test Execution**: Ran `pytest tests/events/test_bus.py tests/workflow/test_engine.py`. Result: 17 passed tests in 0.28 seconds. Coverage for `src/core/events/bus.py` is 100% (55/55 stmts); `src/core/workflow/engine.py` is 99% (80/81 stmts).
+
+Direct observations from codebase inspection:
+- **Pytest Configuration**:
+  - `pytest.ini` (lines 1-9): `addopts = --strict-markers --cov=src --cov-report=term-missing -v`, `testpaths = tests`, markers `unit`, `integration`, `e2e`, `performance`.
+  - `pyproject.toml` (lines 34-37): `pythonpath = ["."]`, `addopts = "-v --tb=short"`.
+- **Global Fixtures (`tests/conftest.py`)**:
+  - Sets `os.environ["ENVIRONMENT"] = "testing"` (line 18).
+  - Provides `temp_data_dir` (lines 26-30), `test_config` (lines 33-43), `mock_logger` (lines 50-57), `mock_problem_factory` (lines 63-74).
+- **Core Node Abstraction (`src/core/workflow/node.py`)**:
+  - Abstract base class `Node` with abstract `@property name` and `execute(run_id, ledger)` (lines 18-57).
+  - Helper methods `get_run_record`, `get_completed_step_outputs`, `get_step_output` (lines 59-131).
+- **Visual Cue Schema (`src/models/script.py`)**:
+  - `VisualCue` (lines 15-44) contains `cue_id`, `animation_type`, `description`, `timestamp_seconds`, `parameters`.
+  - `YouTubeScript` (lines 177-260) aggregates section visual cues and spoken narration.
+- **Workflow Engine & Pipeline Tests**:
+  - `tests/workflow/test_engine.py`: Demonstrates state ledger integration with `StateLedger(":memory:")` and node exception handling.
+  - `tests/pipeline/test_script_node.py` (lines 42-101): Provides `valid_script_dict` fixture with complete section and visual cue dictionary.
+- **Current Absence**:
+  - Neither `src/pipeline/nodes/animation_generator_node.py` nor `tests/pipeline/test_animation_node.py` exists yet; Phase 12 requires their implementation.
+
+---
 
 ## 2. Logic Chain
-1. **Observation**: `pytest.ini` configures coverage analysis and strict test matching, and `tests/conftest.py` sets up environment isolation.
-   - *Inference*: Tests must be co-located under `tests/` matching module hierarchy (e.g. `tests/events/test_bus.py` and `tests/workflow/test_engine.py`).
-2. **Observation**: `test_fault_tolerant_exception_suppression` in `tests/events/test_bus.py` uses `MagicMock(side_effect=RuntimeError(...))` to verify `EventBus.publish()` catches and suppresses listener exceptions.
-   - *Inference*: Listener mocking using `MagicMock` with `side_effect` is the established standard pattern for testing fault tolerance across the codebase.
-3. **Observation**: `test_workflow_engine_event_bus_lifecycle_emissions` in `tests/workflow/test_engine.py` inspects `call_args_list` of mock listeners to verify `NodeStarted`, `NodeCompleted`, and `NodeFailed` dataclasses.
-   - *Inference*: Lifecycle event emission testing in `WorkflowEngine` relies on subscribing mock listeners to specific event types and asserting payload fields (`run_id`, `node_name`, `step_id`, `output`, `error_message`).
-4. **Observation**: Running `pytest tests/events/test_bus.py tests/workflow/test_engine.py` passes all 17 unit tests without failures.
-   - *Inference*: Existing test suites for `EventBus` and `WorkflowEngine` are fully functional, conform to project test standards, and provide high code coverage (100% and 99% respectively).
+
+1. **Test Environment Alignment**:
+   - `pyproject.toml` sets `pythonpath = ["."]`, enabling `tests/pipeline/test_animation_node.py` to import `AnimationGeneratorNode` directly from `src.pipeline.nodes.animation_generator_node`.
+2. **Node Data Contract & Execution**:
+   - `AnimationGeneratorNode` will execute within `WorkflowEngine` using `run_id` and `StateLedger`.
+   - It will read the `script` dictionary generated by prior step `script_generator`, extracting visual cues (`VisualCue` objects).
+3. **Subprocess Mocking Strategy**:
+   - The user requirements explicitly specify using a **mock Python script** to simulate the Manim binary via `subprocess.run()`.
+   - Creating an executable script (e.g. `mock_manim.py` in `tmp_path`) with shebang `#!/usr/bin/env python3` allows intercepting CLI invocations, logging CLI arguments (`sys.argv[1:]`) to a JSON file, generating dummy `.mp4` video output files on success, or exiting with status `1` and writing to `stderr` when `--fail` or `SIMULATE_FAILURE=1` is provided.
+4. **Visual Cue to CLI Flag Verification**:
+   - Tests will assert that visual cue fields (`animation_type`, quality parameters) translate into expected Manim CLI arguments (e.g. `-ql` for low quality, `-qm` for medium quality, `-qh` for high quality, `--media_dir <path>`, and corresponding scene class names like `ArrayScene`, `TreeScene`, `CodeScene`).
+5. **Temporary Directory and File Descriptor Cleanup**:
+   - `AnimationGeneratorNode` must create temporary working directories for scene render files inside a `try...finally` block.
+   - Tests will record the temporary directory path and assert `Path(temp_dir).exists() == False` after `execute()` returns successfully, as well as after an exception is caught during a simulated rendering failure.
+   - File descriptor leak prevention is verified by comparing `os.listdir("/proc/self/fd")` before and after node execution.
+
+---
 
 ## 3. Caveats
-- Fast execution relies on in-memory SQLite (`StateLedger(":memory:")`) and mock loggers; full integration tests with real SQLite disk files or external LLM/RAG services are covered in separate integration test files (`tests/integration/`).
-- Warnings regarding unclosed SQLite connections were noted in pytest output during test execution, but do not affect test pass/fail status.
+
+- **System Compatibility**: `/proc/self/fd` for FD checking is native to Linux. Fallback behavior (e.g., catching `FileNotFoundError`) should be included if executed on non-Linux platforms.
+- **Scene Details**: Specific scene render template implementations (`src/animation/scenes/`) are skeleton files; CLI flag mapping in tests should focus on the contract between `VisualCue` animation types and Manim invocation flags.
+
+---
 
 ## 4. Conclusion
-The test suites `tests/events/test_bus.py` and `tests/workflow/test_engine.py` are properly structured, fully tested, and conform to the project's testing conventions. `EventBus` fault tolerance (exception suppression) and `WorkflowEngine` event lifecycle emissions are thoroughly verified using `unittest.mock.MagicMock` objects and in-memory test doubles.
+
+The test architecture for `tests/pipeline/test_animation_node.py` is fully defined:
+1. Pytest runner is pre-configured with `pythonpath = ["."]` and custom test markers (`unit`, `integration`, `e2e`, `performance`).
+2. An executable mock Python script (`mock_manim.py`) generated inside pytest's `tmp_path` fixture provides deterministic, isolated simulation of Manim binary subprocess calls.
+3. Tests will systematically verify:
+   - Visual cue parameter mapping to CLI flags (`-ql`, `-qm`, `-qh`, `--media_dir`, scene classes).
+   - Temporary directory removal in `finally:` blocks on both success and simulated failure.
+   - Zero file descriptor leaks post-execution.
+
+Detailed analysis report and complete test template code are written to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`.
+
+---
 
 ## 5. Verification Method
-Execute the following command from the workspace root (`/home/adarsh/Documents/Youtube-Channel`):
-```bash
-pytest tests/events/test_bus.py tests/workflow/test_engine.py
-```
-- **Expected Outcome**: 17 passed tests, exit code 0.
-- **Coverage Criteria**: `src/core/events/bus.py` at 100% coverage, `src/core/workflow/engine.py` at 99%+ coverage.
+
+- **Analysis Report Inspection**:
+  - File: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`
+- **Future Test Suite Verification**:
+  - Command: `pytest tests/pipeline/test_animation_node.py -v` (to be executed after Phase 12 node implementation).
+- **Invalidation Conditions**:
+  - Changing the `Node` interface or `StateLedger` output payload format.
+  - Modifying `VisualCue` model attributes in `src/models/script.py`.
