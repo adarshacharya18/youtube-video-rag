@@ -1,26 +1,24 @@
-## 2026-07-30T16:35:22Z
-You are Explorer M1-3 (teamwork_preview_explorer).
-Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3.
+## 2026-07-30T17:52:38Z
+You are Explorer 3 for Phase 14 Milestone M1 (Remediation Design after Audit Failure).
+Your working directory is `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3`.
+You MUST create your directory if it doesn't exist and maintain `progress.md` inside it.
 
-OBJECTIVE:
-Formulate exact design specifications and code snippets for `src/pipeline/nodes/video_assembly_node.py`.
-Specifically:
-1. Design `VideoAssemblyNode` subclassing `Node` (`src/core/workflow/node.py`).
-2. Set `@property def name(self) -> str: return "video_assembly"`.
-3. Implement `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`:
-   - Retrieve `animation_generator` step output (for `.mp4` visual segments) and `script_generator`/`voice_generator` step outputs (for `.wav` audio and timing/narration data).
-   - Instantiate `VideoAssembler` and run assembly.
-   - Validate resulting payload dictionary against `AssembledVideo` schema (`src/core/models/assets.py`).
-   - Handle missing input step payloads or assembly errors by raising `AssemblyError` or `PipelineStageError`.
+Mandatory Context:
+- Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` for verbatim requirements.
+- Read FULL audit report at `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_2_r2/handoff.md` and `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_2_r2/analysis.md`.
+- Read FULL review report at `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2_r2/handoff.md` and `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2_r2/analysis.md`.
+- Read `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase14/GATE_STATUS.md`.
 
-INPUT INFORMATION:
-- Read ORIGINAL_REQUEST.md: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
-- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
-- Prior survey analysis: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_1/analysis.md`.
+FULL AUDIT EVIDENCE FOR REMEDIATION:
+Auditor Verdict: INTEGRITY VIOLATION
+Evidence:
+1. `animation_generator_node.py` and `video_assembly_node.py` removed fake fallback bytes, but as a result, 14 unit and integration tests in `test_pipeline_runner.py`, `test_ops.py`, `test_pipeline_e2e.py`, and `test_production_suite.py` fail with `FileNotFoundError: ffmpeg not found` because the tests do not mock subprocess calls or binary execution in test fixtures.
+2. `voice_generator_node.py` still contains hardcoded fake WAV byte writing.
+3. `tests/production/test_production_suite.py` has broken imports (`src.core.orchestrator.pipeline`) and dummy facade test `test_long_running_memory_leak`.
 
-OUTPUT REQUIREMENTS:
-Write detailed design to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/handoff.md`.
-
-COMPLETION CRITERIA:
-- Complete class definition and `execute()` method logic for `VideoAssemblyNode` in `src/pipeline/nodes/video_assembly_node.py`.
-- Handoff report published and message sent to orchestrator parent.
+Task for Explorer 3:
+1. Investigate how tests in `tests/orchestrator/test_pipeline_runner.py`, `tests/cli/test_ops.py`, `tests/production/test_pipeline_e2e.py`, and `tests/production/test_production_suite.py` should mock `VideoAssemblyNode` / `AnimationGeneratorNode` / `subprocess.run` at the test fixture level using `unittest.mock.patch` (or test doubles), so production node code contains NO fake byte fallback hacks while test suites pass cleanly 100%.
+2. Investigate how `voice_generator_node.py` should be updated to cleanly handle voice generation without fake bytes.
+3. Investigate `tests/production/test_production_suite.py` to fix imports and remove/implement facade tests.
+4. Document the exact fix strategy in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/analysis.md` and deliver a handoff report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/handoff.md`.
+5. Send a message to the orchestrator parent when finished.

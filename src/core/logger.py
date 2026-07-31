@@ -19,15 +19,20 @@ import structlog
 from src.core.config import PipelineConfig
 
 
-def configure_logging(config: PipelineConfig, pipeline_id: str | None = None) -> None:
+def configure_logging(config: PipelineConfig | None = None, pipeline_id: str | None = None) -> None:
     """
     Configure the global structlog and standard library logging handlers.
 
     Args:
         config: The root PipelineConfig containing log levels and data directories.
+                If None, defaults to loading current PipelineConfig.
         pipeline_id: A unique UUID for the current pipeline run. If provided,
                      it will be bound to every log emitted in this context.
     """
+    if config is None:
+        from src.core.config import load_config
+        config = load_config()
+
     # 1. Determine log level from configuration
     log_level = getattr(logging, config.log_level.upper(), logging.INFO)
 
@@ -48,8 +53,8 @@ def configure_logging(config: PipelineConfig, pipeline_id: str | None = None) ->
         structlog.processors.UnicodeDecoder(),       # Ensure UTF-8
     ]
 
-    # 3. Configure Console Handler (Human-readable, Colored)
-    console_handler = logging.StreamHandler(sys.stdout)
+    # 3. Configure Console Handler (Human-readable, Colored, sent to stderr)
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(log_level)
     console_formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared_processors,
@@ -102,6 +107,11 @@ def get_logger(module_name: str) -> structlog.BoundLogger:
     Returns:
         A structlog.BoundLogger instance.
     """
+    if not structlog.is_configured():
+        try:
+            configure_logging()
+        except Exception:
+            pass
     return structlog.get_logger(module_name)
 
 

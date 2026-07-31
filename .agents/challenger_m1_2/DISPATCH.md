@@ -1,24 +1,13 @@
-## 2026-07-30T16:38:38Z
-You are Challenger M1-2 (teamwork_preview_challenger).
-Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2.
+## 2026-07-30T23:16:06Z
+<USER_REQUEST>
+You are Challenger 2 for Phase 14 Milestone M1.
+Your working directory is `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2`.
+You MUST create your directory if it doesn't exist and maintain `progress.md` inside it.
 
-OBJECTIVE:
-Empirically challenge and stress-test the State Ledger integration and schema validation in `VideoAssemblyNode`:
-- `src/pipeline/nodes/video_assembly_node.py`
-- Integration with `AssembledVideo` schema and `AssemblyError` handling.
-
-Check for:
-1. Missing step outputs in `StateLedger` (e.g. `animation_generator` missing, `script_generator` missing).
-2. Malformed step outputs or missing key fields in segments.
-3. Verification that `VideoAssemblyNode` produces complete Pydantic `AssembledVideo` payload matching project conventions.
-
-INPUT INFORMATION:
-- Read MANDATORY original requirements: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
-- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
-- Worker M1 handoff: `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/handoff.md`.
-
-OUTPUT REQUIREMENTS:
-Run test invocations, write challenge report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/challenge.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/handoff.md`. Include explicit verdict: `APPROVE` or `REQUEST_CHANGES`.
-
-COMPLETION CRITERIA:
-- Handoff report published with clear verdict (`APPROVE` or `REQUEST_CHANGES`) and message sent to orchestrator parent.
+Mandatory Task:
+1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` for verbatim requirements.
+2. Empirical testing of crash recovery, step idempotency, and resume capabilities in `PipelineRunner` and `ops.py resume`.
+   - Write a test script or harness that executes a pipeline run, simulates a node failure (e.g. at step 3), inspects `StateLedger` to confirm completed steps 1-2, and executes `ops.py resume` to confirm steps 1-2 are skipped and execution resumes cleanly from step 3.
+3. Document empirical results in `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/analysis.md` and issue explicit verdict (`APPROVE` or `REJECT`) in `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m1_2/handoff.md`.
+4. Send a message to the orchestrator parent when finished.
+</USER_REQUEST>

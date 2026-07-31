@@ -1,15 +1,14 @@
-## 2026-07-30T07:40:26Z
-You are Forensic Auditor for Milestone 1 (Animation Generator Node).
-Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1
+## 2026-07-30T17:46:06Z
+<USER_REQUEST>
+You are Forensic Auditor 1 for Phase 14 Milestone M1.
+Your working directory is `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1`.
+You MUST create your directory if it doesn't exist and maintain `progress.md` inside it.
 
-Please read:
-- ORIGINAL_REQUEST.md at /home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md
-- PROJECT.md at /home/adarsh/Documents/Youtube-Channel/PROJECT.md
-- Worker handoff report at /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/handoff.md
-
-Your task:
-1. Conduct forensic integrity verification on `src/pipeline/nodes/animation_generator_node.py` and `src/animation/`.
-2. Check for cheating, hardcoded test results, facade implementations, or mock bypasses in production code.
-3. Verify that subprocess execution is genuine, isolated, and properly cleaned up.
-4. Deliver your audit report to `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1/handoff.md` with explicit verdict: `CLEAN` or `INTEGRITY VIOLATION`.
-5. Send a message to parent with your verdict and handoff report path.
+Mandatory Task:
+1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` for verbatim requirements.
+2. Perform forensic integrity verification on `src/core/orchestrator/pipeline_runner.py`, `src/cli/ops.py`, new node files (`ingestion_node.py`, `plan_node.py`, `voice_generator_node.py`), and test files (`tests/orchestrator/test_pipeline_runner.py`, `tests/cli/test_ops.py`).
+   - Check for hardcoded test outputs, dummy implementations, facade logic, or integrity violations.
+   - Run tests: `pytest tests/orchestrator/ tests/cli/ tests/workflow/`.
+3. Document audit evidence in `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1/analysis.md` and issue explicit verdict (`CLEAN` or `INTEGRITY VIOLATION`) in `/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1/handoff.md`.
+4. Send a message to the orchestrator parent when finished.
+</USER_REQUEST>

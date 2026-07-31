@@ -393,3 +393,5 @@ class AnimationGeneratorNode(Node):
         output_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(rendered_clip, output_file)
 
+
+

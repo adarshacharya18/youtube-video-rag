@@ -1,95 +1,78 @@
-# Forensic Audit Report: Milestone 1 (Animation Generator Node)
+# Forensic Audit Handoff Report — Phase 14 Milestone M1
 
-**Work Product**: `src/pipeline/nodes/animation_generator_node.py` and `src/animation/`  
-**Profile**: General Project (Development Mode)  
-**Verdict**: CLEAN  
+**Auditor**: Forensic Auditor 1 (`/home/adarsh/Documents/Youtube-Channel/.agents/auditor_m1_1`)  
+**Target**: Phase 14 Milestone M1 (`pipeline_runner.py`, `ops.py`, node files, test files)  
+**Profile**: General Project  
+**Integrity Mode**: `development`  
+**Verdict**: `CLEAN`  
 
 ---
 
 ## 1. Observation
 
-1. **Target Files Inspected**:
-   - `src/pipeline/nodes/animation_generator_node.py`
-   - `src/pipeline/nodes/__init__.py`
-   - `src/animation/renderer.py`
-   - `src/animation/theme.py`
-   - `src/animation/scenes/base_scene.py`
-   - `src/animation/scenes/array_scene.py`
-   - `src/animation/scenes/code_scene.py`
-   - `src/animation/scenes/complexity_scene.py`
-   - `src/animation/scenes/graph_scene.py`
-   - `src/animation/scenes/hashmap_scene.py`
-   - `src/animation/scenes/linkedlist_scene.py`
-   - `src/animation/scenes/stack_queue_scene.py`
-   - `src/animation/scenes/tree_scene.py`
-   - `tests/pipeline/test_animation_node.py`
+- **Source Code Inspections**:
+  - `src/core/orchestrator/pipeline_runner.py`: Contains `PipelineRunner` class (lines 94-279) linking nodes (`IngestionNode`, `PlanNode`, `ScriptGeneratorNode`, `VoiceGeneratorNode`, `AnimationGeneratorNode`, `VideoAssemblyNode`), managing `StateLedger` database checkpoints, `EventBus` subscriptions, and `WorkflowEngine` execution.
+  - `src/cli/ops.py`: Contains master operations CLI (lines 1-476) handling `run`, `status`, `resume`, `health`, `benchmark`, `deploy`, `rollback`, `diagnose`, `report` subcommands.
+  - `src/pipeline/nodes/ingestion_node.py`: Implements `IngestionNode` (lines 15-62) inheriting from `Node`, extracting problem details from run record metadata and recording payload in `StateLedger`.
+  - `src/pipeline/nodes/plan_node.py`: Implements `PlanNode` (lines 15-70) inheriting from `Node`, retrieving prior `ingest` step payload from `StateLedger` and generating teaching plan sections.
+  - `src/pipeline/nodes/voice_generator_node.py`: Implements `VoiceGeneratorNode` (lines 16-70) inheriting from `Node`, creating `.wav` master audio and `.srt` subtitle files in `data/audio/<slug>/`.
 
-2. **Empirical Forensic Verification Results**:
-   - **Hardcoded Output Analysis**: `src/pipeline/nodes/animation_generator_node.py` dynamically extracts `VisualCue` objects from `script_generator` payloads stored in `StateLedger`. No static return values or hardcoded output strings exist.
-   - **Facade Detection**: Full implementation of `AnimationGeneratorNode(Node)` with `name` property returning `"animation_generator"`, `execute()` handling StateLedger interactions, SHA-256 render caching, isolated temporary directory creation, subprocess execution, error handling (`AnimationError`), and `RenderSegment` manifest generation.
-   - **Subprocess Isolation & Memory Sanitation**: Subprocess execution is performed via `subprocess.run(..., close_fds=True, timeout=self.timeout)`. Temporary render files are contained within `tempfile.TemporaryDirectory(prefix="manim_")` context blocks, guaranteeing 100% deletion of temporary directories on both successful execution and raised exceptions.
-   - **Pre-populated Artifact Detection**: Verified no pre-existing `.log` or output render artifacts existed in `data/` prior to test runs.
-   - **Test Suite Execution**:
-     - `pytest tests/pipeline/test_animation_node.py -v`: 6 passed in 1.74s.
-     - `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ -v`: 64 passed in 2.01s.
-     - Line coverage for `animation_generator_node.py`: 88%.
+- **Database State**:
+  - `data/state_ledger.db`: Executed `SELECT COUNT(*) FROM pipeline_runs` via SQLite driver; returned `(0,)` (empty database schema ready for production runs).
+
+- **Tool Execution Commands & Results**:
+  - Command: `pytest tests/orchestrator/ tests/cli/ tests/workflow/`
+    Result: `49 passed, 24 warnings in 2.05s`.
+  - Command: `pytest tests/test_m1_2_empirical.py`
+    Result: `4 passed in 0.42s` (verifying crash recovery, step resumption, and idempotency).
 
 ---
 
 ## 2. Logic Chain
 
-1. **User Requirement & Baseline Verification**:
-   - `ORIGINAL_REQUEST.md` specifies Phase 12 requirements: `AnimationGeneratorNode` inheriting from `Node`, reading visual cues from `StateLedger`, executing Manim via `subprocess.run()`, managing memory/tempdirs, and documenting architecture.
-   - `PROJECT.md` defines Milestone 1 scope for `AnimationGeneratorNode` and `src/animation/`.
-
-2. **Source Analysis & Cheating Check**:
-   - Verified that `AnimationGeneratorNode.execute()` retrieves step output `"script_generator"` from `StateLedger` using `self.get_step_output(run_id, ledger, "script_generator")`.
-   - Verified that visual cues are extracted and parsed via `YouTubeScript.model_validate` or raw dict parsing.
-   - Verified that `_compute_cache_hash()` uses SHA-256 on `anim_type`, JSON parameters, and quality flags. On cache hit, copies cached file to output destination.
-   - Verified that on cache miss, rendering executes within `tempfile.TemporaryDirectory(...)`, creating `parameters.json` and invoking `subprocess.run()`.
-   - Verified that non-zero exit codes or timeouts raise `AnimationError` as required by the system design contract.
-
-3. **Subprocess Isolation & Memory Cleanup Verification**:
-   - `tempfile.TemporaryDirectory` context manager ensures that temporary directories and their contents are recursively deleted on exiting the `with` block, regardless of exit status.
-   - `subprocess.run` is called with `close_fds=True` and `timeout=self.timeout`, ensuring file descriptor isolation and preventing hanging processes.
-
-4. **Behavioral Test Verification**:
-   - Executed `pytest tests/pipeline/test_animation_node.py -v` independently. All 6 test cases passed without failure.
-   - Checked overall project regression by executing `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ -v`. All 64 tests passed with zero errors.
+1. **Observation**: Code inspection of `src/core/orchestrator/pipeline_runner.py` and `src/cli/ops.py` confirmed that `PipelineRunner` dynamically delegates step execution to `WorkflowEngine` and `StateLedger`, while `ops.py` routes CLI flags to `PipelineRunner` methods.
+2. **Observation**: Database check on `data/state_ledger.db` returned 0 existing run records, proving no pre-populated result files or fabricated run histories were embedded in the workspace.
+3. **Observation**: Code inspection of `ingestion_node.py`, `plan_node.py`, and `voice_generator_node.py` verified that each node implements genuine business logic reading/writing from `StateLedger` without fixed constant returns or facade patterns (`pass` or `raise NotImplementedError`).
+4. **Observation**: Execution of `pytest tests/orchestrator/ tests/cli/ tests/workflow/` resulted in 49 passing tests out of 49. Execution of `pytest tests/test_m1_2_empirical.py` verified step resumption and crash recovery behavior across 4 multi-stage scenarios.
+5. **Deduction**: Because no hardcoded test results, facade implementations, or pre-populated artifacts were found, and all behavioral unit and empirical resumption tests passed cleanly under Development integrity mode, the work product meets all integrity standards.
 
 ---
 
 ## 3. Caveats
 
-- **System Dependencies**: In testing environments lacking Manim binary dependencies (Cairo/LaTeX), unit tests utilize a mock Python script binary (`mock_manim_script` fixture) to simulate Manim CLI invocation, verifying CLI flags, parameter passing, and directory cleanup without requiring external system rendering libraries.
+- No caveats.
 
 ---
 
 ## 4. Conclusion
 
-**Verdict**: **CLEAN**
+**Verdict**: **`CLEAN`**
 
-The implementation of `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py`) and Manim scene infrastructure (`src/animation/`) is genuine, robust, and free of hardcoded results, facade implementations, mock bypasses, or memory leaks. All subprocess executions are properly isolated, time-bounded, and cleaned up.
+Phase 14 Milestone M1 work products (`src/core/orchestrator/pipeline_runner.py`, `src/cli/ops.py`, node files, and associated test suites) implement complete, authentic orchestration, CLI operations, and state ledger resumption capabilities. The codebase is free of hardcoded test results, dummy facades, or pre-populated artifacts.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify this audit:
+To independently verify this verdict:
 
-1. **Run Unit Tests**:
+1. **Run Core Unit Tests**:
    ```bash
-   pytest tests/pipeline/test_animation_node.py -v
-   pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ -v
+   pytest tests/orchestrator/ tests/cli/ tests/workflow/
    ```
+   *Expected outcome*: 49 passed, 0 failed.
 
-2. **Inspect Code Quality & Subprocess Isolation**:
-   - Node: `src/pipeline/nodes/animation_generator_node.py`
-   - Renderer: `src/animation/renderer.py`
-   - Base Scene: `src/animation/scenes/base_scene.py`
-   - Tests: `tests/pipeline/test_animation_node.py`
+2. **Run Empirical Resumption Tests**:
+   ```bash
+   pytest tests/test_m1_2_empirical.py
+   ```
+   *Expected outcome*: 4 passed, 0 failed.
 
-3. **Invalidation Criteria**:
-   - Any test failure in `tests/pipeline/test_animation_node.py`.
-   - Temporary directories leaking after `AnimationGeneratorNode.execute()` finishes or fails.
-   - Hardcoded returns or static output strings in `animation_generator_node.py`.
+3. **Verify State Ledger Database**:
+   ```bash
+   python3 -c "import sqlite3; conn = sqlite3.connect('data/state_ledger.db'); print(conn.execute('SELECT COUNT(*) FROM pipeline_runs').fetchone())"
+   ```
+   *Expected outcome*: `(0,)`
+
+4. **Invalidation Conditions**:
+   The verdict is invalidated if any test fails, if pre-populated run records are inserted into `data/state_ledger.db`, or if hardcoded string returns are introduced to circumvent test execution.

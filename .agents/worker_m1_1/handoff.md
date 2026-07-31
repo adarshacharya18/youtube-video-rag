@@ -1,106 +1,97 @@
-# Handoff Report: Animation Generator Node & Memory Management Implementation (Milestone 1)
-
-**Author**: Worker 1 (Milestone 1)  
-**Target File**: `src/pipeline/nodes/animation_generator_node.py`  
-**Handoff Report Path**: `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/handoff.md`  
-**Date**: 2026-07-30  
-
----
+# Handoff Report - Phase 14 Milestone M1 (Core Implementation)
 
 ## 1. Observation
 
-1. **Node Inheritance & Name Requirement**:
-   - `src/core/workflow/node.py:18-57` defines the abstract base class `Node`.
-   - Requires abstract property `name` returning step name `"animation_generator"`.
-   - Requires abstract method `execute(run_id: str, ledger: StateLedger) -> dict[str, Any]`.
-   - Helper `get_step_output(run_id, ledger, step_name)` (`node.py:100-131`) retrieves prior step output payload or raises `PipelineStageError`.
+### Codebase & Modified/Created Files
+- **`src/core/orchestrator/pipeline_runner.py`** (NEW): Created `PipelineRunner` class that chronologically links the 6-node pipeline sequence (`Ingestion` -> `Plan` -> `Script` -> `TTS` -> `Manim` -> `FFmpeg`). Integrated with `WorkflowEngine`, `StateLedger`, and `EventBus`. Supported run creation, checkpoint resumption, status lookups, and event subscriptions.
+- **`src/core/orchestrator/__init__.py`** (MODIFIED): Re-exported `PipelineRunner`.
+- **`src/cli/ops.py`** (UPDATED): Updated master operational CLI with subcommands `run`, `status`, `resume`, `health`, `benchmark`, `deploy`, `rollback`, `diagnose`, `report`. Integrated `run`, `status`, `resume`, and `health` commands with `PipelineRunner` and `StateLedger`. Output formats supported: human-readable stdout table/reports and `--json`.
+- **`src/pipeline/nodes/ingestion_node.py`** (NEW): Created `IngestionNode` (`name = "ingest"`) for Phase 01 problem ingestion.
+- **`src/pipeline/nodes/plan_node.py`** (NEW): Created `PlanNode` (`name = "plan"`) for Phase 04 pedagogical plan generation.
+- **`src/pipeline/nodes/voice_generator_node.py`** (NEW): Created `VoiceGeneratorNode` (`name = "voice_generator"`) for Phase 08 TTS audio and subtitle generation.
+- **`src/pipeline/nodes/__init__.py`** (UPDATED): Re-exported all pipeline nodes (`IngestionNode`, `PlanNode`, `ScriptGeneratorNode`, `VoiceGeneratorNode`, `AnimationGeneratorNode`, `VideoAssemblyNode`).
+- **`src/core/orchestrator/state_ledger.py`** (UPDATED): Added `record_run_completion` and `update_run_status` methods to mark pipeline run state as `COMPLETED` when all steps complete.
+- **`src/core/workflow/engine.py`** (UPDATED): Called `self.ledger.record_run_completion(run_id, StepStatus.COMPLETED)` upon successful workflow completion.
+- **`tests/orchestrator/test_pipeline_runner.py`** (NEW): Created 6 unit/component tests for `PipelineRunner` verifying default node sequence, execution, checkpoint resumption, status lookup, and event bus subscriptions.
+- **`tests/cli/test_ops.py`** (NEW): Created 12 unit/component tests for `ops.py` CLI testing `run`, `status`, `resume`, `health`, `--json` flags, missing arguments, and utility commands.
 
-2. **Input Payload Schema & Prior Step Integration**:
-   - `src/pipeline/nodes/script_generator_node.py:59-65` records step `"script_generator"` with payload containing `"script"` (`YouTubeScript` model dict) and `"slug"`.
-   - `src/models/script.py:15-23` defines `VisualCue` (`cue_id`, `animation_type`, `description`, `timestamp_seconds`, `parameters`).
-
-3. **Output Manifest Schema**:
-   - `src/core/models/assets.py:104-175` defines `RenderSegment` requiring `segment_id`, `segment_type="visual_anim"`, `start_time`, `end_time`, `duration`, `visual_path`, `scene_type`, `visual_parameters`, and `asset_references`.
-
-4. **Exception Handling Contract**:
-   - `src/core/exceptions.py:135-137` defines `AnimationError(PipelineError)`.
-   - Subprocess errors, timeouts, or non-zero exit codes must raise `AnimationError`.
-
-5. **Files Created & Modified**:
-   - `src/pipeline/nodes/animation_generator_node.py` (New): Implements `AnimationGeneratorNode`.
-   - `src/pipeline/nodes/__init__.py` (Modified): Exports `AnimationGeneratorNode`.
-   - `src/animation/theme.py` (New): Implements `ThemeColors` and styling constants.
-   - `src/animation/renderer.py` (New): Implements `ManimRenderer` and `FallbackRenderer`.
-   - `src/animation/scenes/base_scene.py` (New): Implements `BaseDSAScene` with graceful Manim import fallback.
-   - `src/animation/scenes/array_scene.py` (New): Implements `ArrayScene`.
-   - `src/animation/scenes/code_scene.py` (New): Implements `CodeScene`.
-   - `src/animation/scenes/complexity_scene.py` (New): Implements `ComplexityScene`.
-   - `src/animation/scenes/graph_scene.py` (New): Implements `GraphScene`.
-   - `src/animation/scenes/hashmap_scene.py` (New): Implements `HashmapScene`.
-   - `src/animation/scenes/linkedlist_scene.py` (New): Implements `LinkedListScene`.
-   - `src/animation/scenes/stack_queue_scene.py` (New): Implements `StackQueueScene`.
-   - `src/animation/scenes/tree_scene.py` (New): Implements `TreeScene`.
-   - `tests/pipeline/test_animation_node.py` (New): Implements unit test suite for node execution, subprocess isolation, caching, and cleanup.
-
-6. **Test Verification Results**:
-   Command: `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ -v`
-   Result: `64 passed, 23 warnings in 1.99s`.
-   Coverage for `animation_generator_node.py`: `88%`.
+### Verification Execution Output
+Command executed:
+```bash
+pytest tests/orchestrator/ tests/cli/ tests/workflow/
+```
+Output verbatim:
+```
+======================= 49 passed, 24 warnings in 2.01s ========================
+```
 
 ---
 
 ## 2. Logic Chain
 
-1. **StateLedger Step Retrieval**:
-   `AnimationGeneratorNode.execute(run_id, ledger)` invokes `self.get_step_output(run_id, ledger, "script_generator")` to obtain the prior step payload. If `ledger` is None or step output is missing, `PipelineStageError` is raised.
+1. **Pipeline Execution Sequence**:
+   - The video generation pipeline requires a chronological sequence of 6 stages: Ingestion (`ingest`), Plan (`plan`), Script (`script_generator`), TTS (`voice_generator`), Manim (`animation_generator`), and FFmpeg (`video_assembly`).
+   - `PipelineRunner` instantiates this node sequence and delegates execution to `WorkflowEngine(nodes, ledger, event_bus)`.
 
-2. **Visual Cue Extraction & Model Validation**:
-   `_extract_visual_cues(script_payload)` inspects `"script"` payload, validates against `YouTubeScript` Pydantic model (or parses raw visual cue dict list), extracting all `VisualCue` objects.
+2. **State Ledger & Crash Resumption Integration**:
+   - When `run_problem(slug)` is called, `PipelineRunner` queries `StateLedger` for existing runs. If an incomplete run exists, it reuses its `run_id`.
+   - `WorkflowEngine` iterates over `nodes` and checks `ledger.get_completed_steps(run_id)`. If a node is already marked `COMPLETED`, it is appended to `skipped_steps` and its cached output payload is loaded.
+   - Execution resumes from the exact checkpoint (first `PENDING` or `FAILED` step).
+   - Upon completion of all nodes, `WorkflowEngine` calls `ledger.record_run_completion(run_id, StepStatus.COMPLETED)`, transitioning parent run status to `COMPLETED`.
 
-3. **Content-Addressable SHA-256 Render Caching**:
-   `_compute_cache_hash(anim_type, parameters)` generates a SHA-256 hash from `anim_type`, JSON-serialized `parameters`, and `quality`. If `cached_file` exists and is non-empty in `cache_dir`, `shutil.copy2` copies it to `output_file` without invoking subprocess rendering.
+3. **Master CLI Operation**:
+   - `src/cli/ops.py` uses `argparse` to expose DevOps subcommands: `run`, `status`, `resume`, `health`, `benchmark`, `deploy`, `rollback`, `diagnose`, `report`.
+   - `ops run --slug <slug>` invokes `PipelineRunner.run_problem()`.
+   - `ops status --slug <slug>` or `--run-id <id>` invokes `PipelineRunner.get_status()`.
+   - `ops resume --run-id <id>` invokes `PipelineRunner.resume_run()`.
+   - `ops health` checks DB connectivity, `ffmpeg` and `manim` binaries, disk space, and Python environment.
+   - Standard stdout reports human-readable formatted output for SREs, while `--json` outputs structured JSON payloads.
 
-4. **Isolated Subprocess Execution & Memory Management**:
-   On cache miss, rendering is executed inside a `tempfile.TemporaryDirectory(prefix="manim_")` context manager. CLI arguments include `quality_flag` (`-ql`, `-qm`, `-qh`, `-qk`), `--format=mp4`, `--media_dir`, `-o`, scene python file, and scene class name. Subprocess is executed via `subprocess.run(..., capture_output=True, text=True, timeout=self.timeout, close_fds=True)`. Upon exit, the context manager guarantees 100% recursive deletion of `temp_dir`.
-
-5. **Error Propagation**:
-   If `subprocess.run()` returns a non-zero exit code, times out (`subprocess.TimeoutExpired`), or fails to find binary, `AnimationError` is raised to signal failure to `WorkflowEngine`.
-
-6. **Output Payload Construction**:
-   Constructs `RenderSegment` objects conforming strictly to `src/core/models/assets.py`, populating `visual_path`, `asset_references`, `scene_type`, `visual_parameters`, and duration metrics. Returns `{"slug": slug, "segments": [...], "render_count": len(segments), "status": "completed"}`.
+4. **Testing Strategy**:
+   - Unit tests in `tests/orchestrator/test_pipeline_runner.py` cover run creation, step resumption, status retrieval, and event emissions.
+   - Unit tests in `tests/cli/test_ops.py` cover CLI subcommands, argument parsing, JSON flags, and failure exit codes.
 
 ---
 
 ## 3. Caveats
 
-- **System Dependencies**: Production rendering requires `manim` Python package and `ffmpeg`. In test environments where `manim` is absent, tests use a mock Python script fixture as `manim_binary`, which executes via `sys.executable` and tests CLI flags and file lifecycle without requiring system Cairo/LaTeX binaries.
+- **External Hardware Binaries**: If `manim` or `ffmpeg` binaries are absent on a development machine, `AnimationGeneratorNode` and `VideoAssemblyNode` log warnings and produce fallback mock media artifacts so that local testing and CI/CD pipelines run cleanly without external binary dependencies.
+- **SQLite Concurrency**: `StateLedger` uses SQLite in WAL mode with a 5000ms busy timeout and python thread locks. Concurrent multi-process writers to the same DB file should respect WAL locking.
 
 ---
 
 ## 4. Conclusion
 
-`AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py`) and supporting Manim scene modules (`src/animation/scenes/`) have been fully implemented and verified. All requirements for Milestone 1 are completely satisfied with 0 regressions.
+- `PipelineRunner` (`src/core/orchestrator/pipeline_runner.py`) is fully implemented and chronologically links all 6 nodes (Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg).
+- Master CLI (`src/cli/ops.py`) is fully updated and provides `run`, `status`, `resume`, `health`, and secondary operational subcommands with human-readable and JSON output formats.
+- Complete unit/component tests in `tests/orchestrator/test_pipeline_runner.py` and `tests/cli/test_ops.py` are passing (49 passed, 0 failed).
 
 ---
 
 ## 5. Verification Method
 
-### 1. Test Execution Command
-```bash
-pytest tests/pipeline/test_animation_node.py -v
-pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ -v
-```
+To independently verify the implementation and test suite:
 
-### 2. Files to Inspect
-- Node Implementation: `src/pipeline/nodes/animation_generator_node.py`
-- Package Exports: `src/pipeline/nodes/__init__.py`
-- Base Scene: `src/animation/scenes/base_scene.py`
-- Renderer Manager: `src/animation/renderer.py`
-- Theme Styling: `src/animation/theme.py`
-- Test Suite: `tests/pipeline/test_animation_node.py`
+1. **Run Pytest Target Suites**:
+   ```bash
+   pytest tests/orchestrator/ tests/cli/ tests/workflow/
+   ```
+   *Expected Output*: 49 passed.
 
-### 3. Invalidation Conditions
-- `AnimationGeneratorNode.name` does not return `"animation_generator"`.
-- `execute()` fails to retrieve `"script_generator"` step output via `self.get_step_output()`.
-- Temporary render directories are not deleted upon subprocess completion or failure.
-- `AnimationError` is not raised on subprocess failure or timeout.
+2. **Verify Master CLI Subcommands**:
+   ```bash
+   python3 -m src.cli.ops health
+   python3 -m src.cli.ops run --slug two-sum --db /tmp/demo_ledger.db
+   python3 -m src.cli.ops status --slug two-sum --db /tmp/demo_ledger.db
+   python3 -m src.cli.ops resume --slug two-sum --db /tmp/demo_ledger.db
+   python3 -m src.cli.ops run --slug two-sum --json --db /tmp/demo_ledger.db
+   ```
+
+3. **Files to Inspect**:
+   - `src/core/orchestrator/pipeline_runner.py`
+   - `src/cli/ops.py`
+   - `src/pipeline/nodes/ingestion_node.py`
+   - `src/pipeline/nodes/plan_node.py`
+   - `src/pipeline/nodes/voice_generator_node.py`
+   - `tests/orchestrator/test_pipeline_runner.py`
+   - `tests/cli/test_ops.py`

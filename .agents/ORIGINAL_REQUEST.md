@@ -119,5 +119,30 @@ Do not ask for permission (via subagent) for running commands unless the command
 - [ ] The `VideoAssemblyNode` includes explicit temporary file cleanup logic.
 - [ ] The `PromptBook/Phase13/01_Video_Assembly.md` file correctly describes the FFmpeg architecture.
 
+## 2026-07-30T23:06:30+05:30
 
+Implement Phase 14: Integration & Production Orchestration.
+
+Working directory: /home/adarsh/Documents/Youtube-Channel
+Integrity mode: development
+
+## Requirements
+
+### R1. Implement Master CLI
+Create `src/cli/ops.py` to serve as the master operational command-line interface. It should include intuitive commands like `run`, `status`, `resume`, and `health` for human DevOps engineers.
+
+### R2. Implement Pipeline Orchestrator
+Create `src/core/orchestrator/pipeline_runner.py` to chronologically link all individual nodes (Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg) into a single, cohesive, production-ready pipeline.
+
+### R3. Draft Operational Runbooks
+Document the operational runbooks and system startup procedures in `PromptBook/Phase14/01_Production_Orchestration.md`. Use subagents to assist with drafting the operational documentation.
+
+### R4. Command Restrictions
+Do not ask for permission (via subagent) for running commands unless the command involves sensitive data.
+
+## Acceptance Criteria
+- [ ] Write comprehensive end-to-end integration tests in `tests/production/test_pipeline_e2e.py` verifying that all nodes are correctly linked and can be executed via the orchestrator.
+- [ ] Running `pytest tests/production/test_pipeline_e2e.py` executes successfully.
+- [ ] `src/cli/ops.py` provides the required commands and has intuitive output.
+- [ ] The `PromptBook/Phase14/01_Production_Orchestration.md` file correctly describes the runbooks and startup procedures.
 

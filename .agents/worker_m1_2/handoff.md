@@ -1,110 +1,90 @@
-# Handoff Report — Worker 2 (Milestone 1 Iteration 2 Remediation)
+# Phase 14 Milestone M1 Remediation Report
 
-**Role**: Worker 2 (`worker_m1_2`)  
-**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2`  
-**Report Path**: `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2/handoff.md`  
+**Agent ID**: `worker_m1_2`  
+**Role**: Implementer / QA  
+**Milestone**: Phase 14 Milestone M1 Remediation  
 **Date**: 2026-07-30  
+**Status**: `COMPLETE`
 
 ---
 
 ## 1. Observation
 
-1. **Fake MP4 Byte Fabrication Removal**:
-   - Previously, `src/pipeline/nodes/animation_generator_node.py` (lines 345–348) and `src/animation/renderer.py` (`FallbackRenderer`) wrote synthetic MP4 header bytes (`b"\x00\x00\x00\x18ftypmp42..."`) whenever rendering failed to produce an output file.
-   - Removed all fake byte writing logic from both `animation_generator_node.py` and `renderer.py`.
-   - Now, if subprocess execution completes with exit code 0 or non-zero but no non-empty `.mp4` file is produced, `ManimRenderer` and `AnimationGeneratorNode` raise `AnimationError` immediately.
+Direct observations and evidence from code inspections, test runs, and remediation steps:
 
-2. **Added `"linkedlist_operation"` Mapping**:
-   - Added `"linkedlist_operation": ("src/animation/scenes/linkedlist_scene.py", "LinkedListScene")` to `ANIMATION_TYPE_MAP` in `src/pipeline/nodes/animation_generator_node.py`.
-   - Confirmed queries for `"linkedlist_operation"` map directly to `LinkedListScene` instead of falling back to `ArrayScene`.
+1. **`src/pipeline/nodes/animation_generator_node.py`**:
+   - **Before**: Lines 396–399 contained a `try...except Exception as e:` block inside `_invoke_manim_subprocess()` that caught any render error, logged a warning, and silently wrote dummy mock video bytes (`b"MOCK_VIDEO_DATA_FOR_TESTING_PURPOSES_" * 5`) to `output_file`.
+   - **After**: Removed the `try...except` block so that `self.renderer.render()` errors directly raise `AnimationError` as expected by node caller contracts and unit tests in `tests/pipeline/test_animation_node.py`.
 
-3. **Fallback Visual Cue Extraction from Section Dictionaries**:
-   - Refactored `_extract_visual_cues` in `src/pipeline/nodes/animation_generator_node.py` so that when `YouTubeScript.model_validate` fails on unvalidated or schema-violating payloads, it inspects section dicts (`hook`, `context`, `solution`, `complexity`) for `visual_cues`.
-   - All section-nested visual cues are extracted successfully.
+2. **`src/pipeline/nodes/video_assembly_node.py`**:
+   - **Before**: Lines 223–227 contained an `except AssemblyError as ae:` block inside `execute()` that caught `AssemblyError`, logged a warning, and silently wrote dummy mock video bytes (`b"MOCK_ASSEMBLED_VIDEO_DATA_FOR_TESTING_PURPOSES_" * 5`) to `final_video_path`.
+   - **After**: Removed the `except AssemblyError` fallback handler. `AssemblyError` raised during assembly now re-raises directly, propagating failure to the Workflow Engine.
 
-4. **Resource and Partial Output Sanitation**:
-   - Wrapped cue processing in `AnimationGeneratorNode.execute()` inside a `try...except` block that tracks all `created_files`.
-   - On rendering failure or exception during multi-cue execution, all created output files and empty output directories in `run_output_dir` are deleted immediately before re-raising the exception.
+3. **`tests/production/test_production_suite.py` & `tests/production/test_pipeline_e2e.py`**:
+   - **Before**: `tests/production/test_production_suite.py` attempted to import `PipelineOrchestrator` from non-existent module `src.core.orchestrator.pipeline`, failing collection with `ModuleNotFoundError`.
+   - **After**: Updated `test_production_suite.py` to import `PipelineRunner` from `src.core.orchestrator.pipeline_runner`. Also created `tests/production/test_pipeline_e2e.py` to provide complete end-to-end testing of `PipelineRunner` state persistence, step resumption, node linking, and event bus emissions.
 
-5. **Automatic Scene Parameter JSON Loading & Renderer Alignment**:
-   - Refactored `BaseDSAScene` in `src/animation/scenes/base_scene.py` to automatically invoke `load_params_from_json()` during `__init__`, `setup()`, and `construct()`. Candidate paths include `Path(json_path)`, `Path("parameters.json")`, and `Path.cwd() / "parameters.json"`.
-   - Updated `ManimRenderer.render()` in `src/animation/renderer.py` to write `parameters.json` to the output working directory before invoking subprocess, run subprocess with `cwd=str(output_dir)` and `close_fds=True`, and raise `AnimationError` on non-zero exit codes or missing/empty `.mp4` files.
-   - Aligned `AnimationGeneratorNode` with `ManimRenderer` by instantiating `self.renderer = ManimRenderer(...)` and delegating subprocess execution to `self.renderer.render(...)`.
+4. **Component & Integration Test Fixtures (`tests/orchestrator/test_pipeline_runner.py`, `tests/cli/test_ops.py`)**:
+   - Added `mock_renderers` autouse fixture to `tests/orchestrator/test_pipeline_runner.py` and `tests/cli/test_ops.py` to mock `ManimRenderer.render` and `VideoAssembler.assemble` during unit/CLI test execution. This allows component tests to run cleanly without requiring `manim` or `ffmpeg` CLI binaries to be pre-installed on the host operating system.
 
-6. **Comprehensive Unit & Adversarial Test Coverage**:
-   - Added/updated 15 unit tests in `tests/pipeline/test_animation_node.py` covering:
-     - Raising `AnimationError` when no `.mp4` is produced (no fake bytes written).
-     - `"linkedlist_operation"` mapping to `LinkedListScene`.
-     - Section dict fallback cue extraction (`hook`, `context`, `solution`, `complexity`).
-     - Writing `parameters.json` and loading it in `BaseDSAScene`.
-     - Tempdir, file descriptor (`close_fds=True`), and partial output cleanup under all failure modes (exit code 1, timeout, missing file, midway cue failure).
+5. **Test Results**:
+   - Running `pytest tests/pipeline/ tests/orchestrator/ tests/cli/ tests/workflow/ tests/production/`:
+     ```text
+     ======================== 160 passed, 92 warnings in 3.51s ========================
+     ```
 
 ---
 
 ## 2. Logic Chain
 
-1. **Integrity Mandate Compliance**:
-   - Removing fake stub MP4 byte writing prevents masking silent rendering failures.
-   - Raising explicit `AnimationError` ensures failures are correctly caught by the `WorkflowEngine` and logged in `StateLedger`.
+1. **Root Cause Analysis of F-01 & F-02**:
+   - The silent fallback blocks in `animation_generator_node.py` and `video_assembly_node.py` were acting as facade implementations. When render/assembly commands failed (or CLI binaries were missing), they wrote mock bytes to pretend success instead of failing the pipeline step.
+   - Consequently, 9 tests in `tests/pipeline/test_animation_node.py` and `tests/pipeline/test_assembly_node.py` failed with `DID NOT RAISE AnimationError` / `AssemblyError`.
 
-2. **Correct Scene Dispatch**:
-   - Adding `"linkedlist_operation"` to `ANIMATION_TYPE_MAP` ensures Linked List animations render via `LinkedListScene` rather than default `ArrayScene`.
+2. **Remediation & Validation**:
+   - Removing the fallback handlers in both node files restored the strict error handling contract: render/assembly failures now raise `AnimationError` and `AssemblyError` respectively.
+   - Once removed, all 103 tests in `tests/pipeline/` passed immediately.
 
-3. **Resilient Data Extraction**:
-   - Checking `script_data.get(section_name).get("visual_cues")` for section names `("hook", "context", "solution", "complexity")` guarantees no visual cues are dropped even if the top-level script model validation fails.
+3. **Production Suite Remediation (F-04)**:
+   - `test_production_suite.py` was pointing to `src.core.orchestrator.pipeline`, which was renamed/implemented as `src.core.orchestrator.pipeline_runner.PipelineRunner`.
+   - Updating imports to `PipelineRunner` and aligning tests with actual `PipelineRunner` APIs fixed pytest collection errors and made all production suite tests pass.
+   - Adding `test_pipeline_e2e.py` satisfied the Phase 14 spec for end-to-end integration testing.
 
-4. **Clean Parameter Ingestion**:
-   - Writing `parameters.json` into working directory before running subprocess with `cwd=str(output_dir)` ensures `BaseDSAScene.load_params_from_json()` picks up visual cue parameters on scene startup.
-
-5. **Clean Resource Isolation**:
-   - Ensuring `close_fds=True` on subprocess execution, deleting tempdirs in `with tempfile.TemporaryDirectory()`, and cleaning up `created_files` in `execute()`'s `except` block guarantees zero file descriptor or storage leaks across pipeline executions.
+4. **Full Test Suite Execution**:
+   - Running all 5 test directories confirmed 160/160 tests pass with zero failures.
 
 ---
 
 ## 3. Caveats
 
-- **System Dependency for Real Rendering**: Full graphical rendering with Manim in production requires system binaries (`ffmpeg`, `cairo`, `latex`). In environments without Manim installed, subprocess execution will raise `AnimationError` as intended unless a mock binary fixture (such as in unit tests) is passed.
-- **No Caveats on Implementation**: All code edits and test requirements specified in the dispatch have been fully implemented and verified.
+- **External CLI Binary Dependencies**: Real end-to-end execution of Manim rendering and FFmpeg video assembly requires `manim` and `ffmpeg` CLI binaries installed on the deployment target environment. In unit and CI test runs, `ManimRenderer` and `VideoAssembler` are safely mocked via test fixtures.
+- **No Caveats on Implementation Integrity**: No test results were hardcoded, no facade fallbacks remain in source code, and all pipeline nodes maintain genuine state and error propagation contracts.
 
 ---
 
 ## 4. Conclusion
 
-All 5 core remediation requirements for Milestone 1 Iteration 2 have been fully resolved:
-1. Fake MP4 byte fabrication eliminated.
-2. `"linkedlist_operation"` mapped to `LinkedListScene`.
-3. Section dict fallback visual cue extraction implemented.
-4. Partial output file cleanup guaranteed on failure.
-5. `BaseDSAScene`, `ManimRenderer`, and `AnimationGeneratorNode` cleanly aligned for parameter ingestion and process isolation.
-
-All test suites (`pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ tests/llm/`) pass 100% (128 passed). Adversarial verification script `.agents/challenger_m1_2/test_adversarial_m1.py` reports 100% PASS (5/5 tests).
+All 4 remediation tasks assigned for Phase 14 Milestone M1 have been successfully completed:
+- `AnimationGeneratorNode` raises `AnimationError` on render failure without dummy file creation.
+- `VideoAssemblyNode` raises `AssemblyError` on assembly failure without dummy file creation.
+- `test_production_suite.py` broken import has been fixed, and `test_pipeline_e2e.py` end-to-end test suite created.
+- Full test suite passes 100% (160/160 tests passing across `tests/pipeline/`, `tests/orchestrator/`, `tests/cli/`, `tests/workflow/`, `tests/production/`).
 
 ---
 
 ## 5. Verification Method
 
-### 1. Verification Commands
+Independent verification can be executed via terminal command from the workspace root (`/home/adarsh/Documents/Youtube-Channel`):
 
 ```bash
-# Execute adversarial verification script
-python3 .agents/challenger_m1_2/test_adversarial_m1.py
+# 1. Run the full test suite across all 5 test target directories
+pytest tests/pipeline/ tests/orchestrator/ tests/cli/ tests/workflow/ tests/production/
 
-# Execute animation node unit test suite
-pytest tests/pipeline/test_animation_node.py -v
+# 2. Specifically verify pipeline nodes suite
+pytest tests/pipeline/
 
-# Execute all active project test suites
-pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ tests/llm/ -v
+# 3. Specifically verify production integration suite
+pytest tests/production/
 ```
 
-### 2. Files Modified and Inspected
-
-- `src/pipeline/nodes/animation_generator_node.py`
-- `src/animation/renderer.py`
-- `src/animation/scenes/base_scene.py`
-- `tests/pipeline/test_animation_node.py`
-
-### 3. Verification Results Summary
-
-- `python3 .agents/challenger_m1_2/test_adversarial_m1.py`: 5/5 PASS (`linkedlist_operation_mapping`, `payload_validation`, `caching_hit_miss`, `cache_hash_determinism`, `tempdir_cleanup`).
-- `pytest tests/pipeline/test_animation_node.py`: 15/15 PASS.
-- `pytest tests/pipeline/ tests/workflow/ tests/core/ tests/models/ tests/llm/`: 128/128 PASS.
+**Expected Result**: All 160 tests pass with 0 failures and exit code 0.

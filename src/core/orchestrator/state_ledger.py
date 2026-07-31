@@ -326,6 +326,30 @@ class StateLedger:
                 logger.error("Failed to record step failure", step_execution_id=step_execution_id, error=str(e))
                 raise PipelineError(f"Failed to record step failure for '{step_execution_id}': {e}") from e
 
+    def record_run_completion(self, pipeline_run_id: str, status: StepStatus = StepStatus.COMPLETED) -> None:
+        """Record the completion status of a pipeline run."""
+        if not self._conn:
+            raise PipelineError("Database connection is closed")
+
+        now = datetime.now(timezone.utc).isoformat()
+        status_str = status.value if hasattr(status, "value") else str(status)
+
+        with self._lock:
+            try:
+                with self._conn:
+                    self._conn.execute(
+                        "UPDATE pipeline_runs SET status = ?, updated_at = ? WHERE pipeline_run_id = ?",
+                        (status_str, now, pipeline_run_id)
+                    )
+                logger.info("Recorded pipeline run completion", pipeline_run_id=pipeline_run_id, status=status_str)
+            except Exception as e:
+                logger.error("Failed to record pipeline run completion", pipeline_run_id=pipeline_run_id, error=str(e))
+                raise PipelineError(f"Failed to record run completion for '{pipeline_run_id}': {e}") from e
+
+    def update_run_status(self, pipeline_run_id: str, status: StepStatus) -> None:
+        """Alias for record_run_completion."""
+        self.record_run_completion(pipeline_run_id, status)
+
     def get_completed_steps(self, pipeline_run_id: str) -> dict[str, StepExecutionRecord]:
         """
         Get a dictionary mapping step_name -> StepExecutionRecord for all completed steps in a run.

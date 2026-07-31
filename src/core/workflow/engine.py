@@ -239,6 +239,9 @@ class WorkflowEngine:
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
+        if hasattr(self.ledger, "record_run_completion"):
+            self.ledger.record_run_completion(run_id, StepStatus.COMPLETED)
+
         logger.info(
             "Workflow engine completed all nodes successfully",
             run_id=run_id,

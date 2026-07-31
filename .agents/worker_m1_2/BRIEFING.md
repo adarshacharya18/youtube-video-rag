@@ -1,53 +1,54 @@
-# BRIEFING — 2026-07-30T13:16:45Z
+# BRIEFING — 2026-07-30T23:23:00Z
 
 ## Mission
-Remediate Animation Generator Node, ManimRenderer, BaseDSAScene, and related tests to ensure genuine Manim rendering without fake byte stubs, proper parameter JSON handling, linkedlist mapping, section dict cue extraction, clean resource cleanup, and 100% passing tests.
+Remediate Milestone M1 issues: fix fallback mock file creation in animation_generator_node and video_assembly_node, fix broken import in test_production_suite.py, run test suite, and document handoff.
 
 ## 🔒 My Identity
-- Archetype: implementer, qa, specialist
-- Roles: implementer, qa, specialist
+- Archetype: implementer / qa
+- Roles: implementer, qa
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2
-- Original parent: 0f1d5dbc-7894-43ee-934f-cc066271f8d1
-- Milestone: Milestone 1 Iteration 2 Remediation - Worker 2
+- Original parent: 7d3a30c0-8d0a-4831-8bac-db48288a0c8f
+- Milestone: Phase 14 M1 Remediation
 
 ## 🔒 Key Constraints
-- DO NOT CHEAT. All implementations must be genuine.
-- DO NOT hardcode test results or create dummy/facade implementations.
-- No fake stub MP4 byte writing. If rendering produces no .mp4, raise AnimationError.
-- 100% pytest pass rate.
+- Remove fallback loop in `src/pipeline/nodes/animation_generator_node.py` that silently creates dummy mock files on exception. Raise `AnimationError`.
+- Remove fallback loop in `src/pipeline/nodes/video_assembly_node.py` that silently creates dummy mock files on exception. Raise `AssemblyError`.
+- Fix import in `tests/production/test_production_suite.py` from `src.core.orchestrator.pipeline` to `src.core.orchestrator.pipeline_runner`.
+- Run tests and verify all pass genuinely without cheating.
 
 ## Current Parent
-- Conversation ID: 0f1d5dbc-7894-43ee-934f-cc066271f8d1
-- Updated: 2026-07-30T13:16:45Z
+- Conversation ID: 7d3a30c0-8d0a-4831-8bac-db48288a0c8f
+- Updated: 2026-07-30T23:23:00Z
 
 ## Task Summary
-- **What to build**: Remediation of animation_generator_node.py, renderer.py, base_scene.py, test_animation_node.py.
-- **Success criteria**: Genuine video rendering pipeline, error handling on empty/missing mp4, parameter json support, cleanup on failure, full test suite pass.
+- **What to build**: M1 code & test remediation
+- **Success criteria**: All pipeline, orchestrator, cli, workflow, production tests pass cleanly (160/160 passed).
+
+## Key Decisions Made
+- Removed try/except fallback block in `AnimationGeneratorNode._invoke_manim_subprocess()` that caught exceptions and generated mock files. `AnimationError` now propagates cleanly.
+- Removed `except AssemblyError` block in `VideoAssemblyNode.execute()` that caught `AssemblyError` and generated mock files. `AssemblyError` now propagates cleanly.
+- Updated `tests/production/test_production_suite.py` to import `PipelineRunner` from `src.core.orchestrator.pipeline_runner`.
+- Created `tests/production/test_pipeline_e2e.py` for comprehensive end-to-end integration testing of `PipelineRunner`.
+- Configured component unit test fixtures in `tests/orchestrator/test_pipeline_runner.py` and `tests/cli/test_ops.py` to mock `ManimRenderer.render` and `VideoAssembler.assemble` when running on systems without CLI binaries.
+
+## Artifact Index
+- DISPATCH.md — Task prompt dispatch
+- BRIEFING.md — Context briefing
+- progress.md — Liveness heartbeat
+- handoff.md — Final handoff report
 
 ## Change Tracker
 - **Files modified**:
-  - `src/animation/scenes/base_scene.py`: Auto-load parameters.json during scene initialization/setup/construct into self.params.
-  - `src/animation/renderer.py`: Update ManimRenderer to accept parameters, write parameters.json in output_dir, run subprocess with cwd=str(output_dir), close_fds=True, raise AnimationError on exit != 0 or missing/empty mp4. Removed FallbackRenderer fake bytes.
-  - `src/pipeline/nodes/animation_generator_node.py`: Removed fake MP4 byte writing, added linkedlist_operation mapping to ANIMATION_TYPE_MAP, updated _extract_visual_cues fallback to inspect section dicts, added output cleanup on exception in execute(), aligned node with ManimRenderer.
-  - `tests/pipeline/test_animation_node.py`: Comprehensive test coverage for AnimationError on missing MP4, linkedlist_operation mapping, section dict fallback cue extraction, parameter JSON loading/writing, tempdir/FD/partial output cleanup.
-- **Build status**: PASS (128/128 tests passing across test suite; 5/5 adversarial tests passing).
+  - `src/pipeline/nodes/animation_generator_node.py`: Removed fallback mock file generation loop
+  - `src/pipeline/nodes/video_assembly_node.py`: Removed fallback mock file generation loop
+  - `tests/production/test_production_suite.py`: Fixed broken import to `PipelineRunner`
+  - `tests/production/test_pipeline_e2e.py`: Added end-to-end integration test suite
+  - `tests/orchestrator/test_pipeline_runner.py`: Added `mock_renderers` autouse fixture
+  - `tests/cli/test_ops.py`: Added `mock_renderers` autouse fixture
+- **Build status**: PASS (160/160 tests passing across 5 suites)
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS (128 passed, 0 failed)
+- **Build/test result**: 160 passed, 0 failed
 - **Lint status**: Clean
-- **Tests added/modified**: 15 tests in `tests/pipeline/test_animation_node.py`
-
-## Loaded Skills
-- None
-
-## Key Decisions Made
-- Removed all fake byte writing.
-- Unified subprocess rendering via ManimRenderer.
-- Auto-load parameters.json in BaseDSAScene lifecycle hooks.
-
-## Artifact Index
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2/DISPATCH.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2/BRIEFING.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2/progress.md
-- /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_2/handoff.md
+- **Tests added/modified**: `test_production_suite.py` updated, `test_pipeline_e2e.py` added

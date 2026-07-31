@@ -1,57 +1,43 @@
-# Handoff Report: Phase 13 Milestone 1 Empirical Challenge
+# Handoff Report — Challenger M1 1
 
 ## 1. Observation
-- **Target Source Files Evaluated**:
-  - `src/assembly/ffmpeg_commands.py`: Pure helper functions for 4K video scaling, concat filter graphs, subtitle escaping, and FFmpeg CLI argument list generation.
-  - `src/assembly/assembler.py`: `VideoAssembler` class managing secure subprocess execution (`shell=False`, `close_fds=True`), process timeouts, output file validation, and temporary directory cleanup.
-  - `src/pipeline/nodes/video_assembly_node.py`: `VideoAssemblyNode` workflow node subclassing `Node`, interacting with `StateLedger`, executing assembly, and validating output payloads against `AssembledVideo` schema.
-- **Empirical Test Suite Execution**:
-  - Command: `PYTHONPATH=. pytest tests/test_m1_empirical.py -v`
-  - Result: `24 passed in 2.75s`.
-  - Output excerpt:
-    ```
-    tests/test_m1_empirical.py::test_escape_ffmpeg_filter_path_quotes_spaces_colons_brackets PASSED
-    tests/test_m1_empirical.py::test_subtitle_filter_with_special_characters PASSED
-    tests/test_m1_empirical.py::test_concat_filter_graph_single_segment PASSED
-    tests/test_m1_empirical.py::test_concat_filter_graph_multi_segment PASSED
-    tests/test_m1_empirical.py::test_concat_filter_graph_no_audio PASSED
-    tests/test_m1_empirical.py::test_assembler_simulated_timeout PASSED
-    tests/test_m1_empirical.py::test_assembler_non_zero_exit_code PASSED
-    tests/test_m1_empirical.py::test_assembler_file_descriptor_leak_check PASSED
-    tests/test_m1_empirical.py::test_temp_cleanup_on_non_zero_exit PASSED
-    tests/test_m1_empirical.py::test_temp_cleanup_on_timeout PASSED
-    tests/test_m1_empirical.py::test_temp_cleanup_on_invalid_output_file PASSED
-    tests/test_m1_empirical.py::test_node_successful_assembly_with_state_ledger PASSED
-    24 passed in 2.75s
-    ```
-- **Code Coverage Achieved**:
-  - `src/assembly/assembler.py`: 84% coverage.
-  - `src/assembly/ffmpeg_commands.py`: 77% coverage.
-  - `src/pipeline/nodes/video_assembly_node.py`: 86% coverage.
+- Tested `src/cli/ops.py` subcommands (`run`, `status`, `resume`, `health`, `benchmark`, `deploy`, `rollback`, `diagnose`, `report`) via Python CLI execution (`python3 -m src.cli.ops ...`).
+- Executed existing unit tests (`pytest tests/cli/test_ops.py tests/orchestrator/test_pipeline_runner.py`): 18 passed in 2.08s.
+- Created and executed dedicated empirical stress test suite (`/tmp/test_m1_cli_runner.py`): 30 test cases executed, 30 PASSED in 39.50s.
+- Tested edge cases: missing/invalid slug, invalid run ID, `--json` formatting, invalid CLI flags (`--invalid-flag`), health check database failure (`/root/forbidden.db`).
+- Verified `PipelineRunner` orchestration: 6-stage execution (`Ingestion` -> `Plan` -> `Script` -> `TTS` -> `Manim` -> `FFmpeg`), checkpoint-based step resumption after node failure, and `EventBus` lifecycle emissions (`NodeStarted`, `NodeCompleted`).
 
 ## 2. Logic Chain
-1. **Observation 1**: `escape_ffmpeg_filter_path` replaces backslashes, colons, single quotes, and brackets in order.
-   - *Reasoning*: Tested with raw path `/path/to/my video: 'test' [1] \dir\file.srt`. Resulting filter graph clause `[v_in]subtitles='...':force_style='...'[v_out]` correctly escapes all filter syntax delimiters and string quotes.
-2. **Observation 2**: Subprocess execution in `VideoAssembler.run_command` sets `close_fds=True`, enforces `timeout`, and checks output file existence/size (`st_size >= 100`).
-   - *Reasoning*: Empirical tests simulating timeouts, non-zero returncodes (exit 1/2), missing output files, and 0-byte output files confirmed `AssemblyError` is raised in all cases. Measurement of open file descriptors across 15 iterations verified zero FD leaks.
-3. **Observation 3**: Temporary directory context manager (`tempfile.TemporaryDirectory`) and exception-block unlinking are used in `VideoAssembler.assemble`.
-   - *Reasoning*: Empirical tests verified that upon non-zero exit, timeout, or invalid output size, transient `.tmp_<pid>` files and `assembly_*` temporary directories are completely removed with zero leftover files.
-4. **Observation 4**: `VideoAssemblyNode` retrieves visual segments from `animation_generator` and narration/SRT artifacts from `voice_generator`/`script_generator` in `StateLedger`.
-   - *Reasoning*: End-to-end integration test verified that valid inputs produce an output payload strictly matching the `AssembledVideo` Pydantic schema (`slug`, `final_video_path`, `total_duration_seconds`, `file_size_bytes`, `segments`, `assembled_at`).
+1. *Observation*: Subcommands `run`, `status`, `resume`, `health` execute cleanly and output human-readable report tables when run without `--json`.
+   *Inference*: CLI parsing and report formatting in `src/cli/ops.py` comply with operational DevOps interface requirements.
+2. *Observation*: Passing invalid inputs (missing `--slug` on `run`, missing query on `status`/`resume`, invalid `--run-id`) returns exit code `1` with descriptive error messages on `stderr`. Passing invalid flags returns exit code `2`.
+   *Inference*: CLI error handling and argument parsing are robust against command invocation errors.
+3. *Observation*: Simulated node failure during `run_problem` records completion of earlier steps in `StateLedger`. Subsequent execution with `force=False` or `resume` skips completed steps and resumes from the exact failed step.
+   *Inference*: `PipelineRunner` crash recovery and resumption mechanism is crash-resilient and functioning correctly.
+4. *Observation*: EventBus listeners receive `NodeStarted` and `NodeCompleted` events for every executed node in the 6-stage pipeline.
+   *Inference*: EventBus integration in `PipelineRunner` and `WorkflowEngine` correctly dispatches lifecycle events.
 
 ## 3. Caveats
-No caveats. All edge cases specified in the challenge objective (subtitle quotes/spaces, single vs multi-segment concat, missing audio, 4K scaling, process timeouts, non-zero exit codes, FD leaks, invalid output files, and temporary file cleanup) were empirically tested and passed.
+- Log messages from `structlog` are output to stdout; when combined with `--json`, consumers should parse the trailing JSON block (documented in `analysis.md` Challenge 1).
+- Concurrent database writes across multiple CLI processes were not stress-tested for SQLite lock contention.
 
 ## 4. Conclusion
-Explicit Verdict: **APPROVE**.
+Explicit Verdict: **APPROVE**
 
-Milestone 1 core source files (`src/assembly/ffmpeg_commands.py`, `src/assembly/assembler.py`, `src/pipeline/nodes/video_assembly_node.py`) are robust, production-ready, fully compliant with Phase 13 requirements, and pass all empirical stress tests.
+Both `src/cli/ops.py` and `src/core/orchestrator/pipeline_runner.py` satisfy all requirements for Phase 14 Milestone M1. All empirical stress tests pass, subcommand handling is robust, and pipeline orchestration/resumption functions reliably.
 
 ## 5. Verification Method
-To independently verify:
+To independently verify this result, run the following commands:
+
 ```bash
-PYTHONPATH=. pytest tests/test_m1_empirical.py -v
+# 1. Run standard unit tests for CLI ops and PipelineRunner
+pytest tests/cli/test_ops.py tests/orchestrator/test_pipeline_runner.py -v
+
+# 2. Run the empirical stress test harness
+pytest /tmp/test_m1_cli_runner.py -v
+
+# 3. Direct CLI invocation check
+python3 -m src.cli.ops health
+python3 -m src.cli.ops run --slug two-sum --json
+python3 -m src.cli.ops status --slug two-sum
 ```
-Inspect reports:
-- `.agents/challenger_m1_1/challenge.md`
-- `.agents/challenger_m1_1/handoff.md`

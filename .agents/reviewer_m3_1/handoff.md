@@ -1,57 +1,38 @@
-# Handoff Report - Milestone 3 Review (Animation Production Documentation)
+Verdict: APPROVE
 
-**Agent**: `reviewer_m3_1`  
-**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m3_1`  
-**Date**: 2026-07-30  
-
----
+# Milestone 3 Remediation Review Report (Reviewer 1)
 
 ## 1. Observation
-
-- **Source Files Inspected**:
-  - `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 12 requirement R3 & acceptance criteria)
-  - `/home/adarsh/Documents/Youtube-Channel/PROJECT.md` (Milestone 3 scope and interface contracts)
-  - `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase12/01_Animation_Production.md` (Target documentation product)
-  - `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m3_1/changes.md` & `handoff.md` (Worker outputs)
-  - `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/animation_generator_node.py` (Node implementation)
-  - `/home/adarsh/Documents/Youtube-Channel/src/animation/renderer.py` (Subprocess renderer implementation)
-  - `/home/adarsh/Documents/Youtube-Channel/tests/pipeline/test_animation_node.py` (37-test suite)
-
-- **Test Execution Command & Result**:
-  - `pytest tests/pipeline/test_animation_node.py`
-  - Output: `======================= 37 passed, 27 warnings in 2.81s ========================`
-
-- **Integrity Audit**:
-  - Scanned source code and test suite for hardcoded test outputs, dummy implementations, or shortcuts. Zero integrity violations detected.
-
----
+- **Log Stream Routing in `src/core/logger.py`**: Line 57 configures `console_handler = logging.StreamHandler(sys.stderr)`. Structured logger entries (Info, Warning, Error, Debug) emitted by `structlog` and stdlib logging are directed strictly to `sys.stderr` and rotating log files (`logs/pipeline.log`).
+- **Log Stream Routing in `src/cli/ops.py`**: Lines 450-452 explicitly iterate over `logging.getLogger().handlers` in `main()` and reassign any `logging.StreamHandler` attached to `sys.stdout` over to `sys.stderr`.
+- **Pure JSON Output on `sys.stdout`**: Subcommand handlers (`cmd_run`, `cmd_status`, `cmd_resume`, `cmd_health`, `cmd_benchmark`) use `print(json.dumps(...))` when `--json` flag is provided, writing pure JSON output directly to `sys.stdout`.
+- **Test Suite Results**:
+  - `pytest tests/cli/test_ops.py`: Executed 14 tests, **14 passed** (0 failures). Tests explicitly verify JSON parsing directly from stdout (e.g. `test_cli_health_command_json_strict_stdout` and `test_cli_benchmark_json_strict_stdout`).
+  - `pytest tests/production/test_pipeline_e2e.py`: Executed 2 end-to-end integration tests, **2 passed** (0 failures). Verifies 6-stage pipeline execution, event emissions (`NodeStarted`, `NodeCompleted`), and resume flow from `StateLedger`.
+- **Stream Separation Verification**: Subprocess execution of `python3 -m src.cli.ops health --json` confirmed stdout contains strictly valid JSON (`json.loads(res.stdout)` passes without line filtering) and stderr contains log entries.
+- **Integrity Check**: Source code contains no hardcoded test outputs, facade/dummy logic, or bypassed routines. Real node pipeline workflow is executed and tested cleanly.
 
 ## 2. Logic Chain
-
-1. **Requirements Alignment (R3)**: Document `PromptBook/Phase12/01_Animation_Production.md` explicitly addresses state ledger contracts, rendering boundaries, secure subprocess sandboxing, quality flag mapping, content-addressable SHA-256 caching, sub-100 byte corrupt cache invalidation, PID-isolated POSIX atomic staging (`os.replace`), `tempfile.TemporaryDirectory` context management, file descriptor leak prevention via `/proc/self/fd`, and exception rollback protocols.
-2. **Section Completeness**: All 7 required sections are fully populated with zero TBDs, TODOs, or stub placeholders.
-3. **Schema & Model Precision**: Schema contracts for `YouTubeScript`, `VisualCue`, `RenderSegment`, and `AssetReference` models, `StateLedger` payloads, and `parameters.json` parameter passing match the production implementation verbatim.
-4. **Diagram Validity**: All 3 Mermaid diagrams (Sequence Diagram, Flowchart, State Diagram) follow strict valid Mermaid syntax.
-5. **Verification Suite Integrity**: The test suite `tests/pipeline/test_animation_node.py` was executed independently, confirming 100% pass rate across all 37 tests.
-
----
+1. The objective was to verify that console log output is routed to `sys.stderr` so that CLI commands with `--json` produce clean, uncorrupted JSON payloads on `sys.stdout`.
+2. Inspecting `src/core/logger.py` confirmed `logging.StreamHandler(sys.stderr)` is used for console logging.
+3. Inspecting `src/cli/ops.py` confirmed `main()` inspects registered log handlers and enforces stream redirection from `sys.stdout` to `sys.stderr`.
+4. Command output for `--json` calls `json.dumps()` to `sys.stdout`, ensuring machine-readable JSON parsing without log contamination.
+5. Independent subprocess testing verified that `json.loads(res.stdout)` succeeds directly without filtering out prefix log lines.
+6. Execution of unit and E2E test suites (`tests/cli/test_ops.py` and `tests/production/test_pipeline_e2e.py`) passed 100% of test cases.
 
 ## 3. Caveats
-
-- **No caveats**. The documentation is completely accurate, aligned with code implementation, and verified by independent test suite execution.
-
----
+- No caveats. The log routing fix and test suites meet all requirements and pass cleanly.
 
 ## 4. Conclusion
+The CLI log stream routing and production orchestration integration are fully verified, robust, and correctly implemented. The code quality, type hints, exception handling, and test coverage meet all production standards.
 
-- **Final Verdict**: **APPROVE**
-- `PromptBook/Phase12/01_Animation_Production.md` is approved without changes. Milestone 3 deliverables meet all quality, completeness, and schema conformance criteria.
-
----
+Verdict: **APPROVE**.
 
 ## 5. Verification Method
-
-To independently re-verify this assessment:
-1. Inspect the review report at `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m3_1/analysis.md`.
-2. Inspect the approved documentation at `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase12/01_Animation_Production.md`.
-3. Execute `pytest tests/pipeline/test_animation_node.py` from `/home/adarsh/Documents/Youtube-Channel` to verify all 37 tests pass cleanly.
+To independently verify this review:
+1. Run CLI unit tests:
+   `pytest tests/cli/test_ops.py`
+2. Run E2E pipeline integration tests:
+   `pytest tests/production/test_pipeline_e2e.py`
+3. Verify stream separation manually via subprocess:
+   `python3 -c "import tempfile, json, subprocess, sys; tmp = tempfile.NamedTemporaryFile(); res = subprocess.run([sys.executable, '-m', 'src.cli.ops', 'health', '--json', '--db', tmp.name], capture_output=True, text=True); print('STDOUT IS VALID JSON:', isinstance(json.loads(res.stdout), dict)); print('STDERR LOGS PRESENT:', len(res.stderr) > 0)"`
