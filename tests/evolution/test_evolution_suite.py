@@ -34,7 +34,7 @@ def feedback_manager(mock_db_paths):
 @pytest.fixture
 def model_manager():
     mm = ModelManager()
-    mm.register_model(ModelConfig("openai", "gpt-4", "llm", fallback_id="claude-3"))
+    mm.register_model(ModelConfig("openai", "gpt-4", "llm", fallback_id="claude-3", max_consecutive_failures=1))
     mm.register_model(ModelConfig("anthropic", "claude-3", "llm"))
     return mm
 
