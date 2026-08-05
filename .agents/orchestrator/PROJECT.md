@@ -1,93 +1,41 @@
-# Project: Phase 10 — Event Bus Integration
+# Project: Voice Production Subsystem (TTS Integration)
 
 ## Architecture
-- Package: `src/core/events/bus.py`
-  - In-memory Pub/Sub `EventBus` class.
-  - Event dataclasses: `NodeStarted`, `NodeCompleted`, `NodeFailed`.
-  - Methods: `subscribe(event_type, listener)`, `unsubscribe(event_type, listener)`, `publish(event)`.
-  - Fault tolerance: `publish` iterates over registered listeners for the event type (and base event types if applicable) in a `try...except Exception:` block, logging/suppressing listener exceptions so callers never crash.
-- Package: `src/core/workflow/engine.py`
-  - Accept `event_bus: Optional[EventBus] = None` in `WorkflowEngine.__init__`.
-  - Publish `NodeStarted(run_id, node_name, step_id, timestamp)` after `record_step_start`.
-  - Publish `NodeCompleted(run_id, node_name, step_id, output, timestamp)` after `record_step_completion`.
-  - Publish `NodeFailed(run_id, node_name, step_id, error_msg, error_details, timestamp)` after `record_step_failure`.
-- Documentation: `PromptBook/Phase10/01_Event_Bus.md`
-  - Architectural overview, Pub/Sub pattern, event dataclasses, fault-tolerance design, code examples.
-- Test Suite:
-  - `tests/events/test_bus.py`: Unit tests for EventBus (subscribe, publish, unsubscribe, exception suppression on RuntimeError).
-  - `tests/workflow/test_engine.py`: Updated workflow engine tests verifying event emission during pipeline execution.
+The Voice Production Subsystem provides text-to-speech synthesis for the automated DSA educational video pipeline.
+- `src/core/media/voice.py`: Defines core data structures (`AudioSegment`, `VoiceConfig`), strategy protocol (`VoiceProviderProtocol`), and concrete providers (`KokoroVoiceProvider` with CPU fallback, `ManualVoiceProvider`).
+- `src/voice/synthesizer.py`: Re-exports core voice definitions for backward compatibility.
+- `src/pipeline/nodes/voice_generator_node.py`: Workflow pipeline node that retrieves generated script from `StateLedger`, synthesizes narration into `data/audio/{slug}/master_audio.wav`, and records output payload in `StateLedger`.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | EventBus & Event Models | `src/core/events/bus.py` with Pub/Sub and exception suppression | M1 | ORIGINAL_REQUEST R1 |
-| 2 | Workflow Engine Integration | Emit `NodeStarted`, `NodeCompleted`, `NodeFailed` in `WorkflowEngine` | M2 | ORIGINAL_REQUEST R2 |
-| 3 | SDK Documentation | `PromptBook/Phase10/01_Event_Bus.md` covering architecture & guidelines | M3 | ORIGINAL_REQUEST R3 |
-| 4 | Verification Test Suite | `tests/events/test_bus.py` and `tests/workflow/test_engine.py` | M4 | ORIGINAL_REQUEST Acceptance Criteria |
-
-## Code Layout
-- `src/core/events/__init__.py`
-- `src/core/events/bus.py`
-- `src/core/workflow/engine.py`
-- `PromptBook/Phase10/01_Event_Bus.md`
-- `tests/events/__init__.py`
-- `tests/events/test_bus.py`
-- `tests/workflow/test_engine.py`
+| 1 | `AudioSegment` Dataclass | Immutable dataclass tracking file_path, duration_sec, voice_id, checksum | M1 | Survey (PromptBook 02_Voice_Production.md:43) |
+| 2 | `VoiceConfig` Dataclass | Configuration settings for voice synthesis (voice_id, sample_rate, speed, pitch) | M1 | Survey (PromptBook 04_08:86) |
+| 3 | `VoiceProviderProtocol` Interface | Strategy pattern protocol defining `generate_segment(...) -> AudioSegment` | M1 | Survey (PromptBook 02_Voice_Production.md:51) |
+| 4 | Phonetic Fixer Helper | Converts DSA terms ("Dijkstra", "O(N)", "O(N^2)") to phonetic strings | M1 | Survey (PromptBook 02_Voice_Production.md:92) |
+| 5 | `KokoroVoiceProvider` | CPU-friendly TTS provider with hardware retries and fallback mechanism | M1 | Survey (PromptBook 02_Voice_Production.md:73) |
+| 6 | `ManualVoiceProvider` | Human voice actor fallback provider verifying disk file presence | M1 | Survey (PromptBook 02_Voice_Production.md:130) |
+| 7 | Re-export Module | `src/voice/synthesizer.py` re-exporting core voice definitions | M1 | Survey (ORIGINAL_REQUEST.md:20) |
+| 8 | `VoiceGeneratorNode` Update | Pipeline node invoking provider, synthesizing `master_audio.wav` from script | M2 | Survey (src/pipeline/nodes/voice_generator_node.py:17) |
+| 9 | Master Audio Post-Processing | Normalizes volume and writes valid WAV master file to `data/audio/{slug}/master_audio.wav` | M2 | Survey (PromptBook 03_Audio_Post_Processing.md) |
+| 10 | Unit & E2E Verification | Pytest unit test execution and CLI ops run pipeline execution (`reorder-list`) | M3 | Survey (ORIGINAL_REQUEST.md:31-36) |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Event Bus Implementation | Create `src/core/events/bus.py` with EventBus and event models | none | PLANNED |
-| M2 | Workflow Engine Integration | Update `src/core/workflow/engine.py` to publish events | M1 | PLANNED |
-| M3 | SDK Documentation | Create `PromptBook/Phase10/01_Event_Bus.md` | M1 | PLANNED |
-| M4 | Unit & Integration Testing | Create `tests/events/test_bus.py` and update `tests/workflow/test_engine.py` | M1, M2 | PLANNED |
+| M1 | Voice Provider Core Strategy | Implement `src/core/media/voice.py` (`AudioSegment`, `VoiceConfig`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, `ManualVoiceProvider`) and `src/voice/synthesizer.py` re-exports | None | DONE |
+| M2 | Pipeline Node Integration | Update `src/pipeline/nodes/voice_generator_node.py` to extract script, synthesize audio, and output `master_audio.wav` | M1 | DONE |
+| M3 | End-to-End Verification & Testing | Run unit tests (`tests/pipeline/test_voice_node.py`, `tests/media/test_media_pipeline.py`) and verify CLI ops run pipeline execution | M2 | DONE |
 
 ## Interface Contracts
-### `src/core/events/bus.py`
-```python
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Type
-from datetime import datetime, timezone
+### `src/core/media/voice.py` ↔ `VoiceGeneratorNode`
+- `AudioSegment(file_path: str, duration_sec: float, voice_id: str, checksum: str)`
+- `VoiceProviderProtocol.generate_segment(text: str, voice_id: str, speed: float = 1.0, output_path: str = "") -> AudioSegment`
+- Exception handling: `VoiceGenerationError` raised on synthesis failure.
 
-@dataclass
-class BaseEvent:
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-@dataclass
-class NodeStarted(BaseEvent):
-    run_id: str
-    node_name: str
-    step_id: str
-
-@dataclass
-class NodeCompleted(BaseEvent):
-    run_id: str
-    node_name: str
-    step_id: str
-    output: Any
-
-@dataclass
-class NodeFailed(BaseEvent):
-    run_id: str
-    node_name: str
-    step_id: str
-    error_message: str
-    error_details: Any = None
-
-class EventBus:
-    def __init__(self) -> None: ...
-    def subscribe(self, event_type: Type, listener: Callable[[Any], None]) -> None: ...
-    def unsubscribe(self, event_type: Type, listener: Callable[[Any], None]) -> None: ...
-    def publish(self, event: Any) -> None: ... # MUST catch Exception and suppress
-```
-
-### `src/core/workflow/engine.py`
-```python
-class WorkflowEngine:
-    def __init__(
-        self,
-        nodes: Sequence[Node],
-        ledger: Optional[StateLedger] = None,
-        event_bus: Optional[EventBus] = None
-    ) -> None: ...
-```
+## Code Layout
+- `src/core/media/voice.py`: Core dataclasses, protocol, and provider implementations.
+- `src/voice/synthesizer.py`: Re-export stub for compatibility.
+- `src/pipeline/nodes/voice_generator_node.py`: Pipeline node implementation.
+- `tests/media/test_media_pipeline.py`: Unit tests for media pipeline and voice providers.
+- `tests/pipeline/test_voice_node.py`: Unit tests for VoiceGeneratorNode.

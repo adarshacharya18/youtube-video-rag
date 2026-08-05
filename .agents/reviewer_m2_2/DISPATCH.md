@@ -1,19 +1,15 @@
-## 2026-07-30T07:54:19Z
-You are reviewer_m2_2 working in working directory `.agents/reviewer_m2_2/`.
-Your task is to review the enhanced test suite in `tests/pipeline/test_animation_node.py` (Milestone 2).
+## 2026-08-05T11:33:51Z
+You are Code Reviewer 2 for Milestone 2 (Pipeline Node Integration).
 
-Required read paths:
-- `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
-- `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
-- `tests/pipeline/test_animation_node.py`
-- `src/pipeline/nodes/animation_generator_node.py`
-- `src/animation/renderer.py`
+Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m2_2
 
-Review criteria:
-1. Verify temporary directory cleanup guarantees (on success, subprocess failure, timeout, missing artifact).
-2. Verify OS-level file descriptor leak inspection (`/proc/self/fd`).
-3. Verify `AnimationError` propagation and cause chaining (`__cause__`).
-4. Verify partial failure cleanup and cache retention assertions.
-5. Execute `pytest tests/pipeline/test_animation_node.py` to confirm test suite execution.
+MANDATORY: Read the original user request at /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md before starting your review.
+Read project specification at /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md.
+Read worker handoff report at /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md.
 
-Write your review findings to `.agents/reviewer_m2_2/review.md` and deliver `handoff.md` with explicit APPROVE or REQUEST_CHANGES verdict.
+Task:
+1. Conduct an independent code review of src/pipeline/nodes/voice_generator_node.py focused on robustness, edge cases, error handling, typing, and node interface compliance.
+2. Run test verification:
+   - Run `pytest tests/pipeline/test_voice_node.py -v`
+3. Document your review findings and explicitly declare your verdict (APPROVE or REQUEST_CHANGES) in /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m2_2/handoff.md.
+4. Message parent with your verdict and report path.

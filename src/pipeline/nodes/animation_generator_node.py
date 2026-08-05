@@ -384,7 +384,7 @@ class AnimationGeneratorNode(Node):
         """Invoke Manim CLI binary via ManimRenderer."""
         scene_file, scene_class = ANIMATION_TYPE_MAP.get(anim_type, DEFAULT_SCENE)
         rendered_clip = self.renderer.render(
-            scene_script=Path(scene_file),
+            scene_script=Path(scene_file).resolve(),
             class_name=scene_class,
             output_dir=temp_dir,
             output_filename=f"{cue_id}.mp4",

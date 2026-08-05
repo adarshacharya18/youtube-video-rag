@@ -234,28 +234,26 @@ class YouTubeScript(BaseModel):
                 f"within tolerance of 0.1s"
             )
 
-        # Auto-populate spoken_narration if empty
-        if not self.spoken_narration:
-            object.__setattr__(
-                self,
-                "spoken_narration",
-                [
-                    self.hook.narration,
-                    self.context.narration,
-                    self.solution.narration,
-                    self.complexity.narration,
-                ],
-            )
+        # Auto-populate spoken_narration
+        object.__setattr__(
+            self,
+            "spoken_narration",
+            [
+                self.hook.narration,
+                self.context.narration,
+                self.solution.narration,
+                self.complexity.narration,
+            ],
+        )
 
-        # Auto-populate visual_cues if empty
-        if not self.visual_cues:
-            all_cues = (
-                list(self.hook.visual_cues)
-                + list(self.context.visual_cues)
-                + list(self.solution.visual_cues)
-                + list(self.complexity.visual_cues)
-            )
-            object.__setattr__(self, "visual_cues", all_cues)
+        # Auto-populate visual_cues
+        all_cues = (
+            list(self.hook.visual_cues)
+            + list(self.context.visual_cues)
+            + list(self.solution.visual_cues)
+            + list(self.complexity.visual_cues)
+        )
+        object.__setattr__(self, "visual_cues", all_cues)
 
         return self
 

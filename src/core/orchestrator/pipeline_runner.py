@@ -44,7 +44,7 @@ def _default_llm_provider(prompt: str) -> dict[str, Any]:
         "difficulty": "Medium",
         "hook": {
             "title": "Hook",
-            "narration": f"Can you solve {topic} efficiently?",
+            "narration": f"Welcome everyone! Today we are going to solve the very famous and popular problem called {topic}. This problem is extremely common in technical interviews and is a great way to test your understanding of algorithms and data structures. Can you solve {topic} efficiently?",
             "visual_cues": [
                 {
                     "cue_id": "cue_01",
@@ -54,30 +54,30 @@ def _default_llm_provider(prompt: str) -> dict[str, Any]:
                     "parameters": {},
                 }
             ],
-            "estimated_duration": 5.0,
+            "estimated_duration": 15.0,
         },
         "context": {
             "title": "Context",
-            "narration": f"Let's break down the requirements for {topic}.",
-            "visual_cues": [],
-            "estimated_duration": 10.0,
-        },
-        "solution": {
-            "title": "Solution",
-            "narration": "Here is the optimal algorithm implementation.",
-            "code_snippet": "def solution():\n    pass",
+            "narration": f"Let's break down the requirements for {topic}. You are given some input data and you need to process it to produce the correct output. The naive approach might be very slow and take too much time or memory, so we need to think about how we can optimize our approach to meet the constraints. We have to consider edge cases and constraints provided in the problem description.",
             "visual_cues": [],
             "estimated_duration": 15.0,
         },
+        "solution": {
+            "title": "Solution",
+            "narration": "Here is the optimal algorithm implementation. We can start by initializing a few variables to keep track of our state. Then, we iterate through the input data, updating our state as we go. At each step, we carefully perform the necessary operations to maintain our invariants. Finally, after we have processed all the data, we simply return the final result. This approach is highly optimized and avoids unnecessary re-computations.",
+            "code_snippet": "def solution():\n    pass",
+            "visual_cues": [],
+            "estimated_duration": 20.0,
+        },
         "complexity": {
             "title": "Complexity",
-            "narration": "Time complexity is O(N) and space complexity is O(1).",
+            "narration": "Now let's talk about the complexity of our approach. The time complexity is O(N) because we only iterate through the input data a constant number of times. The space complexity is O(1) because we only use a few extra variables for our state, meaning we don't need any additional data structures that scale with the input size. This makes our solution both fast and memory efficient.",
             "time_complexity": "O(N)",
             "space_complexity": "O(1)",
             "visual_cues": [],
-            "estimated_duration": 5.0,
+            "estimated_duration": 15.0,
         },
-        "total_duration": 35.0,
+        "total_duration": 65.0,
         "spoken_narration": [f"Can you solve {topic} efficiently?"],
         "visual_cues": [
             {
@@ -129,10 +129,34 @@ class PipelineRunner:
         Construct the default 6-stage chronological production node sequence:
         Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg
         """
+        import os
+        from typing import Any
+        
+        provider_impl: Any = _default_llm_provider
+        
+        if os.getenv("GEMINI_API_KEY"):
+            try:
+                from src.core.llm.gemini_client import GeminiClient
+                provider_impl = GeminiClient()
+            except ImportError as e:
+                logger.warning(f"Failed to import GeminiClient: {e}")
+        elif os.getenv("OPENAI_API_KEY"):
+            try:
+                from src.core.llm.openai_client import OpenAIClient
+                provider_impl = OpenAIClient()
+            except ImportError:
+                pass
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            try:
+                from src.core.llm.anthropic_client import AnthropicClient
+                provider_impl = AnthropicClient()
+            except ImportError:
+                pass
+
         return [
             IngestionNode(),
             PlanNode(),
-            ScriptGeneratorNode(llm_provider=_default_llm_provider),
+            ScriptGeneratorNode(llm_provider=provider_impl),
             VoiceGeneratorNode(),
             AnimationGeneratorNode(),
             VideoAssemblyNode(),

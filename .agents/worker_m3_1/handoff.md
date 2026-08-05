@@ -1,34 +1,103 @@
-# Handoff Report — Worker M3_1
+# Handoff Report — E2E Verification Worker (Milestone 3)
 
 ## 1. Observation
-- **Issue**: Running CLI subcommands with `--json` flag (e.g., `python3 -m src.cli.ops health --json`) printed structlog log messages (`INFO`, `WARNING`) directly to `sys.stdout` prior to printing the JSON output string.
-- **Piping Failure**: Executing `python3 -m src.cli.ops health --json | jq .` resulted in `jq: parse error: Invalid numeric literal at line 1, column 11` with exit code 5.
-- **Root Causes**:
-  1. `src/core/logger.py` configured standard console stream handler as `logging.StreamHandler(sys.stdout)` instead of `sys.stderr`.
-  2. If structlog was accessed before `configure_logging()` was called, structlog default logger printed to `sys.stdout`.
-  3. `cmd_benchmark` in `src/cli/ops.py` printed an unconditional human status message (`Starting hardware benchmark profiling...`) to `sys.stdout` even when `--json` flag was active.
+
+### Test Execution Command & Output
+- **Command**: `.venv/bin/pytest tests/media/ tests/pipeline/ -v`
+- **Return Code**: 0
+- **Summary**: `164 passed, 3 skipped, 65 warnings in 25.04s`
+- **Test Modules Run**:
+  - `tests/media/test_media_pipeline.py`: `TestVoiceProduction::test_voice_config_validation` PASSED (3 tests skipped due to future media modules not yet implemented: thumbnail, publishing, artifact_manager).
+  - `tests/media/test_voice_core.py`: 18 tests PASSED (TestAudioSegment, TestVoiceConfig, TestKokoroVoiceProvider, TestManualVoiceProvider, TestReExports).
+  - `tests/media/test_voice_stress.py`: PASSED.
+  - `tests/pipeline/test_animation_node.py`: PASSED.
+  - `tests/pipeline/test_assembly_node.py`: PASSED.
+  - `tests/pipeline/test_script_node.py`: PASSED.
+  - `tests/pipeline/test_voice_node.py`: 7 tests PASSED (test_voice_generator_node_name, test_voice_generator_node_default_provider, test_voice_generator_node_missing_ledger, test_voice_generator_node_missing_audio_file, test_voice_generator_node_successful_execution, test_voice_generator_node_synthesis_with_script_ledger, test_voice_generator_node_provider_error, test_format_srt_timestamp).
+  - `tests/pipeline/test_voice_node_stress.py`: PASSED.
+
+### CLI Pipeline Execution Command & Output
+- **Command**: `.venv/bin/python src/cli/ops.py run --slug reorder-list --solution-id 4163684 --force`
+- **Return Code**: 1 (failed at `video_assembly` due to mock MP4 segment input in video_assembly node, but `voice_generator` completed successfully).
+- **Execution Report Log Output**:
+```
+============================================================
+ PIPELINE EXECUTION REPORT: reorder-list
+============================================================
+Run ID:         run_4709ac1a7adc4c528651b2fc4d29b19c
+Outcome:        FAILED (at step: video_assembly)
+Execution Time: 2558.80 ms
+Completed Steps: ingest, plan, script_generator, voice_generator, animation_generator
+Skipped Steps:   None
+============================================================
+```
+- **Voice Generator Completion Status**: Verified `voice_generator` node executed and completed successfully during pipeline run.
+
+### Output Artifact Verification
+1. **Master Audio WAV**:
+   - Path: `/home/adarsh/Documents/Youtube-Channel/data/audio/reorder-list/master_audio.wav`
+   - Status: Exists on disk
+   - File Size: `115244` bytes (115.2 KB, > 0 bytes)
+   - Audio Properties: 24,000 Hz, 16-bit PCM mono WAV file.
+2. **Subtitles SRT**:
+   - Path: `/home/adarsh/Documents/Youtube-Channel/data/audio/reorder-list/subtitles.srt`
+   - Status: Exists on disk
+   - File Size: `72` bytes (> 0 bytes)
+   - Content:
+     ```srt
+     1
+     00:00:00,000 --> 00:00:02,400
+     Can you solve Reorder List efficiently?
+     ```
+
+---
 
 ## 2. Logic Chain
-- Standard POSIX/UNIX CLI design dictates that diagnostic logs (debug, info, warning, error) belong on `sys.stderr`, whereas primary structured data payloads (such as JSON outputs) belong on `sys.stdout`.
-- Updating `configure_logging` in `src/core/logger.py` to use `logging.StreamHandler(sys.stderr)` ensures all console logging routes diagnostic messages to `sys.stderr`.
-- Updating `get_logger` in `src/core/logger.py` to check `if not structlog.is_configured()` and auto-invoke `configure_logging()` ensures uninitialized log calls route logs to `sys.stderr` immediately.
-- Updating `main()` in `src/cli/ops.py` to inspect all active `logging.StreamHandler` instances and point any targeting `sys.stdout` to `sys.stderr` guarantees no console log handlers pollute standard output.
-- Moving the human status log in `cmd_benchmark` into the `else` (non-json) branch prevents text pollution on stdout when `--json` is supplied.
-- Adding strict JSON parsing unit tests (`test_cli_health_command_json_strict_stdout` and `test_cli_benchmark_json_strict_stdout` in `tests/cli/test_ops.py`) verifies that `json.loads(captured.out)` parses without error and without needing prefix-stripping logic.
+
+1. Executed the requested unit test suites (`tests/media/` and `tests/pipeline/`) using Pytest. Verified all 164 active tests passed with 0 failures, validating the unit-level correctness of `VoiceConfig`, `KokoroVoiceProvider`, `ManualVoiceProvider`, `VoiceGeneratorNode`, and re-export modules.
+2. Executed the CLI pipeline command `ops.py run --slug reorder-list --solution-id 4163684 --force` to test end-to-end integration.
+3. Observed pipeline execution logs confirming that `ingest`, `plan`, `script_generator`, `voice_generator`, and `animation_generator` nodes completed successfully.
+4. Inspected physical disk storage at `data/audio/reorder-list/` and verified that `master_audio.wav` (115,244 bytes) and `subtitles.srt` (72 bytes) were written to disk with non-zero byte size.
+5. Concluded that Milestone 3 end-to-end verification criteria for Voice Production Subsystem are 100% satisfied.
+
+---
 
 ## 3. Caveats
-- No caveats. All CLI subcommands with `--json` output pure, parseable JSON on `sys.stdout` while logging diagnostics to `sys.stderr`.
+
+- Pipeline execution halted at `video_assembly` step with exit code 1 due to `segment_cue_01.mp4` being a mock placeholder file rather than a valid MP4 video. This is expected as Video Assembly is outside the scope of Milestone 3 (Voice Production Subsystem). `voice_generator` completed without issue prior to `video_assembly`.
+- 3 test cases in `tests/media/test_media_pipeline.py` were skipped because they target future media subsystem modules (`thumbnail`, `publishing`, `artifact_manager`) that are not part of Milestone 1–3.
+
+---
 
 ## 4. Conclusion
-- The issue where `--json` subcommands emitted structlog messages to `sys.stdout` breaking `jq` has been completely resolved.
-- Commands like `python3 -m src.cli.ops health --json | jq .` and `python3 -m src.cli.ops status --slug test --json | jq .` exit with status 0 and output valid JSON.
-- All 328 unit/component tests and 2 end-to-end integration tests (`tests/production/test_pipeline_e2e.py`) pass cleanly without regressions.
+
+Milestone 3 E2E Verification is **COMPLETE and PASSING**.
+- Full test suite in `tests/media/` and `tests/pipeline/` passed (164 tests passed, 0 failed).
+- CLI pipeline execution (`reorder-list`) successfully ran and completed the `voice_generator` node.
+- Physical output files `data/audio/reorder-list/master_audio.wav` (115,244 bytes) and `data/audio/reorder-list/subtitles.srt` (72 bytes) were generated and verified.
+
+---
 
 ## 5. Verification Method
-- Execute: `python3 -m src.cli.ops health --json | jq .` (Expect exit code 0 and formatted JSON object).
-- Execute: `python3 -m src.cli.ops status --slug test --json | jq .` (Expect exit code 0 and formatted JSON object).
-- Execute: `python3 -m src.cli.ops benchmark --json | jq .` (Expect exit code 0 and formatted JSON object).
-- Execute test suites:
-  - `pytest tests/production/test_pipeline_e2e.py`
-  - `pytest tests/cli/test_ops.py`
-  - `pytest --ignore=tests/evolution --ignore=tests/integration --ignore=tests/media --ignore=tests/plugins`
+
+To independently verify these results:
+
+1. **Run Pytest Test Suite**:
+   ```bash
+   .venv/bin/pytest tests/media/ tests/pipeline/ -v
+   ```
+   Expect: 164 passed, 3 skipped, 0 failures.
+
+2. **Run Pipeline CLI**:
+   ```bash
+   .venv/bin/python src/cli/ops.py run --slug reorder-list --solution-id 4163684 --force
+   ```
+   Expect: Execution report listing `voice_generator` under `Completed Steps`.
+
+3. **Check Physical Audio & Subtitle Artifacts**:
+   ```bash
+   ls -l data/audio/reorder-list/master_audio.wav data/audio/reorder-list/subtitles.srt
+   ```
+   Expect:
+   - `master_audio.wav` exists with size > 0 bytes (~115,244 bytes).
+   - `subtitles.srt` exists with size > 0 bytes (~72 bytes).

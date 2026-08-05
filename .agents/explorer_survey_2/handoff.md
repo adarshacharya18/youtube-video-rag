@@ -1,80 +1,103 @@
-# Handoff Report: Phase 12 Animation Node Test Strategy Survey
-
-**Agent**: Explorer 2 (Phase 12 Survey)  
-**Date**: 2026-07-30  
-**Target Path**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/handoff.md`
-
----
+# Handoff Report: Voice Production Subsystem Codebase Exploration
 
 ## 1. Observation
 
-Direct observations from codebase inspection:
-- **Pytest Configuration**:
-  - `pytest.ini` (lines 1-9): `addopts = --strict-markers --cov=src --cov-report=term-missing -v`, `testpaths = tests`, markers `unit`, `integration`, `e2e`, `performance`.
-  - `pyproject.toml` (lines 34-37): `pythonpath = ["."]`, `addopts = "-v --tb=short"`.
-- **Global Fixtures (`tests/conftest.py`)**:
-  - Sets `os.environ["ENVIRONMENT"] = "testing"` (line 18).
-  - Provides `temp_data_dir` (lines 26-30), `test_config` (lines 33-43), `mock_logger` (lines 50-57), `mock_problem_factory` (lines 63-74).
-- **Core Node Abstraction (`src/core/workflow/node.py`)**:
-  - Abstract base class `Node` with abstract `@property name` and `execute(run_id, ledger)` (lines 18-57).
-  - Helper methods `get_run_record`, `get_completed_step_outputs`, `get_step_output` (lines 59-131).
-- **Visual Cue Schema (`src/models/script.py`)**:
-  - `VisualCue` (lines 15-44) contains `cue_id`, `animation_type`, `description`, `timestamp_seconds`, `parameters`.
-  - `YouTubeScript` (lines 177-260) aggregates section visual cues and spoken narration.
-- **Workflow Engine & Pipeline Tests**:
-  - `tests/workflow/test_engine.py`: Demonstrates state ledger integration with `StateLedger(":memory:")` and node exception handling.
-  - `tests/pipeline/test_script_node.py` (lines 42-101): Provides `valid_script_dict` fixture with complete section and visual cue dictionary.
-- **Current Absence**:
-  - Neither `src/pipeline/nodes/animation_generator_node.py` nor `tests/pipeline/test_animation_node.py` exists yet; Phase 12 requires their implementation.
+### Key Codebase Files & Existing Stubs
+1. **`src/voice/synthesizer.py`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/src/voice/synthesizer.py`
+   - Content: Empty 0-byte file (stub).
+2. **`src/voice/audio_utils.py`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/src/voice/audio_utils.py`
+   - Content: Empty 0-byte file (stub).
+3. **`src/models/voice.py`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/src/models/voice.py`
+   - Content: Empty 0-byte file (stub).
+4. **`src/core/media/voice.py`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/src/core/media/voice.py`
+   - Content: File does not exist yet. Directory `src/core/media/` is missing.
+   - Reference: Referenced in `PromptBook/Phase13/02_Voice_Production.md` and `tests/media/test_media_pipeline.py` (line 12: `from src.core.media.voice import VoiceConfig, AudioSegment`).
+5. **`src/pipeline/nodes/voice_generator_node.py`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/voice_generator_node.py` (72 lines)
+   - Functionality: Currently raises `VoiceGenerationError` if `data/audio/<slug>/master_audio.wav` is missing on disk. It contains no TTS instantiation or audio synthesis logic.
+6. **`PromptBook Specification`**:
+   - Location: `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase13/02_Voice_Production.md` (172 lines)
+   - Architecture: Defines `AudioSegment` dataclass, `VoiceProviderProtocol`, `KokoroVoiceProvider` (with pronunciation dictionary), and `ManualVoiceProvider`.
+
+### Environment & Dependency Inspection
+- Python environment: `/home/adarsh/Documents/Youtube-Channel/.venv`
+- Tested packages via Python runtime:
+  - `kokoro`: Not installed
+  - `torch`: Not installed
+  - `openvino`: Not installed
+  - `pyttsx3`: **Available**
+  - `gtts`: **Available**
+  - `wave`, `scipy`, `soundfile`, `pydub`, `numpy`: **Available**
+
+### Pipeline Data Passing Mechanics
+- **`ScriptGeneratorNode` (`src/pipeline/nodes/script_generator_node.py`)**:
+  - Outputs payload: `{"script": script_model.model_dump(), "slug": script_model.slug, "topic": script_model.topic, "status": "completed"}`.
+- **`YouTubeScript` Schema (`src/models/script.py`)**:
+  - Structure: `hook`, `context`, `solution`, `complexity` (each with `.narration` string and `.estimated_duration` float).
+  - Aggregated list: `spoken_narration` (`List[str]`).
+- **`PipelineRunner` (`src/core/orchestrator/pipeline_runner.py`)**:
+  - Sequence: `IngestionNode` -> `PlanNode` -> `ScriptGeneratorNode` -> `VoiceGeneratorNode` -> `AnimationGeneratorNode` -> `VideoAssemblyNode`.
+- **Downstream expectations (`src/pipeline/nodes/video_assembly_node.py`)**:
+  - `VideoAssemblyNode` inspects `voice_generator` step output payload for `audio_path`, `subtitle_path`, and `srt_content`.
+
+### Test Suite Baseline
+- `tests/pipeline/test_voice_node.py`: Currently 4 unit tests passing when run with `.venv/bin/pytest tests/pipeline/test_voice_node.py`.
+- `tests/media/test_media_pipeline.py`: Fails collection due to missing `src.core.media.voice`.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Test Environment Alignment**:
-   - `pyproject.toml` sets `pythonpath = ["."]`, enabling `tests/pipeline/test_animation_node.py` to import `AnimationGeneratorNode` directly from `src.pipeline.nodes.animation_generator_node`.
-2. **Node Data Contract & Execution**:
-   - `AnimationGeneratorNode` will execute within `WorkflowEngine` using `run_id` and `StateLedger`.
-   - It will read the `script` dictionary generated by prior step `script_generator`, extracting visual cues (`VisualCue` objects).
-3. **Subprocess Mocking Strategy**:
-   - The user requirements explicitly specify using a **mock Python script** to simulate the Manim binary via `subprocess.run()`.
-   - Creating an executable script (e.g. `mock_manim.py` in `tmp_path`) with shebang `#!/usr/bin/env python3` allows intercepting CLI invocations, logging CLI arguments (`sys.argv[1:]`) to a JSON file, generating dummy `.mp4` video output files on success, or exiting with status `1` and writing to `stderr` when `--fail` or `SIMULATE_FAILURE=1` is provided.
-4. **Visual Cue to CLI Flag Verification**:
-   - Tests will assert that visual cue fields (`animation_type`, quality parameters) translate into expected Manim CLI arguments (e.g. `-ql` for low quality, `-qm` for medium quality, `-qh` for high quality, `--media_dir <path>`, and corresponding scene class names like `ArrayScene`, `TreeScene`, `CodeScene`).
-5. **Temporary Directory and File Descriptor Cleanup**:
-   - `AnimationGeneratorNode` must create temporary working directories for scene render files inside a `try...finally` block.
-   - Tests will record the temporary directory path and assert `Path(temp_dir).exists() == False` after `execute()` returns successfully, as well as after an exception is caught during a simulated rendering failure.
-   - File descriptor leak prevention is verified by comparing `os.listdir("/proc/self/fd")` before and after node execution.
+1. **Strategy Pattern Architecture**:
+   - `PromptBook/Phase13/02_Voice_Production.md` specifies a Strategy Pattern where `VoiceProviderProtocol` defines `generate_segment(text, voice_id, speed, output_path) -> AudioSegment`.
+   - `KokoroVoiceProvider` and `ManualVoiceProvider` are the concrete providers.
+   - Creating `src/core/media/voice.py` with `VoiceConfig`, `AudioSegment`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, and `ManualVoiceProvider` satisfies both specification R1 and the import expectations of `tests/media/test_media_pipeline.py`.
+
+2. **Hardware Resilience & Fallback (CPU execution R3)**:
+   - Since `kokoro` and `openvino` packages are not present in `.venv` and CUDA is unavailable, `KokoroVoiceProvider` must fall back gracefully to a CPU-friendly offline TTS engine (e.g. `pyttsx3` or wave-based synthesis) when local ML weights/libraries are absent.
+   - This prevents crashes and ensures idempotent generation of non-zero byte `.wav` files on any CPU host.
+
+3. **Pipeline Node Integration (R2)**:
+   - `VoiceGeneratorNode.execute(run_id, ledger)` must:
+     1. Fetch completed step output from `script_generator` using `self.get_step_output(run_id, ledger, "script_generator")`.
+     2. Extract narration text segments from `script` (`spoken_narration` or section narrations: `hook`, `context`, `solution`, `complexity`).
+     3. Instantiate the configured voice provider (e.g. `KokoroVoiceProvider`).
+     4. Synthesize each segment and combine/concatenate them into `data/audio/<slug>/master_audio.wav`.
+     5. Generate subtitle timestamp markers and save `subtitles.srt`.
+     6. Calculate total audio duration and return the output dictionary containing `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, and `status`.
+
+4. **Test Verification**:
+   - Running `python src/cli/ops.py run --slug reorder-list --solution-id 4163684` executes `PipelineRunner`.
+   - When `VoiceGeneratorNode` synthesizes `master_audio.wav` (>0 bytes) to `data/audio/reorder-list/`, all acceptance criteria of `ORIGINAL_REQUEST.md` will be fulfilled.
 
 ---
 
 ## 3. Caveats
 
-- **System Compatibility**: `/proc/self/fd` for FD checking is native to Linux. Fallback behavior (e.g., catching `FileNotFoundError`) should be included if executed on non-Linux platforms.
-- **Scene Details**: Specific scene render template implementations (`src/animation/scenes/`) are skeleton files; CLI flag mapping in tests should focus on the contract between `VisualCue` animation types and Manim invocation flags.
+- **No Source Modification**: As a read-only Explorer, no source code in `src/` or `tests/` was modified during this survey.
+- **Subprocess Dependencies**: `pyttsx3` depends on system `espeak` / `SAPI`. If `espeak` is absent, synthetic raw `.wav` generation using Python's native `wave` module provides a 100% dependency-free CPU fallback for unit test and CLI execution.
 
 ---
 
 ## 4. Conclusion
 
-The test architecture for `tests/pipeline/test_animation_node.py` is fully defined:
-1. Pytest runner is pre-configured with `pythonpath = ["."]` and custom test markers (`unit`, `integration`, `e2e`, `performance`).
-2. An executable mock Python script (`mock_manim.py`) generated inside pytest's `tmp_path` fixture provides deterministic, isolated simulation of Manim binary subprocess calls.
-3. Tests will systematically verify:
-   - Visual cue parameter mapping to CLI flags (`-ql`, `-qm`, `-qh`, `--media_dir`, scene classes).
-   - Temporary directory removal in `finally:` blocks on both success and simulated failure.
-   - Zero file descriptor leaks post-execution.
-
-Detailed analysis report and complete test template code are written to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`.
+The existing voice production code consists of empty stubs (`src/voice/synthesizer.py`, `src/models/voice.py`) and a mock node check (`src/pipeline/nodes/voice_generator_node.py`).
+To complete the Voice Production Subsystem:
+1. Create `src/core/media/voice.py` implementing `VoiceConfig`, `AudioSegment`, `VoiceProviderProtocol`, `KokoroVoiceProvider` (with CPU fallback), and `ManualVoiceProvider`.
+2. Update `src/voice/synthesizer.py` to re-export or alias core strategy classes.
+3. Update `src/pipeline/nodes/voice_generator_node.py` to read narration from `script_generator`, synthesize `master_audio.wav` via the voice provider, write `subtitles.srt`, and return metadata.
 
 ---
 
 ## 5. Verification Method
 
-- **Analysis Report Inspection**:
-  - File: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`
-- **Future Test Suite Verification**:
-  - Command: `pytest tests/pipeline/test_animation_node.py -v` (to be executed after Phase 12 node implementation).
-- **Invalidation Conditions**:
-  - Changing the `Node` interface or `StateLedger` output payload format.
-  - Modifying `VisualCue` model attributes in `src/models/script.py`.
+1. **Unit Tests**:
+   - Run `.venv/bin/pytest tests/pipeline/test_voice_node.py`
+   - Run `.venv/bin/pytest tests/media/test_media_pipeline.py`
+2. **CLI End-to-End Test**:
+   - Run `.venv/bin/python src/cli/ops.py run --slug reorder-list --solution-id 4163684`
+   - Confirm `data/audio/reorder-list/master_audio.wav` exists and size > 0 bytes.

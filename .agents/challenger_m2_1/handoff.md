@@ -1,92 +1,77 @@
-# Handoff Report — challenger_m2_1
+# Handoff Report: Milestone 2 — Voice Generator Node Integration Stress Test & Empirical Verification
+
+**Agent:** `challenger_m2_1` (Empirical Challenger 1)  
+**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_1`  
+**Target Module:** `src/pipeline/nodes/voice_generator_node.py`  
+**Verdict:** **APPROVED**  
+
+---
 
 ## 1. Observation
 
-- **Pytest Suite Execution**:
-  Command: `pytest tests/pipeline/test_animation_node.py -v`
-  Result: 34 passed in 2.82s.
-  Coverage: `animation_generator_node.py` (90%), `renderer.py` (91%).
+1. **Unit Test Execution (`tests/pipeline/test_voice_node.py`):**
+   - Command: `.venv/bin/pytest tests/pipeline/test_voice_node.py -v`
+   - Output: `8 passed in 3.49s`. All 8 unit tests passed cleanly.
 
-- **File Descriptor & Memory Sanitation**:
-  Command: `python3 .agents/challenger_m2_1/stress_harness.py`
-  Result: 50 sequential iterations completed with 0 FD leaks (`FDs before: 18, FDs after: 18`) and 0 leftover `manim_*` temporary directories in `/tmp`.
+2. **Adversarial Stress Test Suite (`tests/pipeline/test_voice_node_stress.py`):**
+   - Created and executed a dedicated stress test suite with 16 distinct adversarial scenarios testing:
+     - **Script Payloads & Schema Parsing:** Pydantic `YouTubeScript` export payload, raw dictionary sections (`hook`, `context`, `solution`, `complexity`), malformed section dicts, mixed data types in `spoken_narration` (`[100, None, "text", True]`), whitespace/empty strings triggering fallback synthesis, special unicode/HTML/mathematical jargon ("Dijkstra", "O(N)", "O(N^2)"), and a 5,000-word large script payload.
+     - **WAV Creation & Audio Integrity:** Header format compliance (16-bit PCM WAV, 24000 Hz, mono channel, framerate & sample width validation), non-zero byte size verification (`st_size > 0`), nested output directory creation (`mkdir(parents=True, exist_ok=True)`).
+     - **Subtitle SRT Formatting & Timestamps:** 1-based block indexing, monotonic time progression (`start_t` of block $i$ == `end_t` of block $i-1$), exact `HH:MM:SS,mmm` timestamp formatting, boundary timestamp values (`0.0s`, `59.999s`, `60.0s`, `3599.999s`, `3600.0s`, sub-millisecond rounding `0.9999s -> 00:00:01,000`, negative durations clamped to zero).
+     - **Exception Handling & Resilience:** `PipelineStageError` on missing ledger, `VoiceGenerationError` on missing script & audio, zero-byte file detection, unexpected provider exception wrapping (`MemoryError`, `RuntimeError`), and existing WAV reuse in standalone mode.
+   - Command: `.venv/bin/pytest tests/pipeline/test_voice_node.py tests/pipeline/test_voice_node_stress.py -v`
+   - Result: `24 passed in 23.35s`.
 
-- **Finding 1 (1-Byte Cache Poisoning)**:
-  File: `src/pipeline/nodes/animation_generator_node.py:275-278`
-  Code:
-  ```python
-  if cached_file.exists() and cached_file.stat().st_size > 0:
-      logger.info("Cache HIT for cue_id=%s (hash=%s)", cue_id, cache_hash)
-      shutil.copy2(cached_file, output_file)
-      return output_file
-  ```
-  Observed behavior in harness: A 1-byte corrupt `.mp4` file in `cache_dir` was recognized as a Cache HIT and copied as the final render segment output file without re-rendering.
-
-- **Finding 2 (Path Traversal in `cue_id`)**:
-  File: `src/pipeline/nodes/animation_generator_node.py:156`
-  Code:
-  ```python
-  output_file = run_output_dir / f"segment_{cue_id}.mp4"
-  ```
-  Observed behavior in harness: When `cue_id = "../escaped_segment"`, the generated output file path resolved outside `run_output_dir` into the parent directory (`/tmp/manim_../escaped_segment...`).
-
-- **Finding 3 (Non-Atomic Cache Write Under Concurrency)**:
-  File: `src/pipeline/nodes/animation_generator_node.py:293`
-  Code:
-  ```python
-  if output_file.exists() and output_file.stat().st_size > 0:
-      shutil.copy2(output_file, cached_file)
-  ```
-  Observed behavior in harness: Concurrent execution of 10 workers rendering overlapping visual cues performed non-atomic `shutil.copy2` calls directly onto shared cache files.
+3. **Full Pipeline Test Suite Execution (`tests/pipeline/`):**
+   - Command: `.venv/bin/pytest tests/pipeline/ -v`
+   - Result: `127 passed in 27.91s` with 0 failures across all pipeline node integration tests.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Premise 1**: A robust video production pipeline node must guarantee valid, non-corrupt media artifacts and isolated file paths.
-2. **Step 1 (Observation 1 & 2)**: Standard pytest suite passes all 34 tests, verifying basic CLI construction, scene mappings, FD stability, and 0-byte cache handling.
-3. **Step 2 (Observation 3)**: However, when cache files are non-zero but corrupt (e.g. 1 byte from partial write or interrupted render), `_render_or_get_cached_clip` checks `st_size > 0` and returns the 1-byte corrupt file as a Cache HIT. This breaks video rendering guarantees downstream.
-4. **Step 3 (Observation 4)**: Constructing output paths directly via `run_output_dir / f"segment_{cue_id}.mp4"` without sanitizing `cue_id` allows path traversal attacks or accidental directory escape when `cue_id` contains relative path sequences (`../`).
-5. **Step 4 (Observation 5)**: Writing cache files via direct `shutil.copy2` without atomic file replacement (`tempfile` + `os.replace`) exposes multi-threaded / multi-worker execution to race conditions and truncated cache reads.
-6. **Deduction**: Because the node implementation and test suite permit 1-byte cache poisoning, unsanitized path traversal via `cue_id`, and non-atomic cache writes, Milestone 2 cannot be approved in its current state without addressing these vulnerabilities.
+1. **StateLedger Contract & Upstream Integration:**
+   - `VoiceGeneratorNode.execute()` retrieves run record details via `self.get_run_record(run_id, ledger)` and extracts `slug`.
+   - Checks `ledger.get_completed_steps(run_id)` for `"script_generator"` and delegates to `_extract_narration_segments()` to handle Pydantic dicts, raw text sections, or raw lists robustly.
+   - Raises `PipelineStageError` cleanly when `ledger` is `None`.
+
+2. **Audio Synthesis & Format Compliance:**
+   - Invocations of `provider.generate_segment()` generate standard 16-bit PCM WAV files at 24000 Hz mono.
+   - `VoiceGeneratorNode` checks that `master_audio.wav` exists and `stat().st_size > 0` before proceeding; otherwise, it raises `VoiceGenerationError`.
+   - All uncaught exceptions during TTS synthesis are logged and wrapped in `VoiceGenerationError` with appropriate context.
+
+3. **SRT Subtitle Generation & Alignment:**
+   - `format_srt_timestamp(seconds)` handles zero clamping, millisecond rounding overflow, and multi-hour timestamp formatting (`HH:MM:SS,mmm`).
+   - `_generate_srt_content()` distributes total audio duration proportionally based on character counts per segment, yielding continuous non-overlapping subtitle windows.
 
 ---
 
 ## 3. Caveats
 
-- Real Manim binary was simulated via a Python mock CLI script (`mock_manim_script`) as per Phase 12 requirements. Real Manim rendering hardware/GPU performance was not benchmarked.
-- SQLite WAL mode concurrency behavior depends on filesystem locking mechanics of the underlying OS.
+- No caveats. The node implementation successfully handles all valid script schemas, fallback text generation, custom output paths, and edge-case exceptions without regressions or unhandled errors.
 
 ---
 
 ## 4. Conclusion
 
-**Verdict**: **REJECT**
-
-**Rationale**: While the test suite (`tests/pipeline/test_animation_node.py`) is well-written and passes all 34 test cases with zero FD leaks and clean tempdir cleanup, empirical challenge testing uncovered 2 high/medium severity vulnerabilities:
-1. **1-byte corrupt cache files are treated as cache HITs** (bypassing re-render and returning corrupted clips).
-2. **Unsanitized `cue_id` allows output files to escape the run directory**.
-
-**Required Action Items for Resubmission**:
-1. Update `_render_or_get_cached_clip` in `animation_generator_node.py` to enforce minimum cache file size validation (`st_size >= 512`) and atomic cache file writing (`tempfile` + `Path.replace`).
-2. Sanitize `cue_id` in `animation_generator_node.py` (e.g. `Path(cue_id).name` or character sanitization).
-3. Add unit test assertions in `tests/pipeline/test_animation_node.py` covering 1-byte corrupt cache handling and `cue_id` path traversal prevention.
+- **Verdict:** **APPROVED**
+- `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` is fully verified, robust against stress inputs, format-compliant, and ready for production integration.
 
 ---
 
 ## 5. Verification Method
 
-To verify these findings independently:
+To independently verify these empirical findings, execute the following commands:
 
-1. **Run Standard Pytest Suite**:
-   ```bash
-   pytest tests/pipeline/test_animation_node.py -v
-   ```
+```bash
+# 1. Run standard VoiceGeneratorNode unit tests
+.venv/bin/pytest tests/pipeline/test_voice_node.py -v
 
-2. **Run Empirical Stress Harness**:
-   ```bash
-   python3 .agents/challenger_m2_1/stress_harness.py
-   ```
-   Inspect stdout for:
-   - `1-byte cache file output file size: 1 bytes (Cached 1 byte copied!)`
-   - `Path traversal test output path`
+# 2. Run adversarial stress test suite
+.venv/bin/pytest tests/pipeline/test_voice_node_stress.py -v
+
+# 3. Run entire pipeline test suite
+.venv/bin/pytest tests/pipeline/ -v
+```
+
+*Expected Result:* All 127 tests pass with zero errors.

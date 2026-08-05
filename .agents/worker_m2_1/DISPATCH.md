@@ -1,33 +1,31 @@
-## 2026-07-30T13:22:46Z
-<USER_REQUEST>
-You are worker_m2_1 working in working directory `.agents/worker_m2_1/`.
-Your task is to enhance and harden `tests/pipeline/test_animation_node.py` (Milestone 2) based on the findings from Explorers 1, 2, and 3.
+## 2026-08-05T11:31:10Z
+You are the Implementer Worker for Milestone 2 (Pipeline Node Integration).
 
-Required read paths:
-- `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
-- `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
-- `.agents/explorer_m2_1/analysis.md`
-- `.agents/explorer_m2_2/analysis.md`
-- `.agents/explorer_m2_3/analysis.md`
-- `tests/pipeline/test_animation_node.py`
-- `src/pipeline/nodes/animation_generator_node.py`
-- `src/animation/renderer.py`
+Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1
 
-Write ownership:
-- You exclusively own and are authorized to edit: `tests/pipeline/test_animation_node.py`.
+MANDATORY INTEGRITY WARNING: DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
 
-Enhancements to implement in `tests/pipeline/test_animation_node.py`:
-1. **Fix Flawed Assertion in `test_partial_output_cleanup_on_midway_failure`**: Change conditional assertion `if run_out_path.exists()` to `assert not run_out_path.exists()`, and verify that rendered clips in `cache_dir` for succeeded cues remain intact.
-2. **OS-Level File Descriptor Leak Test**: Add `test_no_file_descriptor_leak_on_execution` inspecting `/proc/self/fd` before vs after execution.
-3. **0-Byte MP4 Artifact & Invalid Binary Path Tests**: Add `test_zero_byte_mp4_artifact_raises_animation_error` and `test_invalid_binary_path_raises_animation_error` (asserting `AnimationError` wrapping and `__cause__`).
-4. **Strengthen Tempdir Cleanup Assertions**: Use `assert list(explicit_temp_parent.iterdir()) == []` instead of `[d for d in ... if d.is_dir()]`.
-5. **CLI Flags & Kwargs Verification**: Add `test_cli_flags_and_command_array_construction` and `test_subprocess_invocation_kwargs` verifying command line array (`-ql`, `-qm`, `-qh`, `-qk`, `--format=mp4`, `--media_dir`, `-o`) and kwargs (`cwd`, `timeout`, `capture_output`, `text`, `close_fds=True`, default `manim_binary=None` `python -m manim`).
-6. **Visual Cue Mapping & Fallback Coverage**: Add parameterized test for all 8 required visual cue types (`array_highlight`, `tree_traversal`, `code_highlight`, `linkedlist_operation`, `graph_traversal`, `hashmap_operation`, `stack_queue_operation`, `complexity_chart`), unknown `animation_type` fallback to `DEFAULT_SCENE`, missing/None parameters, and empty `visual_cues: []` payload handling.
-7. **Cache Invalidation & Corrupt Cache Tests**: Add `test_cache_invalidation_on_parameter_change` and `test_zero_byte_corrupt_cache_re_renders`.
-8. **RenderSegment Schema Validation Completeness**: Add `test_render_segment_schema_completeness` checking `start_time`, `end_time`, `duration`, `asset_references`, `scene_type`, `visual_parameters`, and top-level `output_directory`.
+MANDATORY: Read the original user request at /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md before starting work.
+Read project specification at /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md.
+Read explorer findings at /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m2_1/handoff.md.
 
-MANDATORY INTEGRITY WARNING:
-DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
-
-Run `pytest tests/pipeline/test_animation_node.py` to confirm all tests pass cleanly. Deliver `handoff.md` with complete test output log and verification details.
-</USER_REQUEST>
+Task:
+1. Update src/pipeline/nodes/voice_generator_node.py:
+   - Inherit from Node contract.
+   - Node name: "voice_generator".
+   - Allow optional voice provider injection via constructor `__init__(self, provider: Optional[VoiceProviderProtocol] = None, output_dir: Optional[Union[str, Path]] = None)`. Default to `KokoroVoiceProvider()`.
+   - In `execute(self, run_id: str, ledger: StateLedger) -> Dict[str, Any]`:
+     - Validate `run_id` and `ledger`.
+     - Retrieve step output for `"script_generator"` via `self.get_step_output(run_id, ledger, "script_generator")` or `ledger.get_step_output(run_id, "script_generator")`.
+     - Extract spoken narration text/sections from script payload (e.g. `script_payload.get("script")` or `spoken_narration` list). If missing, handle gracefully with script payload text or fallback narration.
+     - Determine output directory `data/audio/{slug}/` (ensuring directory exists).
+     - Target output file: `data/audio/{slug}/master_audio.wav`.
+     - Invoke `provider.generate_segment(text, voice_id="af_sky", output_path=str(audio_file))` to synthesize audio.
+     - Verify destination file exists and size > 0 bytes.
+     - Write `data/audio/{slug}/subtitles.srt` with valid SRT formatting corresponding to narration text.
+     - Return output payload dictionary containing `slug`, `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, `status: "completed"`.
+     - Catch hardware or synthesis errors and raise `VoiceGenerationError`.
+2. Run build and tests:
+   - Run `pytest tests/pipeline/test_voice_node.py -v`. Ensure all unit tests pass cleanly.
+3. Document commands run, build/test results, and modified files in /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md following the Handoff Protocol.
+4. Message parent with your handoff report path and summary of completed work.

@@ -1,79 +1,82 @@
-# BRIEFING — 2026-07-29T16:57:25Z
+# BRIEFING — 2026-08-05T11:21:04Z
 
 ## Mission
-Phase 10: Event Bus Integration for the Automated DSA Educational YouTube Video Pipeline
+Implement the Voice Production Subsystem (TTS Integration) for the automated DSA video pipeline.
 
 ## 🔒 My Identity
-- Archetype: self (Project Orchestrator)
+- Archetype: self
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator
-- Original parent: 623d8b36-f965-4cd4-85f7-15ba1da6f940
-- Original parent conversation ID: 623d8b36-f965-4cd4-85f7-15ba1da6f940
+- Original parent: top-level
+- Original parent conversation ID: 99615b1b-0c27-430f-8c39-706ab9d51fc6
 
 ## 🔒 My Workflow
-- **Pattern**: Project Pattern (Phase 10)
-- **Scope document**: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/plan.md
-1. **Decompose**: Survey codebase via Explorers, decompose into milestones.
+- **Pattern**: Project Pattern
+- **Scope document**: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md
+1. **Decompose**: Survey codebase & PromptBook via Explorers, then decompose into milestones
 2. **Dispatch & Execute**:
-   - Explorer -> Worker -> Reviewer -> Challenger -> Auditor loop per milestone
-3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign -> Escalate
-4. **Succession**: Threshold 20 spawns.
+   - **Direct (iteration loop)**: Explorer → Worker → Reviewer / Challenger / Auditor loop per milestone
+3. **On failure**: Retry → Replace → Skip → Redistribute → Redesign → Escalate
+4. **Succession**: Self-succeed at 20 spawns
 - **Work items**:
-  1. Survey & Architecture Mapping [done]
-  2. M1: In-Memory EventBus Implementation & Tests [done]
-  3. M2: Workflow Engine Integration & Tests [done]
-  4. M3: SDK Documentation [done]
-  5. M4: Final Verification & Audit [done]
-- **Current phase**: Complete
-- **Current focus**: Declarative completion report
+  1. Survey & Architecture Mapping [in-progress]
+  2. Voice Provider Strategy Implementation [pending]
+  3. Voice Generator Pipeline Node Integration [pending]
+  4. Testing & Verification [pending]
+- **Current phase**: 1
+- **Current focus**: Survey codebase & PromptBook specification via Explorers
 
 ## 🔒 Key Constraints
-- NEVER write source code directly.
-- Dispatch subagents for all exploration, implementation, review, challenging, and auditing.
-- Require workers/reviewers to run pytest and report output.
-- All integrity rules strictly enforced (auditor binary veto).
+- NEVER write, modify, or create source code files directly.
+- NEVER run build/test commands yourself — require workers to do so.
+- NEVER investigate or explore the problem at the code level — dispatch Explorers for technical investigation.
+- Use file-editing tools ONLY for metadata/state files (.md) in .agents/ folder.
+- Execute TTS on CPU / integrated GPU without missing CUDA/Nvidia errors.
+- Never reuse a subagent after it has delivered its handoff — always spawn fresh.
 
 ## Current Parent
-- Conversation ID: 623d8b36-f965-4cd4-85f7-15ba1da6f940
-- Updated: 2026-07-29T16:57:25Z
+- Conversation ID: 99615b1b-0c27-430f-8c39-706ab9d51fc6
+- Updated: not yet
 
 ## Key Decisions Made
-- Initialized Phase 10 Event Bus Integration.
-- Completed 3 parallel survey explorer tasks.
-- Created plan.md with M1, M2, M3, M4 milestones.
-- Dispatched 3 parallel workers for M1, M2, M3 and received 100% successful handoffs.
-- Dispatched 2 Reviewers, 2 Challengers, and 1 Forensic Auditor for final verification.
-- Received 2 APPROVE (Reviewers), 2 APPROVE (Challengers), and 1 CLEAN (Auditor) verdicts.
-- Updated GATE_STATUS.md to PASS.
+- Selected Project Pattern for managing multi-phase TTS integration task.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| explorer_survey_1 | teamwork_preview_explorer | Codebase Architecture Survey | completed | 070a2e6d-eb66-432d-aa2f-e61f78696092 |
-| explorer_survey_2 | teamwork_preview_explorer | Test Suite Survey | completed | bcd23b53-b621-4635-9c0d-f4f1b4ca3d6c |
-| explorer_survey_3 | teamwork_preview_explorer | Docs & Specs Survey | completed | 718b72f4-150d-4d0e-8127-6d357f5b9fef |
-| worker_m1 | teamwork_preview_worker | EventBus Core & Tests (M1) | completed | f01460cd-49ee-4efb-97fc-c4f135deecdc |
-| worker_m2 | teamwork_preview_worker | Workflow Engine Integration & Tests (M2) | completed | 32dd2d57-62fa-4848-a757-b8f96ca204a6 |
-| worker_m3 | teamwork_preview_worker | SDK Documentation (M3) | completed | d240df26-97b2-442b-a617-1ceaa51970c1 |
-| reviewer_1 | teamwork_preview_reviewer | Code & Design Review | completed | 808c03ee-e891-480d-9b6d-8d71a9edf716 |
-| reviewer_2 | teamwork_preview_reviewer | Interface & Robustness Review | completed | a6c51575-7115-416d-8255-a3ac04171b14 |
-| challenger_1 | teamwork_preview_challenger | Fault Tolerance Stress Testing | completed | bcb4dc51-356d-41db-801c-dcf2001c87aa |
-| challenger_2 | teamwork_preview_challenger | Event Payload Verification | completed | f96579d5-6407-4f88-a202-32cf9e428e97 |
-| auditor_1 | teamwork_preview_auditor | Forensic Integrity Audit | completed | 615a21a3-13ac-41c0-ac85-d000217c5617 |
+| spec_miner_survey_1 | teamwork_preview_spec_miner | Survey PromptBook spec | completed | 1af3f2dc-e158-4091-875c-612e789cbff1 |
+| explorer_survey_2 | teamwork_preview_explorer | Survey codebase & nodes | completed | c38e6583-ce04-43bd-9dcc-cd7d90524e38 |
+| explorer_survey_3 | teamwork_preview_explorer | Survey env & dependencies | completed | 8d4e583d-4bd1-44ef-8a3f-512866f13931 |
+| explorer_m1_1 | teamwork_preview_explorer | Core voice module spec | completed | e45ba914-c3fc-4ba5-aa67-a367fb26a115 |
+| explorer_m1_2 | teamwork_preview_explorer | Re-export & import spec | completed | 90dd710a-f727-4b7a-981f-946102fbf00c |
+| explorer_m1_3 | teamwork_preview_explorer | Audio synthesis & WAV spec | completed | 6334a760-fa3f-4536-ab6b-c181ff066174 |
+| worker_m1_1 | teamwork_preview_worker | Implement M1 voice core | completed | 724324d9-870c-41cc-a4b0-25906c4d40dc |
+| reviewer_m1_1 | teamwork_preview_reviewer | Review M1 implementation | completed | e220e364-b4bf-4625-b4dc-af72dcea2711 |
+| reviewer_m1_2 | teamwork_preview_reviewer | Robustness review M1 | completed | 5579d8fb-ad79-4b00-8dae-9cbb4af15c9e |
+| challenger_m1_1 | teamwork_preview_challenger | Empirical stress test M1 | completed | 94f87df0-15d8-4d1b-b27c-a927f5922fb4 |
+| challenger_m1_2 | teamwork_preview_challenger | CPU & boundary test M1 | completed | f5e31609-3854-455b-8a00-2a7ef8da7682 |
+| auditor_m1_1 | teamwork_preview_auditor | Forensic integrity audit M1 | completed | 8a16ae35-79a8-4148-b56d-93b03d4b9a3f |
+| explorer_m2_1 | teamwork_preview_explorer | Voice node design spec | completed | e314cf8a-28e9-4451-bd76-f600600c97c1 |
+| worker_m2_1 | teamwork_preview_worker | Implement VoiceGeneratorNode | completed | c4b467b4-6fd0-4f7d-8460-5f17ca57d5fb |
+| reviewer_m2_1 | teamwork_preview_reviewer | Review M2 implementation | completed | d24bde24-350e-4cd9-8fbf-dde7271d8964 |
+| reviewer_m2_2 | teamwork_preview_reviewer | Robustness review M2 | completed | f4a3fbf6-3471-4e66-8b67-3bad481cd43a |
+| challenger_m2_1 | teamwork_preview_challenger | Empirical stress test M2 | completed | 141118d1-ca7f-4626-9f9a-c18512c5e895 |
+| challenger_m2_2 | teamwork_preview_challenger | CPU & boundary test M2 | completed | 60faf2bc-a24a-4b73-8e7b-975d62ecc923 |
+| auditor_m2_1 | teamwork_preview_auditor | Forensic integrity audit M2 | completed | bd956479-b253-44c5-9c06-dc4899d0a89f |
+| worker_m3_1 | teamwork_preview_worker | E2E Verification & testing | in-progress | 8f0e5dd9-7936-4cbb-ba35-c1d0693f4258 |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 11 / 20
-- Pending subagents: none
+- Spawn count: 20 / 20
+- Pending subagents: 8f0e5dd9-7936-4cbb-ba35-c1d0693f4258
 - Predecessor: none
 - Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: 9b90c213-cab6-4234-a8fd-03797f719a60/task-8
+- Heartbeat cron: task-15
 - Safety timer: none
 
 ## Artifact Index
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/plan.md — Decomposition & Milestone plan
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/progress.md — Liveness & status tracking
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/GATE_STATUS.md — Gate verdicts
-- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/handoff.md — Handoff report
+- /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md — Original request
+- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/DISPATCH.md — Task dispatch
+- /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/BRIEFING.md — Briefing state

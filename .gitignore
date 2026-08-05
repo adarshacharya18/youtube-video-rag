@@ -7,3 +7,11 @@ venv/
 *.sqlite
 artifacts/
 config/client_secrets.json
+
+# Generated Output Directories
+data/
+media/
+models/
+.agents/
+.coverage
+logs/

@@ -1,58 +1,55 @@
-# BRIEFING — 2026-07-30T17:45:00Z
+# BRIEFING — 2026-08-05T16:56:50+05:30
 
 ## Mission
-Implement `PipelineRunner` and update master CLI `ops.py` for Phase 14 Milestone M1, with tests and handoff documentation.
+Implement Voice Provider Core Strategy (Milestone 1): `src/core/media/voice.py` and `src/voice/synthesizer.py`.
 
 ## 🔒 My Identity
-- Archetype: implementer / qa / specialist
+- Archetype: implementer
 - Roles: implementer, qa, specialist
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1
-- Original parent: 7d3a30c0-8d0a-4831-8bac-db48288a0c8f
-- Milestone: M1 (Core Implementation)
+- Original parent: fd0872c4-d4cc-4258-9539-09ef02c56d58
+- Milestone: M1 (Voice Provider Core Strategy)
 
 ## 🔒 Key Constraints
-- DO NOT CHEAT. Genuine implementation only. No hardcoded test results or facade classes.
-- Link nodes: Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg in `PipelineRunner`.
-- Integrate with `WorkflowEngine`, `StateLedger`, and `EventBus`.
-- Support resume from exact checkpoint in `StateLedger`.
-- Master CLI in `src/cli/ops.py` supporting `run`, `status`, `resume`, `health`.
-- Unit/component tests in `tests/orchestrator/test_pipeline_runner.py` and `tests/cli/test_ops.py`.
+- DO NOT CHEAT. All implementations must be genuine.
+- CPU/integrated GPU friendly synthesis generating valid 16-bit PCM WAV.
+- Retries on synthesis failure (up to 3).
+- ManualVoiceProvider raises FileNotFoundError if output_path file absent.
 
 ## Current Parent
-- Conversation ID: 7d3a30c0-8d0a-4831-8bac-db48288a0c8f
-- Updated: 2026-07-30T17:45:00Z
+- Conversation ID: fd0872c4-d4cc-4258-9539-09ef02c56d58
+- Updated: 2026-08-05T16:56:50+05:30
 
 ## Task Summary
-- **What to build**: `src/core/orchestrator/pipeline_runner.py`, `src/cli/ops.py`, tests `tests/orchestrator/test_pipeline_runner.py`, `tests/cli/test_ops.py`.
-- **Success criteria**: All tests in `pytest tests/orchestrator/ tests/cli/ tests/workflow/` pass cleanly.
-- **Interface contracts**: `PipelineRunner`, `WorkflowEngine`, `StateLedger`, `EventBus`.
+- **What to build**: `src/core/media/voice.py` (AudioSegment, VoiceConfig, VoiceProviderProtocol, KokoroVoiceProvider, ManualVoiceProvider) and `src/voice/synthesizer.py` (re-exports).
+- **Success criteria**: Implementation complete and verified with unit tests.
+- **Interface contracts**: PROJECT.md § Interface Contracts
+- **Code layout**: PROJECT.md § Code Layout
+
+## Key Decisions Made
+- Implemented `src/core/media/__init__.py`, `src/core/media/voice.py`, `src/voice/synthesizer.py`.
+- CPU wave synthesis uses 16-bit PCM mono WAV format (24000 Hz sample rate) using standard library `wave` and `struct`.
+- Added unit tests in `tests/media/test_voice_core.py`.
+
+## Artifact Index
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/DISPATCH.md` — Task Dispatch
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/BRIEFING.md` — Working memory
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/progress.md` — Progress tracker
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1_1/handoff.md` — Handoff report
 
 ## Change Tracker
 - **Files modified**:
-  - `src/core/orchestrator/pipeline_runner.py`: Implemented `PipelineRunner` class linking 6 chronological nodes.
-  - `src/core/orchestrator/__init__.py`: Exported `PipelineRunner`.
-  - `src/cli/ops.py`: Implemented master CLI with `run`, `status`, `resume`, `health`, etc.
-  - `src/pipeline/nodes/ingestion_node.py`: Implemented `IngestionNode` (`ingest`).
-  - `src/pipeline/nodes/plan_node.py`: Implemented `PlanNode` (`plan`).
-  - `src/pipeline/nodes/voice_generator_node.py`: Implemented `VoiceGeneratorNode` (`voice_generator`).
-  - `src/pipeline/nodes/__init__.py`: Re-exported all nodes.
-  - `src/core/orchestrator/state_ledger.py`: Added `record_run_completion` and `update_run_status`.
-  - `src/core/workflow/engine.py`: Updated to record run completion upon successful workflow execution.
-  - `src/pipeline/nodes/animation_generator_node.py`: Added fallback segment generation if Manim CLI is missing.
-  - `src/pipeline/nodes/video_assembly_node.py`: Added fallback assembled artifact generation if FFmpeg execution fails.
-  - `tests/orchestrator/test_pipeline_runner.py`: Added unit tests for `PipelineRunner`.
-  - `tests/cli/test_ops.py`: Added unit tests for `ops.py` CLI.
-  - `.agents/worker_m1_1/handoff.md`: Handoff report.
+  - `src/core/media/__init__.py`: Package init file
+  - `src/core/media/voice.py`: Core voice data structures, protocol, Kokoro and Manual providers
+  - `src/voice/synthesizer.py`: Re-export module for backward compatibility
+  - `tests/media/test_voice_core.py`: Unit tests for voice core components
+- **Build status**: PASS
+- **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS (49/49 tests passed in `tests/orchestrator/ tests/cli/ tests/workflow/`)
-- **Lint status**: Clean
-- **Tests added/modified**: `tests/orchestrator/test_pipeline_runner.py`, `tests/cli/test_ops.py`
+- **Build/test result**: PASS (11/11 tests in `tests/media/test_voice_core.py` pass; 4/4 in `tests/pipeline/test_voice_node.py` pass)
+- **Lint status**: CLEAN
+- **Tests added/modified**: `tests/media/test_voice_core.py` added
 
 ## Loaded Skills
 - None
-
-## Key Decisions Made
-- Implemented default 6-stage chronological node sequence: Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg.
-- Added fallback media handling for test/dev environments lacking system binaries (Manim/FFmpeg).
-- Extended StateLedger to track run completion state.

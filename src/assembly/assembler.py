@@ -191,7 +191,7 @@ class VideoAssembler:
         if self.temp_dir:
             self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-        tmp_dest = dest_path.parent / f"{dest_path.name}.tmp_{os.getpid()}"
+        tmp_dest = dest_path.parent / f"{dest_path.stem}_tmp_{os.getpid()}{dest_path.suffix}"
 
         try:
             with tempfile.TemporaryDirectory(prefix="assembly_", dir=parent_temp) as temp_dir_str:

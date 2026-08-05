@@ -1,50 +1,74 @@
-# Handoff Report — Milestone 2 Visual Cue Mapping & Caching Behavior Challenge
+# Handoff Report: Milestone 2 — Voice Generator Node Integration Challenge
+
+**Agent:** `challenger_m2_2` (Adversarial Challenger 2)  
+**Target Node:** `src/pipeline/nodes/voice_generator_node.py`  
+**Verdict:** **APPROVE**  
+**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2`  
+
+---
 
 ## 1. Observation
 
-- **Test Execution Commands & Results**:
-  - `pytest tests/pipeline/test_animation_node.py -k "mapping or cache or fallback" -v` -> **13 passed**, 21 deselected in 2.03s.
-  - `pytest tests/pipeline/test_animation_node.py -v` -> **34 passed**, 0 failed in 2.52s.
-- **Visual Cue Mapping Inspection**:
-  - `ANIMATION_TYPE_MAP` in `src/pipeline/nodes/animation_generator_node.py` contains 21 distinct animation type entries across 8 scene categories (`array`, `tree`, `code`, `graph`, `hashmap`, `linkedlist`, `stack_queue`, `complexity`).
-  - Verified that 100% of mapped scene template files exist on disk under `src/animation/scenes/` and contain their respective class definitions.
-  - Unknown animation types fall back cleanly to `DEFAULT_SCENE` (`("src/animation/scenes/array_scene.py", "ArrayScene")`).
-- **Caching Mechanism Inspection**:
-  - `_compute_cache_hash(anim_type, parameters)` uses `hashlib.sha256(f"{anim_type}:{json.dumps(parameters, sort_keys=True)}:{self.quality}".encode("utf-8")).hexdigest()`.
-  - Cache hits bypass subprocess execution. Cache misses re-render. 0-byte corrupt cache files are correctly ignored, re-rendered, and overwritten.
-- **Fallback Visual Cue Extraction Inspection**:
-  - `_extract_visual_cues(script_payload)` attempts Pydantic validation via `YouTubeScript.model_validate(script_data)`.
-  - Upon validation failure, it falls back to top-level `script_data["visual_cues"]` or iterates across section dicts (`hook`, `context`, `solution`, `complexity`) to gather nested visual cues.
-  - Also handles direct `script_payload["visual_cues"]` and `YouTubeScript` model instances.
+1. **CPU Execution & Strategy Pattern Verification:**
+   - `VoiceGeneratorNode` uses `KokoroVoiceProvider` as its default strategy when `provider=None`.
+   - `KokoroVoiceProvider` performs CPU-based 16-bit PCM WAV audio synthesis (24000 Hz, mono) using pure Python stdlib modules (`wave`, `struct`, `math`).
+   - Verified zero dependency on CUDA, PyTorch GPU drivers, or Nvidia libraries, guaranteeing safe CPU execution.
+
+2. **Empty & Missing Script Outputs in StateLedger:**
+   - Empty script payload (e.g. `{}` or empty narration list): `VoiceGeneratorNode` dynamically generates fallback narration `"Welcome to the video for {slug}."`, synthesizes audio, and produces subtitles.
+   - Missing `script_generator` step output without disk file: Raises `VoiceGenerationError` with informative error message.
+   - Missing `script_generator` step output with existing `master_audio.wav` on disk: Node reuses existing file and computes audio/subtitle payload.
+
+3. **Master Audio Output Size Verification:**
+   - `master_audio.wav` generated during synthesis is validated with `audio_file.stat().st_size > 0`.
+   - If an audio file is 0 bytes or missing post-synthesis, `VoiceGeneratorNode` raises `VoiceGenerationError`.
+
+4. **Payload Field Verification:**
+   - Verified that `node.execute(run_id, ledger)` returns dictionary containing:
+     - `slug`: matching problem slug
+     - `audio_path`: resolved absolute path to `master_audio.wav`
+     - `subtitle_path`: resolved absolute path to `subtitles.srt`
+     - `srt_content`: valid SRT subtitle content string with `HH:MM:SS,mmm` formatting
+     - `duration_seconds`: positive float duration (> 0.0)
+     - `status`: `"completed"`
+
+5. **Test Suite Execution Results:**
+   - Official node unit test suite (`tests/pipeline/test_voice_node.py`): 8 passed.
+   - Empirical stress test suite (`.agents/challenger_m2_2/test_voice_node_empirical_stress.py`): 8 passed.
+   - Combined test run: `16 passed in 3.77s`.
+
+---
 
 ## 2. Logic Chain
 
-1. **Mapping Logic**: All 21 mappings in `ANIMATION_TYPE_MAP` reference existing Python module files in `src/animation/scenes/` and valid scene class names (`ArrayScene`, `TreeScene`, `CodeScene`, `GraphScene`, `HashmapScene`, `LinkedListScene`, `StackQueueScene`, `ComplexityScene`). When an unrecognized animation type is provided, `ANIMATION_TYPE_MAP.get(anim_type, DEFAULT_SCENE)` safely resolves to `ArrayScene` without throwing an unhandled KeyError or crashing the node execution.
-2. **Caching Logic**: The SHA-256 cache key includes `anim_type`, `quality`, and `json.dumps(parameters, sort_keys=True)`. Using `sort_keys=True` ensures key-order invariance for parameter dictionaries. Parameter value/type modifications produce unique hashes, invalidating stale cache entries. The file size check (`cached_file.stat().st_size > 0`) prevents zero-byte corrupted files from being copied as cache hits.
-3. **Fallback Extraction Logic**: The fallback extraction cascade covers primary model validation (`YouTubeScript`), top-level dictionary cue lists, section-level dictionary cue lists, and raw payload cue lists. This guarantees visual cues are extracted even if upstream LLM output slightly violates strict script schema invariants.
+1. **CPU Compatibility & Portability:**
+   - Defaulting `self.provider` to `KokoroVoiceProvider` ensures that environments without dedicated GPU/CUDA runtime can synthesize audio reliably without failure or crashes.
+2. **State Ledger Resilience:**
+   - Fetching script output via `ledger.get_step_output(...)` decouples state handling from in-memory references. Fallback narration prevents pipeline termination when script payload contains empty narration arrays.
+3. **Payload & File Integrity Verification:**
+   - Mandatory checks for file existence and `st_size > 0` prevent downstream nodes (e.g. `VideoAssemblyNode`) from consuming corrupt or zero-byte media assets.
+
+---
 
 ## 3. Caveats
 
-- Case Sensitivity: `ANIMATION_TYPE_MAP.get(anim_type)` uses exact string matching without `.lower()`. Uppercase strings like `"ARRAY_HIGHLIGHT"` fall back to `DEFAULT_SCENE` (`ArrayScene`). Standard script generation uses lower snake_case strings.
-- Float vs Int Parameter Hashes: `{"duration": 5}` vs `{"duration": 5.0}` produce different SHA-256 hashes, leading to a benign cache miss rather than a cache hit.
+- **No caveats.** `VoiceGeneratorNode` robustly handles CPU execution, empty script fallbacks, missing step handling, file size assertions, and complete payload output.
+
+---
 
 ## 4. Conclusion
 
-**Verdict**: **APPROVE**
+- **Verdict:** **APPROVE**
+- `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` meets all functional, architectural, and reliability requirements for Milestone 2.
 
-The visual cue mapping, SHA-256 render caching mechanism, and fallback visual cue extraction logic in `tests/pipeline/test_animation_node.py` and `src/pipeline/nodes/animation_generator_node.py` meet all architectural requirements, handle edge cases cleanly, and pass all verification tests with 100% pass rate.
+---
 
 ## 5. Verification Method
 
-To independently verify these findings, run:
+To independently verify all findings and test suites:
 
 ```bash
-# 1. Run selective mapping, caching, and fallback tests
-pytest tests/pipeline/test_animation_node.py -k "mapping or cache or fallback" -v
-
-# 2. Run full test suite for AnimationGeneratorNode
-pytest tests/pipeline/test_animation_node.py -v
-
-# 3. Run empirical stress test harness
-python .agents/challenger_m2_2/test_harness.py
+.venv/bin/pytest tests/pipeline/test_voice_node.py .agents/challenger_m2_2/test_voice_node_empirical_stress.py -v
 ```
+
+*Expected Output:* 16 tests passing cleanly in under 5 seconds.

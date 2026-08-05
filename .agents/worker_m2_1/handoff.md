@@ -1,72 +1,89 @@
-# Handoff Report: Milestone 2 Test Suite Enhancement
+# Handoff Report: Milestone 2 — Voice Generator Node Integration
 
-**Agent**: `worker_m2_1`  
-**Working Directory**: `.agents/worker_m2_1/`  
-**Target File**: `tests/pipeline/test_animation_node.py`  
-**Status**: COMPLETE  
+**Agent:** `worker_m2_1` (Implementer Worker)  
+**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1`  
+**Target Files:** `src/pipeline/nodes/voice_generator_node.py`, `tests/pipeline/test_voice_node.py`  
+**Status:** Complete  
 
 ---
 
 ## 1. Observation
 
-- **Initial State**: `tests/pipeline/test_animation_node.py` had 15 tests. Core mechanics were covered, but several gaps existed (flawed conditional assertions during partial failure cleanup, uninspected CLI command line flags/kwargs in `subprocess.run()`, missing OS-level file descriptor leak checks, missing 0-byte MP4 artifact / corrupt cache tests, missing coverage for all 8 visual cue types, and missing schema validation completeness for `RenderSegment`).
-- **Files Inspected**:
-  - `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
-  - `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
-  - `.agents/explorer_m2_1/analysis.md`
-  - `.agents/explorer_m2_2/analysis.md`
-  - `.agents/explorer_m2_3/analysis.md`
-  - `tests/pipeline/test_animation_node.py`
-  - `src/pipeline/nodes/animation_generator_node.py`
-  - `src/animation/renderer.py`
-- **Modifications Made**:
-  - Exclusively modified `tests/pipeline/test_animation_node.py`.
-- **Test Output**:
-  - `pytest tests/pipeline/test_animation_node.py -v`: 34 passed in 2.53s.
+1. **VoiceGeneratorNode Updates (`src/pipeline/nodes/voice_generator_node.py`):**
+   - Inherits from `Node` contract (`class VoiceGeneratorNode(Node)`).
+   - Step name property returns `"voice_generator"`.
+   - Constructor allows strategy injection:
+     ```python
+     def __init__(
+         self,
+         provider: Optional[VoiceProviderProtocol] = None,
+         output_dir: Optional[Union[str, Path]] = None,
+         voice_id: str = "af_sky",
+         speed: float = 1.0,
+     ) -> None:
+     ```
+     Default provider falls back to `KokoroVoiceProvider()`.
+   - In `execute(self, run_id: str, ledger: Optional[StateLedger] = None)`:
+     - Validates `ledger` (raises `PipelineStageError` if `ledger` is `None`).
+     - Retrieves run record using `self.get_run_record(run_id, ledger)` and extracts `slug`.
+     - Checks `ledger.get_completed_steps(run_id)` for `"script_generator"`. If present, calls `self.get_step_output(run_id, ledger, "script_generator")` to retrieve upstream narration payload.
+     - Parses `YouTubeScript` schema or raw section dictionaries (`hook`, `context`, `solution`, `complexity`, `spoken_narration`) to extract narration segments.
+     - Ensures target directory exists at `data/audio/{slug}/` (or custom `output_dir`).
+     - Invokes `provider.generate_segment(text=combined_text, voice_id=self.voice_id, speed=self.speed, output_path=str(audio_file))` to generate `master_audio.wav`.
+     - Verifies `master_audio.wav` exists on disk and has size > 0 bytes.
+     - Formats and writes `data/audio/{slug}/subtitles.srt` in valid SRT timestamp format (`HH:MM:SS,mmm`).
+     - Wraps synthesis failures and hardware errors into `VoiceGenerationError`.
+     - Returns payload dictionary containing `slug`, `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, `status: "completed"`.
+
+2. **Unit Test Verification (`tests/pipeline/test_voice_node.py` & `tests/media/test_voice_core.py`):**
+   - Executed `.venv/bin/pytest tests/pipeline/test_voice_node.py tests/media/test_voice_core.py -v`.
+   - Result: `26 passed in 9.67s`.
+   - Executed `.venv/bin/pytest tests/pipeline/ -v`.
+   - Result: `111 passed in 6.95s`.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Fixed Flawed Conditional Assertion (`test_partial_output_cleanup_on_midway_failure`)**:
-   - *Observation*: Previously line 619 evaluated `if run_out_path.exists(): assert len(...) == 0`. When `rmdir()` succeeded, `run_out_path.exists()` returned `False`, causing the assertion to be skipped silently.
-   - *Fix*: Changed to `assert not run_out_path.exists(), "Run output directory should be deleted when empty after partial failure"`. Added assertion verifying `len(list(cache_dir.glob("*.mp4"))) == 1` to ensure rendered clips for succeeded cues remain intact in `cache_dir`.
-2. **Added OS-Level File Descriptor Leak Test (`test_no_file_descriptor_leak_on_execution`)**:
-   - *Observation*: `test_subprocess_close_fds_verified` checked kwarg passing, but did not measure real open OS file descriptors.
-   - *Fix*: Added `test_no_file_descriptor_leak_on_execution` inspecting `/proc/self/fd` before vs after `node.execute()`, asserting `fds_after == fds_before`.
-3. **Added 0-Byte MP4 & Invalid Binary Exception Tests**:
-   - *Fix*: Added `test_zero_byte_mp4_artifact_raises_animation_error` asserting `AnimationError` on 0-byte MP4 artifacts. Added `test_invalid_binary_path_raises_animation_error` asserting `AnimationError` wrapping and `isinstance(exc_info.value.__cause__, FileNotFoundError)`.
-4. **Strengthened Tempdir Cleanup Assertions**:
-   - *Fix*: Replaced `remaining_subdirs = [d for d in explicit_temp_parent.iterdir() if d.is_dir()]` with `assert list(explicit_temp_parent.iterdir()) == []` across `test_temp_directory_cleaned_up`, `test_tempdir_cleanup_on_subprocess_failure`, and `test_tempdir_cleanup_on_timeout`.
-5. **Added CLI Flags & Invocation Kwargs Verification**:
-   - *Fix*: Added `test_cli_flags_and_command_array_construction` validating quality flags (`-ql`, `-qm`, `-qh`, `-qk`), positional CLI arguments (`render`, `--format=mp4`, `--media_dir`, `-o`, script path, class name), and default `manim_binary=None` (`python -m manim`). Added `test_subprocess_invocation_kwargs` verifying `close_fds=True`, `cwd`, `timeout`, `capture_output=True`, and `text=True`.
-6. **Added Visual Cue Mapping & Fallback Coverage**:
-   - *Fix*: Added `@pytest.mark.parametrize` test `test_all_required_visual_cue_types_mapping_and_execution` covering all 8 required visual cue types (`array_highlight`, `tree_traversal`, `code_highlight`, `linkedlist_operation`, `graph_traversal`, `hashmap_operation`, `stack_queue_operation`, `complexity_chart`). Added `test_unknown_animation_type_fallback`, `test_missing_or_none_parameters_and_defaults`, and `test_empty_visual_cues_list_returns_zero_segments`.
-7. **Added Cache Invalidation & Corrupt Cache Tests**:
-   - *Fix*: Added `test_cache_invalidation_on_parameter_change` verifying parameter changes trigger cache misses. Added `test_zero_byte_corrupt_cache_re_renders` verifying 0-byte cache files are ignored and overwritten.
-8. **Added RenderSegment Schema Completeness Test**:
-   - *Fix*: Added `test_render_segment_schema_completeness` verifying `start_time`, `end_time`, `duration`, `asset_references` (`asset_id`, `asset_type`, `file_path`, `duration`), `scene_type`, `visual_parameters`, and top-level `output_directory`.
+1. **Contract Inheritance & State Ledger Interaction:**
+   - Inheriting from `Node` enforces explicit state passing via `run_id` and `StateLedger`.
+   - Fetching run details with `self.get_run_record(run_id, ledger)` retrieves the slug cleanly.
+   - Fetching prior step outputs via `self.get_step_output(run_id, ledger, "script_generator")` decouples node logic from in-memory objects while preserving compatibility with pre-existing audio files in standalone mode.
+
+2. **Synthesis Strategy Injection & CPU Compatibility:**
+   - Defaulting `self.provider` to `KokoroVoiceProvider()` enables CPU synthesis of 16-bit PCM WAV audio (24000 Hz) without requiring CUDA/Nvidia hardware.
+   - Allowing `VoiceProviderProtocol` injection enables mock providers in unit tests and manual voice overrides (`ManualVoiceProvider`).
+
+3. **SRT Formatting & Payload Output:**
+   - SRT timestamps are generated using `format_srt_timestamp(seconds)` calculating hours, minutes, seconds, and milliseconds accurately.
+   - Character ratios across narration segments determine individual entry time ranges matching total audio duration.
+   - Returning standard payload fields (`slug`, `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, `status`) fulfills downstream dependencies (such as `VideoAssemblyNode`).
 
 ---
 
 ## 3. Caveats
 
-- No caveats. The test suite exclusively uses mock Python scripts and standard library mocking to isolate `subprocess.run`, guaranteeing fast, reproducible execution without requiring external Manim dependencies installed in the system environment.
+- No caveats. The node implementation fully handles both upstream script payload driven TTS synthesis and pre-existing audio file fallbacks.
 
 ---
 
 ## 4. Conclusion
 
-All 8 requested enhancement areas in `tests/pipeline/test_animation_node.py` have been implemented genuinely and hardened. Test count expanded from 15 to 34 tests, all passing 100% cleanly.
+- `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` is fully integrated into the pipeline architecture according to Milestone 2 specifications.
+- All unit tests in `tests/pipeline/test_voice_node.py` pass cleanly.
 
 ---
 
 ## 5. Verification Method
 
-Run the following command to independently verify:
+1. **Run Voice Generator Node & Voice Core Unit Tests:**
+   ```bash
+   .venv/bin/pytest tests/pipeline/test_voice_node.py tests/media/test_voice_core.py -v
+   ```
+   *Expected Result:* 26 passing tests with zero errors.
 
-```bash
-pytest tests/pipeline/test_animation_node.py -v
-```
-
-Expected result: `34 passed in <3.00s`.
+2. **Run Full Pipeline Test Suite:**
+   ```bash
+   .venv/bin/pytest tests/pipeline/ -v
+   ```
+   *Expected Result:* 111 passing tests with zero errors.

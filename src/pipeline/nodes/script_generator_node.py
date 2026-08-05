@@ -128,9 +128,11 @@ class ScriptGeneratorNode(Node):
                 logger.warning(f"Failed to render prompt template: {e}. Falling back to inline prompt.")
 
         return (
-            f"Generate a timed YouTube script for topic '{context_data['topic']}' (slug: '{context_data['slug']}').\n"
+            f"Generate a highly detailed, 1-minute long YouTube educational script for the LeetCode problem '{context_data['topic']}' (slug: '{context_data['slug']}').\n"
             f"Difficulty: {context_data['difficulty']}\n"
             f"Problem: {context_data['problem_description']}\n"
+            f"You must write EXTENSIVE spoken narration for each section to ensure the video is at least 60 seconds long. "
+            f"Do not write single-sentence sections. Explain the problem, the intuition, the step-by-step algorithm, and the code line-by-line.\n"
             f"Output strictly valid JSON matching YouTubeScript Pydantic schema with hook, context, solution, complexity."
         )
 
