@@ -42,11 +42,18 @@ manim --version  # verify
 #    Place the binary in your PATH or set TTS_BINARY_PATH in .env
 ```
 
-## Step 2: Configure LeetCode Authentication
+## Step 2: Provide Your Reference Code
 
-The pipeline is now fully integrated with LeetCode's GraphQL API. It will automatically fetch the problem metadata **AND your own accepted solution code** for the problem slug you provide. This ensures the video animation is legally based on your own code.
+The pipeline is fully integrated with LeetCode's GraphQL API to fetch the code you want to animate. There are two ways to provide this code:
 
-To enable this, ensure your `.env` file contains your `LEETCODE_SESSION` cookie:
+### Option A: Use a Published Solution Post (No Cookie Required)
+If you have written a public discussion/solution post (e.g., `leetcode.com/problems/reorder-list/solutions/123456/...`), you can simply pass the ID of your post using the `--solution-id` flag. The pipeline will securely extract your explanation, markdown structure, and code blocks to drive the video script.
+```bash
+python src/cli/ops.py run --slug reorder-list --solution-id 123456
+```
+
+### Option B: Auto-Fetch Your Latest Accepted Submission (Requires Cookie)
+If you want the pipeline to automatically pull your latest private "Accepted" submission from the LeetCode editor, you must configure your `.env` file with your `LEETCODE_SESSION` cookie:
 
 ```bash
 # In your .env file
@@ -54,7 +61,7 @@ LEETCODE_SESSION=your_cookie_value_here
 ```
 *(You can get this cookie by logging into leetcode.com, opening DevTools -> Application -> Cookies, and copying the value of `LEETCODE_SESSION`)*
 
-If the cookie is not set or expires, the system will gracefully fall back to generic starter code.
+If neither a `--solution-id` is provided nor a valid cookie is set, the system will gracefully fall back to generic starter code.
 
 ---
 
