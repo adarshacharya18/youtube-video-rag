@@ -163,6 +163,11 @@ def build_concat_filter_graph(
     else:
         current_v_label = "v0"
 
+    # Pad video infinitely if audio is present
+    if num_audio_inputs > 0:
+        clauses.append(f"[{current_v_label}]tpad=stop_mode=clone:stop=-1[v_padded]")
+        current_v_label = "v_padded"
+
     # 3. Burn subtitles if provided
     if subtitle_path is not None:
         sub_clause = build_subtitle_filter(
@@ -332,6 +337,7 @@ def build_assembly_command(
             "-b:a", audio_bitrate,
             "-ar", str(audio_sample_rate),
             "-ac", "2",
+            "-shortest"
         ])
 
     cmd.append(str(output_path))
@@ -399,6 +405,9 @@ def build_demuxer_assembly_command(
         "setsar=1",
     ]
 
+    if has_audio:
+        vf_filters.append("tpad=stop_mode=clone:stop=-1")
+
     if subtitle_path is not None:
         escaped_path = escape_ffmpeg_filter_path(subtitle_path)
         style_dict = dict(DEFAULT_SUBTITLE_STYLE)
@@ -423,6 +432,7 @@ def build_demuxer_assembly_command(
             "-b:a", audio_bitrate,
             "-ar", str(audio_sample_rate),
             "-ac", "2",
+            "-shortest"
         ])
 
     cmd.append(str(output_path))
