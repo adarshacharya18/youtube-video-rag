@@ -39,3 +39,8 @@ addopts = "-v --tb=short"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.uv.workspace]
+members = [
+    "manimations",
+]
