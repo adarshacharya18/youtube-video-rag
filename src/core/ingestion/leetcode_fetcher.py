@@ -46,6 +46,10 @@ class LeetCodeProblem:
     accepted_memory: Optional[str] = None
     submission_id: Optional[int] = None
     submission_timestamp: Optional[str] = None
+    
+    # User's published solution post (if provided)
+    solution_title: Optional[str] = None
+    solution_content: Optional[str] = None
 
 
 # ── GraphQL Queries ───────────────────────────────────────────────────
@@ -101,6 +105,18 @@ query submissionDetails($submissionId: Int!) {
 }
 """
 
+_SOLUTION_ARTICLE_QUERY = """
+query solutionArticle($topicId: Int!) {
+    topic(id: $topicId) {
+        id
+        title
+        post {
+            content
+        }
+    }
+}
+"""
+
 
 # ── Fetcher Class ─────────────────────────────────────────────────────
 
@@ -133,11 +149,12 @@ class LeetCodeFetcher:
 
     # ── Public API ────────────────────────────────────────────────────
 
-    def fetch_problem(self, slug: str) -> LeetCodeProblem:
+    def fetch_problem(self, slug: str, solution_id: Optional[int] = None) -> LeetCodeProblem:
         """Fetch complete problem data + user's accepted solution.
 
         Args:
             slug: LeetCode problem slug (e.g. 'two-sum').
+            solution_id: Optional ID of a published solution post.
 
         Returns:
             LeetCodeProblem with all fields populated.
@@ -148,12 +165,15 @@ class LeetCodeFetcher:
         logger.info("Fetching problem metadata from LeetCode", extra={"slug": slug})
         problem = self._fetch_problem_metadata(slug)
 
-        if self._session_cookie:
+        if solution_id:
+            logger.info("Fetching user's published solution post", extra={"solution_id": solution_id})
+            self._attach_solution_post(problem, solution_id)
+        elif self._session_cookie:
             logger.info("Fetching user's accepted submission", extra={"slug": slug})
             self._attach_accepted_submission(problem)
         else:
             logger.warning(
-                "No LEETCODE_SESSION cookie — skipping submission fetch. "
+                "No LEETCODE_SESSION cookie and no solution_id — skipping submission fetch. "
                 "Only problem metadata will be available.",
                 extra={"slug": slug},
             )
@@ -195,7 +215,36 @@ class LeetCodeFetcher:
             code_snippets=snippets,
         )
 
-    # ── User Submissions ──────────────────────────────────────────────
+    # ── User Submissions & Solutions ──────────────────────────────────
+
+    def _attach_solution_post(self, problem: LeetCodeProblem, topic_id: int) -> None:
+        """Fetch a specific published solution post and attach its content."""
+        try:
+            data = self._graphql_request(
+                _SOLUTION_ARTICLE_QUERY,
+                {"topicId": topic_id},
+            )
+            
+            topic = data.get("data", {}).get("topic")
+            if not topic:
+                logger.warning("Published solution topic ID %s not found.", topic_id)
+                return
+
+            problem.solution_title = topic.get("title", "")
+            post_content = topic.get("post", {}).get("content", "")
+            problem.solution_content = post_content
+            
+            # Use the post content as the accepted_code for generation purposes
+            problem.accepted_code = f"# {problem.solution_title}\n\n{post_content}"
+            problem.accepted_lang = "markdown" # Since it's a markdown post
+            problem.submission_id = topic_id
+            
+            logger.info("✓ Attached published solution post '%s'", problem.solution_title)
+            
+        except LeetCodeFetchError as exc:
+            logger.error("Failed to fetch published solution post: %s", exc)
+        except Exception as exc:
+            logger.error("Unexpected error fetching solution post: %s", exc)
 
     def _attach_accepted_submission(self, problem: LeetCodeProblem) -> None:
         """Find latest accepted submission and fetch its code."""

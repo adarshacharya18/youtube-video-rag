@@ -14,6 +14,9 @@ import subprocess
 import sys
 from typing import List, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.core.logger import get_logger
 from src.core.orchestrator.pipeline_runner import PipelineRunner
 from src.core.orchestrator.state_ledger import StateLedger
@@ -33,6 +36,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         metadata["topic"] = args.topic
     if getattr(args, "output", None):
         metadata["output_dir"] = args.output
+    if getattr(args, "solution_id", None):
+        metadata["solution_id"] = args.solution_id
 
     db_path = getattr(args, "db", "data/state_ledger.db")
     force = getattr(args, "force", False)
@@ -375,6 +380,7 @@ def create_parser() -> argparse.ArgumentParser:
     p_run = subparsers.add_parser("run", help="Start or resume a pipeline run for a problem slug")
     p_run.add_argument("--slug", type=str, help="Problem slug (e.g. two-sum)")
     p_run.add_argument("--topic", type=str, help="Topic identifier or metadata")
+    p_run.add_argument("--solution-id", type=int, help="LeetCode published solution ID (e.g. 4533038)")
     p_run.add_argument("--output", type=str, help="Output directory path")
     p_run.add_argument("--force", action="store_true", help="Force fresh pipeline execution")
     p_run.add_argument("--db", type=str, default="data/state_ledger.db", help="StateLedger DB path")

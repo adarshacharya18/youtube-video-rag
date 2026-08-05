@@ -79,6 +79,10 @@ IngestionNode → PlanNode → ScriptGeneratorNode → VoiceGeneratorNode → An
 # Force a fresh run (ignore any previous incomplete runs)
 python src/cli/ops.py run --slug two-sum --force
 
+# Provide a specific published solution post as the reference code
+# (e.g. from leetcode.com/problems/reorder-list/solutions/12345/)
+python src/cli/ops.py run --slug reorder-list --solution-id 12345
+
 # With a custom topic name
 python src/cli/ops.py run --slug two-sum --topic "Two Sum"
 

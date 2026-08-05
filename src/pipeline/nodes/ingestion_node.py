@@ -62,7 +62,7 @@ class IngestionNode(Node):
         logger.info("Executing IngestionNode for slug=%s (run_id=%s)", slug, run_id)
 
         # ── Attempt LeetCode fetch ────────────────────────────────────
-        leetcode_data = self._fetch_from_leetcode(slug)
+        leetcode_data = self._fetch_from_leetcode(slug, metadata)
 
         if leetcode_data:
             logger.info(
@@ -134,7 +134,7 @@ class IngestionNode(Node):
 
     # ── LeetCode integration ──────────────────────────────────────────
 
-    def _fetch_from_leetcode(self, slug: str) -> Optional[Dict[str, Any]]:
+    def _fetch_from_leetcode(self, slug: str, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Attempt to fetch problem + accepted submission from LeetCode.
 
         Returns:
@@ -144,7 +144,14 @@ class IngestionNode(Node):
             from src.core.ingestion.leetcode_fetcher import LeetCodeFetcher
 
             fetcher = LeetCodeFetcher(session_cookie=self._session_cookie)
-            problem = fetcher.fetch_problem(slug)
+            solution_id = metadata.get("solution_id")
+            if solution_id:
+                try:
+                    solution_id = int(solution_id)
+                except ValueError:
+                    solution_id = None
+
+            problem = fetcher.fetch_problem(slug, solution_id=solution_id)
 
             return {
                 "title": problem.title,
