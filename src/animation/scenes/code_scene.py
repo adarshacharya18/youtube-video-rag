@@ -28,6 +28,16 @@ class CodeScene(BaseDSAScene):
         code_block.move_to([0, 0, 0])
 
         highlight_lines = self.params.get("highlight_lines", [])
+        lines_str = self.params.get("lines")
+        if not highlight_lines and lines_str and isinstance(lines_str, str):
+            try:
+                if "-" in lines_str:
+                    start, end = map(int, lines_str.split("-"))
+                    highlight_lines = list(range(start, end + 1))
+                else:
+                    highlight_lines = [int(lines_str)]
+            except Exception:
+                pass
 
         intro_time = min(1.0, duration * 0.2)
         rem_time = max(0.1, duration - intro_time)

@@ -13,7 +13,7 @@ class TitleScene(BaseDSAScene):
         if not MANIM_AVAILABLE:
             return
             
-        title_text = self.params.get("title", "Data Structures & Algorithms")
+        title_text = self.params.get("title") or self.params.get("text") or "Data Structures & Algorithms"
         duration = float(self.params.get("duration", 5.0))
         
         # Apple Mac style presentation for the title

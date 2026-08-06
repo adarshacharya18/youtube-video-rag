@@ -280,6 +280,14 @@ class AnimationGeneratorNode(Node):
                     duration = budgeted_duration
 
                 parameters["duration"] = duration
+                
+                # Inject description for text overlays
+                if "description" not in parameters and "description" in cue:
+                    parameters["description"] = cue["description"]
+                    
+                # Inject code snippet for code_walkthrough if missing
+                if anim_type == "code_walkthrough" and "code" not in parameters:
+                    parameters["code"] = script_payload.get("script", {}).get("solution", {}).get("code_snippet", "")
 
                 output_file = run_output_dir / f"segment_{cue_id}.mp4"
 
