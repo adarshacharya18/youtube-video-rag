@@ -17,6 +17,7 @@ class VisualCue(BaseModel):
 
     cue_id: str = Field(..., description="Unique visual cue identifier")
     animation_type: Literal[
+        "title_card",
         "array_highlight",
         "tree_traversal",
         "code_walkthrough",
@@ -57,7 +58,7 @@ class HookSection(BaseModel):
 
     title: str = Field(default="Hook", description="Section title")
     narration: str = Field(..., description="Fast-paced opening narration to intrigue viewers")
-    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for hook")
+    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for hook")
     estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
 
     @field_validator("title", "narration")
@@ -87,7 +88,7 @@ class ContextSection(BaseModel):
 
     title: str = Field(default="Context", description="Section title")
     narration: str = Field(..., description="Problem statement breakdown and real-world intuition")
-    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for context")
+    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for context")
     estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
 
     @field_validator("title", "narration")
@@ -118,7 +119,7 @@ class SolutionSection(BaseModel):
     title: str = Field(default="Solution", description="Section title")
     narration: str = Field(..., description="Step-by-step algorithmic breakdown and code narration")
     code_snippet: Optional[str] = Field(default=None, description="Reference code implementation")
-    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for solution step")
+    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for solution step")
     estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
 
     @field_validator("title", "narration")
@@ -158,7 +159,7 @@ class ComplexitySection(BaseModel):
     narration: str = Field(..., description="Narration explaining Big-O bounds and edge cases")
     time_complexity: str = Field(default="O(N)", description="Big-O Time Complexity")
     space_complexity: str = Field(default="O(1)", description="Big-O Space Complexity")
-    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for complexity analysis")
+    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for complexity analysis")
     estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
 
     @field_validator("title", "narration", "time_complexity", "space_complexity")

@@ -41,6 +41,7 @@ QUALITY_FLAGS: Dict[str, str] = {
 
 # Mapping of VisualCue.animation_type to (scene_file_rel_path, scene_class_name)
 ANIMATION_TYPE_MAP: Dict[str, tuple[str, str]] = {
+    "title_card": ("src/animation/scenes/title_scene.py", "TitleScene"),
     "array_highlight": ("src/animation/scenes/array_scene.py", "ArrayScene"),
     "array_traversal": ("src/animation/scenes/array_scene.py", "ArrayScene"),
     "tree_traversal": ("src/animation/scenes/tree_scene.py", "TreeScene"),

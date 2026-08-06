@@ -47,5 +47,7 @@ You must generate a structured JSON object matching the `YouTubeScript` Pydantic
 - `total_duration`: float (MUST equal the sum of section durations)
 - `spoken_narration`: list of strings
 - `visual_cues`: list of visual cue objects `{"cue_id": str, "animation_type": str, "description": str, "timestamp_seconds": float, "parameters": dict}`
-  IMPORTANT: The `animation_type` MUST be one of the following exact strings: `array_highlight`, `tree_traversal`, `code_walkthrough`, `graph_animation`, `hashmap_operation`, `linkedlist_operation`, `stack_queue_operation`, or `complexity_chart`. Do NOT invent new animation types.
+  IMPORTANT: The `animation_type` MUST be one of the following exact strings: `title_card`, `array_highlight`, `tree_traversal`, `code_walkthrough`, `graph_animation`, `hashmap_operation`, `linkedlist_operation`, `stack_queue_operation`, or `complexity_chart`. Do NOT invent new animation types.
+  IMPORTANT: If you use `title_card` (for hooks/introductions), provide a `"title"` key in `parameters`.
+  IMPORTANT: If you use `code_walkthrough`, you MUST provide a `"code"` key in `parameters` containing the actual multi-line code string to display. Do NOT leave it empty. You MUST also provide a `"highlight_lines"` key containing a list of integer line numbers (1-indexed) to animate the highlight over.
   IMPORTANT: The `parameters` dict MUST NOT be empty. You must populate it with relevant variables for the animation (e.g., for a linked list scene: `{"nodes": [1, 2, 3]}`; for an array scene: `{"array": [5, 2, 9]}`, etc) matching the data structures mentioned in the script.
