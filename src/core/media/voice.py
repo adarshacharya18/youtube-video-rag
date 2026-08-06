@@ -81,6 +81,7 @@ class KokoroVoiceProvider:
     Converts text to speech, applying pronunciation dictionaries, retry logic,
     and CPU audio synthesis generating valid 16-bit PCM WAV (24000 Hz, mono).
     """
+    _logger = logging.getLogger(__name__)
 
     def __init__(
         self,
@@ -119,21 +120,54 @@ class KokoroVoiceProvider:
         try:
             from kokoro_onnx import Kokoro
             import soundfile as sf
-            
-            base_dir = Path.cwd() / "models" / "kokoro"
-            model_path = base_dir / "kokoro-v0_19.onnx"
-            voices_path = base_dir / "voices.json"
-            
-            if model_path.exists() and voices_path.exists():
-                self._logger.info(f"Using Kokoro ONNX CPU inference for TTS with voice: {voice_id}")
-                kokoro = Kokoro(str(model_path), str(voices_path))
-                
+
+            project_root = Path(__file__).resolve().parents[3]
+
+            model_candidates = []
+            if self.model_path:
+                model_candidates.extend([
+                    Path(self.model_path),
+                    project_root / self.model_path,
+                    Path.cwd() / self.model_path,
+                ])
+            model_candidates.extend([
+                project_root / "models" / "kokoro-v1.0.onnx",
+                project_root / "models" / "kokoro" / "kokoro-v0_19.onnx",
+                Path.cwd() / "models" / "kokoro-v1.0.onnx",
+                Path.cwd() / "models" / "kokoro" / "kokoro-v0_19.onnx",
+            ])
+
+            voices_candidates = [
+                project_root / "models" / "voices-v1.0.bin",
+                project_root / "models" / "voices.bin",
+                project_root / "models" / "kokoro" / "voices-v1.0.bin",
+                Path.cwd() / "models" / "voices-v1.0.bin",
+                Path.cwd() / "models" / "voices.bin",
+            ]
+
+            resolved_model_path = next((p for p in model_candidates if p.exists() and p.is_file()), None)
+            resolved_voices_path = next((p for p in voices_candidates if p.exists() and p.is_file()), None)
+
+            if resolved_voices_path is None:
+                for search_dir in [project_root / "models", Path.cwd() / "models"]:
+                    if search_dir.exists():
+                        bin_files = list(search_dir.glob("*.bin"))
+                        if bin_files:
+                            resolved_voices_path = bin_files[0]
+                            break
+
+            if resolved_model_path and resolved_voices_path:
+                self._logger.info(
+                    f"Using Kokoro ONNX CPU inference for TTS (model={resolved_model_path.name}, voices={resolved_voices_path.name}) with voice: {voice_id}"
+                )
+                kokoro = Kokoro(str(resolved_model_path), str(resolved_voices_path))
+
                 try:
                     samples, sample_rate = kokoro.create(text, voice=voice_id, speed=speed, lang="en-us")
                 except Exception as e:
                     self._logger.warning(f"Voice {voice_id} failed, falling back to af_sky: {e}")
                     samples, sample_rate = kokoro.create(text, voice="af_sky", speed=speed, lang="en-us")
-                
+
                 sf.write(str(out_path), samples, sample_rate)
                 return _calculate_audio_duration(str(out_path))
             else:

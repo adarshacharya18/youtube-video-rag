@@ -9,9 +9,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from src.core.exceptions import PipelineStageError, VoiceGenerationError
 from src.core.media.voice import AudioSegment, KokoroVoiceProvider, VoiceProviderProtocol
+from src.core.media.gemini_providers import GeminiVoiceProvider
 from src.core.orchestrator.state_ledger import StateLedger
 from src.core.workflow.node import Node
 from src.models.script import YouTubeScript
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class VoiceGeneratorNode(Node):
         provider: Optional[VoiceProviderProtocol] = None,
         output_dir: Optional[Union[str, Path]] = None,
         voice_id: str = "af_sky",
-        speed: float = 1.0,
+        speed: float = 0.85,
     ) -> None:
         """Initialize VoiceGeneratorNode.
 
@@ -48,9 +50,15 @@ class VoiceGeneratorNode(Node):
             provider: Optional voice provider strategy (defaults to KokoroVoiceProvider).
             output_dir: Optional custom output directory path.
             voice_id: Voice identifier string (defaults to 'af_sky').
-            speed: Playback / speech speed modifier (defaults to 1.0).
+            speed: Playback / speech speed modifier (defaults to 0.85).
         """
-        self.provider: VoiceProviderProtocol = provider if provider is not None else KokoroVoiceProvider()
+        if provider is not None:
+            self.provider: VoiceProviderProtocol = provider
+        elif os.getenv("GEMINI_AUDIO_MODEL"):
+            self.provider = GeminiVoiceProvider(model_name=os.getenv("GEMINI_AUDIO_MODEL"))
+        else:
+            self.provider = KokoroVoiceProvider()
+            
         self.output_dir = Path(output_dir) if output_dir else None
         self.voice_id = voice_id
         self.speed = speed
@@ -192,20 +200,29 @@ class VoiceGeneratorNode(Node):
 
     def _generate_srt_content(self, segments: List[str], total_duration: float) -> str:
         """Format list of narration segments into valid SRT subtitle string."""
-        if not segments:
+        import re
+        
+        # Flatten and split massive paragraphs into bite-sized sentences for subtitles
+        sentences = []
+        for segment in segments:
+            # Split by punctuation (period, exclamation, question mark) followed by whitespace
+            parts = re.split(r'(?<=[.!?])\s+', segment.strip())
+            sentences.extend([p.strip() for p in parts if p.strip()])
+            
+        if not sentences:
             return ""
-        total_chars = sum(len(s) for s in segments)
+        total_chars = sum(len(s) for s in sentences)
         if total_chars == 0:
             total_chars = 1
 
         current_time = 0.0
         srt_entries: List[str] = []
 
-        for idx, text in enumerate(segments, start=1):
+        for idx, text in enumerate(sentences, start=1):
             char_ratio = len(text) / total_chars
             seg_duration = char_ratio * total_duration
             start_t = current_time
-            end_t = total_duration if idx == len(segments) else start_t + seg_duration
+            end_t = total_duration if idx == len(sentences) else start_t + seg_duration
 
             start_str = format_srt_timestamp(start_t)
             end_str = format_srt_timestamp(end_t)

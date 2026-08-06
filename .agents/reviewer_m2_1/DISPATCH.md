@@ -1,22 +1,10 @@
-## 2026-08-05T11:33:51Z
-You are Code Reviewer 1 for Milestone 2 (Pipeline Node Integration).
-
+## 2026-08-06T05:45:19Z
+You are Reviewer 1 for Milestone 2 (Video Subsystem Manim Fix & R2 Test).
 Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m2_1
-
-MANDATORY: Read the original user request at /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md before starting your review.
-Read project specification at /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md.
-Read worker handoff report at /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md.
-
 Task:
-1. Examine src/pipeline/nodes/voice_generator_node.py:
-   - Node inheritance from core Node
-   - Strategy provider injection (defaulting to KokoroVoiceProvider)
-   - Step output retrieval for "script_generator" from StateLedger
-   - Master audio file writing to data/audio/{slug}/master_audio.wav
-   - Subtitle file writing to data/audio/{slug}/subtitles.srt
-   - Output payload format (slug, audio_path, subtitle_path, srt_content, duration_seconds, status)
-   - Exception handling (VoiceGenerationError)
-2. Run build and tests:
-   - Run `pytest tests/pipeline/test_voice_node.py -v`
-3. Document your review findings and explicitly declare your verdict (APPROVE or REQUEST_CHANGES) in /home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m2_1/handoff.md.
-4. Message parent with your verdict and report path.
+1. Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md, /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md, and /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/handoff.md.
+2. Examine code changes in src/animation/scenes/, src/assembly/ffmpeg_commands.py, src/pipeline/nodes/animation_generator_node.py, src/assembly/assembler.py, and tests/test_animation/test_manim_animation.py.
+3. Run pytest tests using .venv/bin/pytest tests/test_animation/ tests/pipeline/test_animation_node.py.
+4. Verify correctness, completeness, robustness, and requirement R2 compliance.
+5. Create progress.md and write handoff.md in your working directory ending with an explicit verdict line: `VERDICT: APPROVE` or `VERDICT: REQUEST_CHANGES`.
+6. Report back via send_message to the parent orchestrator.

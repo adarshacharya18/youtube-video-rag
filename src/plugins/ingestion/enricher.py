@@ -78,15 +78,17 @@ class MetadataEnricher:
         enriched.data_structures = list(ds_set)
         
         # 4. Infer Algorithms & Patterns
-        algo_set: Set[str] = set()
+        algo_list: List[str] = []
         for algo, keywords in self._algo_keywords.items():
             if any(kw in text_corpus for kw in keywords):
-                algo_set.add(algo)
-        enriched.patterns = list(algo_set)
+                if algo not in algo_list:
+                    algo_list.append(algo)
+        enriched.patterns = algo_list
         
-        if algo_set:
+        if algo_list:
             # Heuristic: Pick the first matched pattern as the Primary for Scripting Focus
             enriched.primary_algorithm = enriched.patterns[0]
+
             
         # 5. Infer Educational Level from Difficulty
         if enriched.difficulty == "Easy":

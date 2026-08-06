@@ -1,82 +1,92 @@
-# Handoff Report: Phase 12 Media Production (Manim Animation) Codebase Survey
+# Handoff Report — Explorer 1 (Audio Subsystem Specialist)
 
 ## 1. Observation
 
-Direct code observations from the codebase investigation:
+1. **Failure Observation in `src/core/media/voice.py`**:
+   - File: `/home/adarsh/Documents/Youtube-Channel/src/core/media/voice.py`
+   - Line numbers 123–125:
+     ```python
+     base_dir = Path.cwd() / "models" / "kokoro"
+     model_path = base_dir / "kokoro-v0_19.onnx"
+     voices_path = base_dir / "voices.json"
+     ```
+   - Verbatim exception log when attempting `Kokoro(str(model_path), str(voices_path))` via `.venv/bin/python`:
+     ```
+     ValueError: Failed to interpret file 'models/kokoro/voices.json' as a pickle
+     ```
+   - Verbatim code lines 143–167 in `src/core/media/voice.py`:
+     ```python
+     except Exception as e:
+         self._logger.error(f"Kokoro ONNX inference failed: {e}. Falling back to beep.")
+     
+     # Fallback Beep Synthesis
+     sample_rate = 24000
+     ...
+     frequency = 440.0
+     ...
+     ```
 
-1. **`Node` Base Class (`src/core/workflow/node.py`)**:
-   - `Node` is an abstract base class (`node.py:18`).
-   - Defines abstract property `name` (`node.py:28-39`) and abstract method `execute(run_id: str, ledger: StateLedger) -> dict[str, Any]` (`node.py:41-57`).
-   - Inter-node state passing via in-memory objects is explicitly prohibited (`node.py:24-25`).
-   - Helper methods: `get_run_record` (`node.py:59`), `get_completed_step_outputs` (`node.py:81`), `get_step_output` (`node.py:100`).
+2. **Filesystem Observations in `models/`**:
+   - `models/kokoro/voices.json` (size: 30,789,387 bytes) header starts with `b'{"af": [[[-0.2652...` — a JSON text file.
+   - `models/voices-v1.0.bin` (size: 28,214,398 bytes) is a valid NumPy `.npz` archive loaded by `np.load(allow_pickle=True)`.
+   - `models/kokoro-v1.0.onnx` (size: 326,128,103 bytes) and `models/kokoro/kokoro-v0_19.onnx` (size: 326,128,103 bytes) exist locally.
+   - `models/kokoro-82m-openvino/` is empty and `openvino` package is not installed in `.venv`.
 
-2. **`WorkflowEngine` Execution & Fault Tolerance (`src/core/workflow/engine.py`)**:
-   - `run(run_id: str)` iterates over `self.nodes` (`engine.py:144`).
-   - Idempotency check: skips node execution if `completed_steps_map[node.name].status == StepStatus.COMPLETED` (`engine.py:146-158`).
-   - Starts tracking: `step_id = self.ledger.record_step_start(run_id, node.name)` (`engine.py:161`).
-   - Wraps `node.execute(run_id, self.ledger)` in a `try...except Exception as e` block (`engine.py:168-239`).
-   - On exception: calls `self.ledger.record_step_failure(step_id, error_message=error_msg, error_details=error_details)` (`engine.py:209-213`) and returns `EngineResult(success=False, status=StepStatus.FAILED, failed_step=node.name, error=error_msg)` (`engine.py:228-238`), preventing process crashes.
+3. **Empirical CPU Execution Result**:
+   - Running `.venv/bin/python`:
+     ```python
+     from kokoro_onnx import Kokoro
+     kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
+     samples, sample_rate = kokoro.create("Hello world! Voice synthesis working on CPU.", voice="af_sky", speed=1.0)
+     ```
+   - Command Output: `Kokoro initialized successfully! Audio generated! Samples shape: (71168,) Sample rate: 24000`.
 
-3. **`ScriptGeneratorNode` Execution Pattern (`src/pipeline/nodes/script_generator_node.py`)**:
-   - Inherits from `Node` (`script_generator_node.py:27`), `name` property returns `"script_generator"` (`script_generator_node.py:42`).
-   - Retrieves prior step context from `StateLedger` via `self.get_completed_step_outputs(run_id, ledger)` (`script_generator_node.py:89`).
-   - Uses Error-Feedback Retry Loop (`script_generator_node.py:137-161`) validating against `YouTubeScript` Pydantic model (`src/models/script.py:177`).
-   - Returns output dictionary payload containing `"script"` dict and `"slug"` (`script_generator_node.py:59-66`).
-
-4. **Visual Cue Schema & Models**:
-   - `VisualCue` (`src/models/script.py:15-43`): `cue_id: str`, `animation_type: str`, `description: str`, `timestamp_seconds: float`, `parameters: Dict[str, Any]`.
-   - `YouTubeScript` (`src/models/script.py:177-260`): contains `hook.visual_cues`, `context.visual_cues`, `solution.visual_cues`, `complexity.visual_cues`, and auto-aggregated `visual_cues: List[VisualCue]`.
-   - `RenderSegment` (`src/core/models/assets.py:104-176`): `segment_id`, `segment_type`, `start_time`, `end_time`, `duration`, `visual_path`, `scene_type`, `visual_parameters`, `asset_references`.
-
-5. **Exceptions (`src/core/exceptions.py`)**:
-   - `AnimationError` (`src/core/exceptions.py:135-137`) inherits from `PipelineError` (`src/core/exceptions.py:13`).
-
-6. **Animation Scene Templates (`src/animation/scenes/`)**:
-   - 0-byte placeholder files exist in `src/animation/scenes/`: `array_scene.py`, `code_scene.py`, `complexity_scene.py`, `graph_scene.py`, `hashmap_scene.py`, `linkedlist_scene.py`, `stack_queue_scene.py`, `tree_scene.py`.
+4. **Test Suite Behavior**:
+   - Running `.venv/bin/pytest tests/media/test_voice_core.py tests/media/test_voice_stress.py` results in `33 PASSED, 3 FAILED`.
+   - The 33 passing tests check basic WAV header attributes (mono, 16-bit, 24kHz), which the fallback 440 Hz sine wave synthesis satisfies.
+   - The 3 failing tests in `test_voice_stress.py` failed due to a mock signature mismatch (`mock_synthesize` takes 3 args instead of 4).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation 1 & 2** establish that all workflow step execution is governed by `Node` subclassing and managed by `WorkflowEngine`. Inter-node state passing must be strictly handled via `run_id` state lookups in SQLite `StateLedger`.
-2. **Observation 3** shows how `ScriptGeneratorNode` reads prior step outputs (e.g. `plan` / `ingest`), runs generation logic, and writes output payloads containing a serialized `YouTubeScript` dict.
-3. **Observation 4** shows that `YouTubeScript` contains structured `VisualCue` items with `cue_id`, `animation_type`, `description`, `timestamp_seconds`, and `parameters`.
-4. Therefore, `AnimationGeneratorNode` must read the `script_generator` output payload from `StateLedger` via `self.get_step_output(run_id, ledger, "script_generator")`, parse `visual_cues`, and map each `animation_type` to the corresponding Manim scene class (e.g. `array_highlight` -> `ArrayScene`).
-5. To execute render jobs, `AnimationGeneratorNode` must invoke Manim via `subprocess.run()`, directing rendered MP4 clips to isolated temporary media directories, cleaning them up after completion or failure.
-6. When rendering succeeds, `AnimationGeneratorNode` must construct `RenderSegment` objects and return an output payload dictionary to `StateLedger`.
-7. **Observation 5 & 2** confirm that any subprocess or rendering failures should raise `AnimationError`, which `WorkflowEngine` will catch and record as `StepStatus.FAILED` in `StateLedger` without crashing the application shell.
+1. **Observation 1 & 2** show that `KokoroVoiceProvider` targets `models/kokoro/voices.json` for ONNX voice inference.
+2. `kokoro_onnx.Kokoro.__init__` executes `np.load(voices_path)`. Passing a JSON file to `np.load()` triggers a `ValueError`.
+3. **Observation 1** shows that `KokoroVoiceProvider` catches all exceptions during ONNX model initialization and executes fallback sine wave synthesis generating a 440 Hz beep.
+4. **Observation 3** proves that when `voices-v1.0.bin` is passed to `kokoro_onnx.Kokoro`, CPU voice generation succeeds without errors.
+5. **Observation 4** explains why unit tests pass: tests check basic PCM WAV format properties that both real speech and synthetic beeps satisfy.
+6. **Conclusion**: To ensure `KokoroVoiceProvider` outputs voice audio on CPU, `KokoroVoiceProvider` must point to `models/voices-v1.0.bin` (or search for `.bin` voice archives relative to project root) instead of `voices.json`. Additionally, an isolated test file (`tests/test_voice/test_kokoro_voice_isolation.py`) must be added to verify real CPU voice output (R1 requirement).
 
 ---
 
 ## 3. Caveats
 
-- **Existing Scene Implementation State**: The scene files in `src/animation/scenes/` are currently empty placeholders. Implementers will need to build the concrete Manim scene classes or mock scripts for rendering.
-- **Manim Binary Execution Environment**: Rendering depends on external system packages (Manim CE, ffmpeg, cairo, LaTeX if used). For testing, subprocess calls should be mocked using Python mock scripts as required by Phase 12 criteria.
-- **No in-memory state leakage**: Assumes downstream nodes (such as Video Assembler) will read `RenderSegment` payloads strictly from `StateLedger`.
+- **OpenVINO vs ONNX Runtime**: Documentation mentions OpenVINO targeting NPU/CPU, but OpenVINO models/packages are not installed. `onnxruntime` CPU execution via `kokoro-onnx` is fully functional and takes ~0.3s per sentence on CPU.
+- **Path Resolution**: `Path.cwd()` assumes execution from project root. Robust resolution should include `Path(__file__).resolve().parents[...}`.
 
 ---
 
 ## 4. Conclusion
 
-The codebase architecture for workflow nodes and state ledger tracking is robust and fully established. `AnimationGeneratorNode` should be implemented in `src/pipeline/nodes/animation_generator_node.py` inheriting from `Node`, reading `YouTubeScript` visual cues from `StateLedger`, executing isolated Manim subprocesses, and outputting `RenderSegment` payloads. Failure scenarios are cleanly isolated via `AnimationError` and caught by `WorkflowEngine`.
+The audio fallback to a synthetic beep is caused by passing `voices.json` instead of `voices-v1.0.bin` to `kokoro_onnx.Kokoro`, causing `np.load()` to fail and trigger the 440 Hz fallback generator.
 
-Full detailed findings and mapping tables are documented in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md`.
+To resolve:
+1. Update `KokoroVoiceProvider` in `src/core/media/voice.py` to resolve voice model paths using `voices-v1.0.bin` and `kokoro-v1.0.onnx` (or `kokoro-v0_19.onnx`).
+2. Update mock signature in `tests/media/test_voice_stress.py` to accept 4 arguments (`text, speed, output_path, voice_id`).
+3. Add `tests/test_voice/test_kokoro_voice_isolation.py` (or similar Pytest file) ensuring Kokoro outputs real speech on CPU.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify the survey findings and codebase integrity:
-
-1. **Verify Existing Node & Engine Tests**:
+1. **Inspect Code**:
+   - Check `src/core/media/voice.py` lines 120–145 to verify path resolution for `voices-v1.0.bin` and `kokoro-v1.0.onnx`.
+2. **Run Python Inference**:
    ```bash
-   pytest tests/workflow/test_engine.py
-   pytest tests/pipeline/test_script_generator_node.py
+   .venv/bin/python -c "from src.core.media.voice import KokoroVoiceProvider; p = KokoroVoiceProvider(); seg = p.generate_segment('Testing real voice synthesis', 'af_sky', output_path='/tmp/test_voice.wav'); print(seg)"
    ```
-2. **Verify Exception Hierarchy**:
-   Inspect `src/core/exceptions.py` lines 135-137 to confirm `AnimationError` exists.
-3. **Verify Node Contract**:
-   Inspect `src/core/workflow/node.py` to confirm `Node` interface and `get_step_output` signature.
-4. **Invalidation Conditions**:
-   - If `Node` classes pass live Python instances instead of reading from `StateLedger`, the idempotency invariant is invalidated.
-   - If `WorkflowEngine` lets subprocess exceptions leak without updating `StateLedger` status to `FAILED`, fault tolerance is invalidated.
+3. **Run Isolation Test**:
+   ```bash
+   .venv/bin/pytest tests/test_voice/
+   ```
+4. **Invalidation Condition**: If `generate_segment` produces a file containing constant 440 Hz frequency or if `np.load` fails, verification fails.

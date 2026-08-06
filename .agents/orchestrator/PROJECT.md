@@ -1,41 +1,38 @@
-# Project: Voice Production Subsystem (TTS Integration)
+# Project: Video & Audio Subsystems Isolation, Diagnosis, Fix & Testing
 
 ## Architecture
-The Voice Production Subsystem provides text-to-speech synthesis for the automated DSA educational video pipeline.
-- `src/core/media/voice.py`: Defines core data structures (`AudioSegment`, `VoiceConfig`), strategy protocol (`VoiceProviderProtocol`), and concrete providers (`KokoroVoiceProvider` with CPU fallback, `ManualVoiceProvider`).
-- `src/voice/synthesizer.py`: Re-exports core voice definitions for backward compatibility.
-- `src/pipeline/nodes/voice_generator_node.py`: Workflow pipeline node that retrieves generated script from `StateLedger`, synthesizes narration into `data/audio/{slug}/master_audio.wav`, and records output payload in `StateLedger`.
+- Audio Subsystem: `KokoroVoiceProvider` in `src/core/media/voice.py`, loading ONNX models (`models/kokoro-v1.0.onnx` or `kokoro-v0_19.onnx`) and voice binary archive (`models/voices-v1.0.bin`), generating 24kHz mono PCM voice audio on CPU without 440 Hz beep fallback. [FIXED & VERIFIED]
+- Video Subsystem: Manim animation rendering pipeline (`src/animation/scenes/`), ffmpeg filtergraph (`src/assembly/ffmpeg_commands.py`), video validation (`src/pipeline/nodes/animation_generator_node.py` & `src/assembly/assembler.py`), rendering multi-frame moving animations matching visual cue durations. [FIXED & VERIFIED]
+- Test Suite: Pytest isolation test files in `tests/test_voice/test_kokoro_voice.py` (R1 - PASSED) and `tests/test_animation/test_manim_animation.py` (R2 - PASSED).
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | `AudioSegment` Dataclass | Immutable dataclass tracking file_path, duration_sec, voice_id, checksum | M1 | Survey (PromptBook 02_Voice_Production.md:43) |
-| 2 | `VoiceConfig` Dataclass | Configuration settings for voice synthesis (voice_id, sample_rate, speed, pitch) | M1 | Survey (PromptBook 04_08:86) |
-| 3 | `VoiceProviderProtocol` Interface | Strategy pattern protocol defining `generate_segment(...) -> AudioSegment` | M1 | Survey (PromptBook 02_Voice_Production.md:51) |
-| 4 | Phonetic Fixer Helper | Converts DSA terms ("Dijkstra", "O(N)", "O(N^2)") to phonetic strings | M1 | Survey (PromptBook 02_Voice_Production.md:92) |
-| 5 | `KokoroVoiceProvider` | CPU-friendly TTS provider with hardware retries and fallback mechanism | M1 | Survey (PromptBook 02_Voice_Production.md:73) |
-| 6 | `ManualVoiceProvider` | Human voice actor fallback provider verifying disk file presence | M1 | Survey (PromptBook 02_Voice_Production.md:130) |
-| 7 | Re-export Module | `src/voice/synthesizer.py` re-exporting core voice definitions | M1 | Survey (ORIGINAL_REQUEST.md:20) |
-| 8 | `VoiceGeneratorNode` Update | Pipeline node invoking provider, synthesizing `master_audio.wav` from script | M2 | Survey (src/pipeline/nodes/voice_generator_node.py:17) |
-| 9 | Master Audio Post-Processing | Normalizes volume and writes valid WAV master file to `data/audio/{slug}/master_audio.wav` | M2 | Survey (PromptBook 03_Audio_Post_Processing.md) |
-| 10 | Unit & E2E Verification | Pytest unit test execution and CLI ops run pipeline execution (`reorder-list`) | M3 | Survey (ORIGINAL_REQUEST.md:31-36) |
+| 1 | Kokoro TTS Voice Path Fix | Fix `KokoroVoiceProvider` path resolution in `src/core/media/voice.py` to resolve `voices-v1.0.bin` and `kokoro-v1.0.onnx` on CPU | M1 | DONE |
+| 2 | Kokoro TTS Isolation Test (R1) | Pytest test file in `tests/test_voice/test_kokoro_voice.py` verifying KokoroVoiceProvider output voice audio on CPU (not synthetic beep) with acoustic analysis | M1 | DONE |
+| 3 | Manim Scene Runtime & Motion Fix | Update Manim scene templates in `src/animation/scenes/` to read `duration`, budget keyframe steps, and add continuous motion / updaters | M2 | DONE |
+| 4 | FFmpeg Filtergraph & Timestamp Fix | Update `build_4k_scale_filter()` in `src/assembly/ffmpeg_commands.py` to include `fps=fps,setpts=PTS-STARTPTS` and fix `tpad` freeze | M2 | DONE |
+| 5 | Deep Video Validation | Upgrade `_is_valid_video_file` in `src/pipeline/nodes/animation_generator_node.py` and `src/assembly/assembler.py` using `ffprobe` to verify `nb_frames > 1` | M2 | DONE |
+| 6 | Manim Moving Frame Isolation Test (R2) | Pytest test file in `tests/test_animation/test_manim_animation.py` verifying Manim animation renders moving frames (not single frozen frame) via frame delta MAD analysis | M2 | DONE |
+| 7 | E2E Dual Track Testing & Hardening | Comprehensive E2E test suite covering full video and audio subsystems integration | M3 | DONE |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Voice Provider Core Strategy | Implement `src/core/media/voice.py` (`AudioSegment`, `VoiceConfig`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, `ManualVoiceProvider`) and `src/voice/synthesizer.py` re-exports | None | DONE |
-| M2 | Pipeline Node Integration | Update `src/pipeline/nodes/voice_generator_node.py` to extract script, synthesize audio, and output `master_audio.wav` | M1 | DONE |
-| M3 | End-to-End Verification & Testing | Run unit tests (`tests/pipeline/test_voice_node.py`, `tests/media/test_media_pipeline.py`) and verify CLI ops run pipeline execution | M2 | DONE |
+| 1 | Kokoro TTS Isolation & Fix (R1) | KokoroVoiceProvider path resolution fix + Pytest test file in `tests/test_voice/test_kokoro_voice.py` verifying CPU voice audio | none | DONE |
+| 2 | Manim Animation Isolation & Fix (R2) | Manim scene duration/updaters fix, FFmpeg timestamp fix, deep video validation + Pytest test file in `tests/test_animation/test_manim_animation.py` verifying moving frames | none | DONE |
+| 3 | E2E Test Suite & Final Hardening | Dual track E2E testing, coverage hardening, and final verification | M1, M2 | DONE |
 
 ## Interface Contracts
-### `src/core/media/voice.py` ↔ `VoiceGeneratorNode`
-- `AudioSegment(file_path: str, duration_sec: float, voice_id: str, checksum: str)`
-- `VoiceProviderProtocol.generate_segment(text: str, voice_id: str, speed: float = 1.0, output_path: str = "") -> AudioSegment`
-- Exception handling: `VoiceGenerationError` raised on synthesis failure.
+### Voice ↔ Video / Core Pipeline
+- `KokoroVoiceProvider.generate_segment(text, voice, output_path)` -> returns `AudioSegment` with valid 24kHz speech waveform (pause ratio > 5%, RMS energy variance > 50).
+- `AnimationGeneratorNode.process(visual_cues)` -> renders MP4 files where `nb_frames > 1` and inter-frame mean absolute difference `mean_diff > 0.05` across rendered frames for requested duration.
 
 ## Code Layout
-- `src/core/media/voice.py`: Core dataclasses, protocol, and provider implementations.
-- `src/voice/synthesizer.py`: Re-export stub for compatibility.
-- `src/pipeline/nodes/voice_generator_node.py`: Pipeline node implementation.
-- `tests/media/test_media_pipeline.py`: Unit tests for media pipeline and voice providers.
-- `tests/pipeline/test_voice_node.py`: Unit tests for VoiceGeneratorNode.
+- `tests/test_voice/`: Kokoro TTS isolation test suite (`test_kokoro_voice.py`)
+- `tests/test_animation/`: Manim animation isolation test suite (`test_manim_animation.py`)
+- `src/core/media/voice.py`: KokoroVoiceProvider implementation
+- `src/animation/scenes/`: Manim scene templates
+- `src/assembly/ffmpeg_commands.py`: FFmpeg filtergraph construction
+- `src/pipeline/nodes/animation_generator_node.py`: Animation generator node & video validation
+- `src/assembly/assembler.py`: Video assembler & video validation

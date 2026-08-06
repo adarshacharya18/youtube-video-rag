@@ -847,7 +847,7 @@ def test_cli_flags_and_command_array_construction(temp_ledger, mock_manim_script
         assert cmd[5] == "--media_dir"
         assert cmd[7] == "-o"
         assert cmd[8] == "cue_cli.mp4"
-        assert cmd[9] == "src/animation/scenes/array_scene.py"
+        assert cmd[9].endswith("src/animation/scenes/array_scene.py")
         assert cmd[10] == "ArrayScene"
 
     # Test default manim_binary=None -> python -m manim

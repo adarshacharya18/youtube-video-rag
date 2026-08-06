@@ -59,13 +59,18 @@ class ProblemNormalizer:
         # 3. Assemble the final semantic Markdown Document
         final_md = self._construct_markdown(title, difficulty, tags, clean_markdown, hints)
         
+        doc_metadata = dict(raw.metadata)
+        doc_metadata["difficulty"] = difficulty
+        doc_metadata["title"] = title
+
         return NormalizedDocument(
             id=raw.uri,
             title=title,
             markdown=final_md,
-            metadata=raw.metadata,
+            metadata=doc_metadata,
             tags=tags
         )
+
 
     def _html_to_markdown(self, html_text: str) -> str:
         """

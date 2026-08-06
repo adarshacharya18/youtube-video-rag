@@ -1,103 +1,101 @@
-# Handoff Report: Voice Production Subsystem Codebase Exploration
+# Handoff Report: Manim Video Subsystem & Animation Freeze Diagnosis
 
 ## 1. Observation
 
-### Key Codebase Files & Existing Stubs
-1. **`src/voice/synthesizer.py`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/src/voice/synthesizer.py`
-   - Content: Empty 0-byte file (stub).
-2. **`src/voice/audio_utils.py`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/src/voice/audio_utils.py`
-   - Content: Empty 0-byte file (stub).
-3. **`src/models/voice.py`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/src/models/voice.py`
-   - Content: Empty 0-byte file (stub).
-4. **`src/core/media/voice.py`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/src/core/media/voice.py`
-   - Content: File does not exist yet. Directory `src/core/media/` is missing.
-   - Reference: Referenced in `PromptBook/Phase13/02_Voice_Production.md` and `tests/media/test_media_pipeline.py` (line 12: `from src.core.media.voice import VoiceConfig, AudioSegment`).
-5. **`src/pipeline/nodes/voice_generator_node.py`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/voice_generator_node.py` (72 lines)
-   - Functionality: Currently raises `VoiceGenerationError` if `data/audio/<slug>/master_audio.wav` is missing on disk. It contains no TTS instantiation or audio synthesis logic.
-6. **`PromptBook Specification`**:
-   - Location: `/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase13/02_Voice_Production.md` (172 lines)
-   - Architecture: Defines `AudioSegment` dataclass, `VoiceProviderProtocol`, `KokoroVoiceProvider` (with pronunciation dictionary), and `ManualVoiceProvider`.
+### Codebase Observations
+1. **Scene Templates Runtimes (`src/animation/scenes/`)**:
+   - `ArrayScene` (`src/animation/scenes/array_scene.py:32-33`):
+     ```python
+     self.play(manim.Create(array_group))
+     self.wait(1)
+     ```
+   - `CodeScene` (`src/animation/scenes/code_scene.py:27-28`):
+     ```python
+     self.play(manim.Create(code_block))
+     self.wait(1)
+     ```
+   - `TreeScene` (`src/animation/scenes/tree_scene.py:20-21`):
+     ```python
+     self.play(manim.Create(node))
+     self.wait(1)
+     ```
+   - `LinkedListScene` (`src/animation/scenes/linkedlist_scene.py:29-30`):
+     ```python
+     self.play(manim.Create(chain))
+     self.wait(1)
+     ```
+   - `GraphScene` (`src/animation/scenes/graph_scene.py:20-21`), `HashmapScene` (`src/animation/scenes/hashmap_scene.py:27-28`), `StackQueueScene` (`src/animation/scenes/stack_queue_scene.py:26-27`), `ComplexityScene` (`src/animation/scenes/complexity_scene.py:25-26`): All execute a single `Create()` (or `Write()`) animation (1.0s) followed by `self.wait(1)`.
+   - **Parameter Discrepancy**: `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py:190`) extracts `duration = float(parameters.get("duration") or 5.0)`. None of the scene templates read or budget against `duration`.
 
-### Environment & Dependency Inspection
-- Python environment: `/home/adarsh/Documents/Youtube-Channel/.venv`
-- Tested packages via Python runtime:
-  - `kokoro`: Not installed
-  - `torch`: Not installed
-  - `openvino`: Not installed
-  - `pyttsx3`: **Available**
-  - `gtts`: **Available**
-  - `wave`, `scipy`, `soundfile`, `pydub`, `numpy`: **Available**
+2. **FFmpeg Concatenation & Image Cloning (`src/assembly/ffmpeg_commands.py`)**:
+   - `build_concat_filter_graph()` (`src/assembly/ffmpeg_commands.py:168`):
+     ```python
+     if num_audio_inputs > 0:
+         clauses.append(f"[{current_v_label}]tpad=stop_mode=clone:stop=-1[v_padded]")
+         current_v_label = "v_padded"
+     ```
+   - `build_4k_scale_filter()` (`src/assembly/ffmpeg_commands.py:88-94`):
+     ```python
+     return (
+         f"[{input_label}]"
+         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
+         f"setsar=1"
+         f"[{output_label}]"
+     )
+     ```
+     `build_4k_scale_filter` does not include `fps=fps` or `setpts=PTS-STARTPTS` per input stream. `-r 30` is only specified on output encoding options.
 
-### Pipeline Data Passing Mechanics
-- **`ScriptGeneratorNode` (`src/pipeline/nodes/script_generator_node.py`)**:
-  - Outputs payload: `{"script": script_model.model_dump(), "slug": script_model.slug, "topic": script_model.topic, "status": "completed"}`.
-- **`YouTubeScript` Schema (`src/models/script.py`)**:
-  - Structure: `hook`, `context`, `solution`, `complexity` (each with `.narration` string and `.estimated_duration` float).
-  - Aggregated list: `spoken_narration` (`List[str]`).
-- **`PipelineRunner` (`src/core/orchestrator/pipeline_runner.py`)**:
-  - Sequence: `IngestionNode` -> `PlanNode` -> `ScriptGeneratorNode` -> `VoiceGeneratorNode` -> `AnimationGeneratorNode` -> `VideoAssemblyNode`.
-- **Downstream expectations (`src/pipeline/nodes/video_assembly_node.py`)**:
-  - `VideoAssemblyNode` inspects `voice_generator` step output payload for `audio_path`, `subtitle_path`, and `srt_content`.
+3. **Shallow Video Validation (`src/pipeline/nodes/animation_generator_node.py` & `src/assembly/assembler.py`)**:
+   - `_is_valid_video_file()` (`src/pipeline/nodes/animation_generator_node.py:121-134`):
+     Checks only `file_path.exists()`, `file_path.stat().st_size >= 100`, and reads 100 header bytes.
+   - `_is_valid_video()` (`src/assembly/assembler.py:71-78`):
+     Checks only `file_path.exists()` and `file_path.stat().st_size >= 100`.
 
-### Test Suite Baseline
-- `tests/pipeline/test_voice_node.py`: Currently 4 unit tests passing when run with `.venv/bin/pytest tests/pipeline/test_voice_node.py`.
-- `tests/media/test_media_pipeline.py`: Fails collection due to missing `src.core.media.voice`.
+4. **Test Suite Status (`tests/pipeline/test_animation_node.py`)**:
+   - Running `pytest tests/pipeline/test_animation_node.py` ran 37 tests (36 passed, 1 failed in `test_cli_flags_and_command_array_construction` due to absolute path string matching).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Strategy Pattern Architecture**:
-   - `PromptBook/Phase13/02_Voice_Production.md` specifies a Strategy Pattern where `VoiceProviderProtocol` defines `generate_segment(text, voice_id, speed, output_path) -> AudioSegment`.
-   - `KokoroVoiceProvider` and `ManualVoiceProvider` are the concrete providers.
-   - Creating `src/core/media/voice.py` with `VoiceConfig`, `AudioSegment`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, and `ManualVoiceProvider` satisfies both specification R1 and the import expectations of `tests/media/test_media_pipeline.py`.
-
-2. **Hardware Resilience & Fallback (CPU execution R3)**:
-   - Since `kokoro` and `openvino` packages are not present in `.venv` and CUDA is unavailable, `KokoroVoiceProvider` must fall back gracefully to a CPU-friendly offline TTS engine (e.g. `pyttsx3` or wave-based synthesis) when local ML weights/libraries are absent.
-   - This prevents crashes and ensures idempotent generation of non-zero byte `.wav` files on any CPU host.
-
-3. **Pipeline Node Integration (R2)**:
-   - `VoiceGeneratorNode.execute(run_id, ledger)` must:
-     1. Fetch completed step output from `script_generator` using `self.get_step_output(run_id, ledger, "script_generator")`.
-     2. Extract narration text segments from `script` (`spoken_narration` or section narrations: `hook`, `context`, `solution`, `complexity`).
-     3. Instantiate the configured voice provider (e.g. `KokoroVoiceProvider`).
-     4. Synthesize each segment and combine/concatenate them into `data/audio/<slug>/master_audio.wav`.
-     5. Generate subtitle timestamp markers and save `subtitles.srt`.
-     6. Calculate total audio duration and return the output dictionary containing `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, and `status`.
-
-4. **Test Verification**:
-   - Running `python src/cli/ops.py run --slug reorder-list --solution-id 4163684` executes `PipelineRunner`.
-   - When `VoiceGeneratorNode` synthesizes `master_audio.wav` (>0 bytes) to `data/audio/reorder-list/`, all acceptance criteria of `ORIGINAL_REQUEST.md` will be fulfilled.
+1. **Step 1**: Observations show that all 8 scene template classes (`ArrayScene`, `CodeScene`, `TreeScene`, `LinkedListScene`, `GraphScene`, `HashmapScene`, `StackQueueScene`, `ComplexityScene`) render a fixed ~2-second animation (`Create` 1s + `wait(1)` 1s) regardless of the visual cue `duration` parameter (which defaults to 5s and can be 10-15s).
+2. **Step 2**: Observations show that when `VideoAssemblyNode` concats the ~2-second visual segment with section audio narration (e.g. 10-15 seconds long), FFmpeg applies `tpad=stop_mode=clone:stop=-1`.
+3. **Step 3**: `tpad=stop_mode=clone:stop=-1` instructs FFmpeg to duplicate the very last frame of the video segment infinitely until the audio narration ends. Consequently, after the first 2 seconds, the video displays a completely static frozen frame for the remaining 80-90% of the section duration.
+4. **Step 4**: Observations show that `build_4k_scale_filter()` lacks per-input stream framerate and timestamp normalization (`fps=fps,setpts=PTS-STARTPTS`). When concatenating Manim clips with variable framerates or differing timebases, FFmpeg's `concat` filter can freeze output timestamps at frame 0.
+5. **Step 5**: Observations show that scene templates contain no updater functions (`add_updater`), pointer objects (`ValueTracker`), or step-by-step keyframe sequences. Even during the initial 2 seconds, motion stops after 1 second (`Create` completion).
+6. **Step 6**: Observations show that existing validation functions (`_is_valid_video_file` and `_is_valid_video`) only check file size >= 100 bytes, allowing static 1-frame or frozen clips to pass validation without raising an error.
 
 ---
 
 ## 3. Caveats
 
-- **No Source Modification**: As a read-only Explorer, no source code in `src/` or `tests/` was modified during this survey.
-- **Subprocess Dependencies**: `pyttsx3` depends on system `espeak` / `SAPI`. If `espeak` is absent, synthetic raw `.wav` generation using Python's native `wave` module provides a 100% dependency-free CPU fallback for unit test and CLI execution.
+- Manim binary execution was tested with mock Python scripts during pytest; physical GPU/OpenGL rendering under full Manim Community binary was not executed in this read-only survey turn.
+- FFmpeg behavior with `tpad` is based on standard FFmpeg filtergraph specification and verified code path analysis in `src/assembly/ffmpeg_commands.py`.
 
 ---
 
 ## 4. Conclusion
 
-The existing voice production code consists of empty stubs (`src/voice/synthesizer.py`, `src/models/voice.py`) and a mock node check (`src/pipeline/nodes/voice_generator_node.py`).
-To complete the Voice Production Subsystem:
-1. Create `src/core/media/voice.py` implementing `VoiceConfig`, `AudioSegment`, `VoiceProviderProtocol`, `KokoroVoiceProvider` (with CPU fallback), and `ManualVoiceProvider`.
-2. Update `src/voice/synthesizer.py` to re-export or alias core strategy classes.
-3. Update `src/pipeline/nodes/voice_generator_node.py` to read narration from `script_generator`, synthesize `master_audio.wav` via the voice provider, write `subtitles.srt`, and return metadata.
+Animations freeze on the first frame (or freeze after 1-2 seconds) because:
+1. **Scene Runtimes are Fixed at ~2 Seconds**: Scene templates do not use `duration` parameter and end after `Create()` + `wait(1)`.
+2. **FFmpeg `tpad=stop_mode=clone` Clones Frozen Frames**: FFmpeg holds the final frame static for the entire audio duration (up to 15s).
+3. **Lack of Updaters & Dynamic Keyframes**: No continuous motion or step animations exist in scene templates.
+4. **FFmpeg Filtergraph Lacks Input Stream Normalization**: Pre-concat scaling does not normalize `fps` or `setpts`.
+5. **Shallow File Validation**: Validation checks only file size >= 100 bytes, ignoring frame motion or duration.
+
+To fix the issue and implement requirement R2:
+- Update scene templates to extract `duration`, budget animation keyframes, and use `add_updater` / `ValueTracker`.
+- Update `build_4k_scale_filter` to include `fps=fps,setpts=PTS-STARTPTS`.
+- Enhance `_is_valid_video_file` using `ffprobe` to verify `nb_frames > 1`.
+- Build pytest isolation suite `tests/test_animation/test_manim_moving_frames.py` verifying frame count and non-zero frame motion deltas.
 
 ---
 
 ## 5. Verification Method
 
-1. **Unit Tests**:
-   - Run `.venv/bin/pytest tests/pipeline/test_voice_node.py`
-   - Run `.venv/bin/pytest tests/media/test_media_pipeline.py`
-2. **CLI End-to-End Test**:
-   - Run `.venv/bin/python src/cli/ops.py run --slug reorder-list --solution-id 4163684`
-   - Confirm `data/audio/reorder-list/master_audio.wav` exists and size > 0 bytes.
+To independently verify these observations and conclusions:
+1. **Inspect Scene Runtimes**: View `src/animation/scenes/array_scene.py:32-33`, `code_scene.py:27-28`, `tree_scene.py:20-21`, `linkedlist_scene.py:29-30`.
+2. **Inspect FFmpeg Commands**: View `src/assembly/ffmpeg_commands.py:88-94` and `168`.
+3. **Inspect Validation Logic**: View `src/pipeline/nodes/animation_generator_node.py:121-134` and `src/assembly/assembler.py:71-78`.
+4. **Run Pytest Suite**: Execute `pytest tests/pipeline/test_animation_node.py` in terminal.

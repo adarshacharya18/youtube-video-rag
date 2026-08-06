@@ -71,8 +71,9 @@ def write_concat_file(
 def build_4k_scale_filter(
     input_label: str = "0:v",
     output_label: str = "v_scaled",
-    width: int = 3840,
-    height: int = 2160,
+    width: int = 1920,
+    height: int = 1080,
+    fps: int = 30,
 ) -> str:
     """Generates a video scaling and padding filter graph clause for 4K UHD output.
 
@@ -81,6 +82,7 @@ def build_4k_scale_filter(
         output_label: Output stream label (e.g. "v_scaled").
         width: Target video width in pixels. Default 3840 (4K).
         height: Target video height in pixels. Default 2160 (4K).
+        fps: Target framerate. Default 30.
 
     Returns:
         Filter graph string clause.
@@ -89,7 +91,9 @@ def build_4k_scale_filter(
         f"[{input_label}]"
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
-        f"setsar=1"
+        f"setsar=1,"
+        f"fps={fps},"
+        f"setpts=PTS-STARTPTS"
         f"[{output_label}]"
     )
 
@@ -125,8 +129,8 @@ def build_concat_filter_graph(
     num_audio_inputs: int,
     subtitle_path: Optional[Union[str, Path]] = None,
     subtitle_style: Optional[Dict[str, str]] = None,
-    width: int = 3840,
-    height: int = 2160,
+    width: int = 1920,
+    height: int = 1080,
     fps: int = 30,
 ) -> Tuple[str, str, Optional[str]]:
     """Constructs a complex filter graph string for multi-input video/audio assembly.
@@ -153,7 +157,7 @@ def build_concat_filter_graph(
 
     # 1. Scale all video inputs to 4K
     for i in range(num_video_inputs):
-        clauses.append(build_4k_scale_filter(f"{i}:v", f"v{i}", width, height))
+        clauses.append(build_4k_scale_filter(f"{i}:v", f"v{i}", width, height, fps=fps))
 
     # 2. Concat video streams
     if num_video_inputs > 1:
@@ -165,7 +169,7 @@ def build_concat_filter_graph(
 
     # Pad video infinitely if audio is present
     if num_audio_inputs > 0:
-        clauses.append(f"[{current_v_label}]tpad=stop_mode=clone:stop=-1[v_padded]")
+        clauses.append(f"[{current_v_label}]tpad=stop_mode=clone:stop=-1,settb=1/{fps},setpts=N/{fps}/TB[v_padded]")
         current_v_label = "v_padded"
 
     # 3. Burn subtitles if provided
@@ -211,13 +215,14 @@ def build_assembly_command(
     audio_codec: str = "aac",
     audio_bitrate: str = "384k",
     audio_sample_rate: int = 48000,
-    width: int = 3840,
-    height: int = 2160,
+    width: int = 1920,
+    height: int = 1080,
     ffmpeg_binary: str = "ffmpeg",
     video_segments: Optional[List[Union[str, Path]]] = None,
     audio_path: Optional[Union[str, Path]] = None,
     concat_list_path: Optional[Union[str, Path]] = None,
     resolution: Optional[str] = None,
+    output_duration: Optional[float] = None,
 ) -> List[str]:
     """Builds a complete non-shell FFmpeg CLI command argument list for 4K video assembly.
 
@@ -286,6 +291,7 @@ def build_assembly_command(
             width=width,
             height=height,
             ffmpeg_binary=ffmpeg_binary,
+            output_duration=output_duration,
         )
 
     if not v_inputs:
@@ -337,8 +343,11 @@ def build_assembly_command(
             "-b:a", audio_bitrate,
             "-ar", str(audio_sample_rate),
             "-ac", "2",
-            "-shortest"
         ])
+        if output_duration is not None:
+            cmd.extend(["-t", str(output_duration)])
+        else:
+            cmd.append("-shortest")
 
     cmd.append(str(output_path))
     return cmd
@@ -358,9 +367,10 @@ def build_demuxer_assembly_command(
     audio_codec: str = "aac",
     audio_bitrate: str = "384k",
     audio_sample_rate: int = 48000,
-    width: int = 3840,
-    height: int = 2160,
+    width: int = 1920,
+    height: int = 1080,
     ffmpeg_binary: str = "ffmpeg",
+    output_duration: Optional[float] = None,
 ) -> List[str]:
     """Builds an FFmpeg CLI command using concat demuxer text manifest files.
 
@@ -403,6 +413,8 @@ def build_demuxer_assembly_command(
         f"scale={width}:{height}:force_original_aspect_ratio=decrease",
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
         "setsar=1",
+        f"fps={fps}",
+        "setpts=PTS-STARTPTS",
     ]
 
     if has_audio:
@@ -432,8 +444,11 @@ def build_demuxer_assembly_command(
             "-b:a", audio_bitrate,
             "-ar", str(audio_sample_rate),
             "-ac", "2",
-            "-shortest"
         ])
+        if output_duration is not None:
+            cmd.extend(["-t", str(output_duration)])
+        else:
+            cmd.append("-shortest")
 
     cmd.append(str(output_path))
     return cmd

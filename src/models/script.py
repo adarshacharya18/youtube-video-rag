@@ -7,7 +7,7 @@ Hook, Context, Solution, Complexity, along with visual cues and spoken narration
 import json
 import math
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -16,7 +16,16 @@ class VisualCue(BaseModel):
     """Animation or visual reference cue within a script section."""
 
     cue_id: str = Field(..., description="Unique visual cue identifier")
-    animation_type: str = Field(..., description="Type of visual animation (e.g., array_highlight, tree_traversal)")
+    animation_type: Literal[
+        "array_highlight",
+        "tree_traversal",
+        "code_walkthrough",
+        "graph_animation",
+        "hashmap_operation",
+        "linkedlist_operation",
+        "stack_queue_operation",
+        "complexity_chart"
+    ] = Field(..., description="Type of visual animation")
     description: str = Field(..., description="Detailed description of visual action")
     timestamp_seconds: float = Field(default=0.0, ge=0.0, description="Timestamp offset in seconds")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary parameters for renderer")

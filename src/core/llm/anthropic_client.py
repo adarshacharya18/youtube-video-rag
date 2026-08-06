@@ -51,7 +51,8 @@ class AnthropicClient(BaseLLMProvider):
             # Fallback if config loading fails in testing environments
             config = None
 
-        resolved_model = model_name or (config.default_model if config else "claude-3-5-sonnet-20240620")
+        env_model = os.getenv("ANTHROPIC_MODEL")
+        resolved_model = model_name or env_model or (config.default_model if config else "claude-3-5-sonnet-20240620")
         resolved_temp = (
             temperature if temperature is not None else (config.temperature if config else 0.0)
         )

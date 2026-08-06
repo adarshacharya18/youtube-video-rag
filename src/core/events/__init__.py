@@ -12,10 +12,14 @@ from src.core.events.bus import (
     NodeStarted,
 )
 
+Event = BaseEvent
+
 __all__ = [
     "EventBus",
     "BaseEvent",
+    "Event",
     "NodeStarted",
     "NodeCompleted",
     "NodeFailed",
 ]
+

@@ -1,17 +1,10 @@
-## 2026-08-05T11:21:34Z
-
-You are an Environment & Dependency Explorer for the Voice Production Subsystem task.
-
+## 2026-08-06T05:12:37Z
+You are Explorer 3 (Test Harness & Integration Explorer).
 Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3
-
-MANDATORY: Read the original user request at /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md before starting your investigation. Do not proceed without reading it.
-
-Task:
-1. Investigate the environment and dependencies in /home/adarsh/Documents/Youtube-Channel/:
-   - Inspect requirements.txt, pyproject.toml, environment variables, virtual environments, etc.
-   - Check Python version and installed packages (kokoro, kokoro-onnx, edge-tts, pyttsx3, soundfile, pydub, scipy, torch, ffmpeg, etc.)
-   - Test CPU availability and check whether torch/kokoro can run on CPU without CUDA errors or if fallback packages (like edge-tts, pyttsx3, or gTTS) are needed/available
-   - Verify how audio concatenation and saving (e.g. wav format) can be performed reliably without missing native dependencies
-2. Report the optimal CPU-friendly TTS provider strategy and fallback order based on what is actually installed and operational in this environment.
-3. Write your complete analysis report to /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3/handoff.md following the Handoff Protocol.
-4. When finished, send a message to parent with the path to your handoff report and a summary of your findings.
+Your task:
+1. Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md.
+2. Map the overall codebase structure, dependencies, test framework (pytest), fixtures, mock setups, and project layout.
+3. Check existing tests under tests/, check tests/test_voice/ and tests/test_animation/ if present or where they should be located.
+4. Assess how to write step-by-step isolated tests for audio and video subsystems according to requirements R1 and R2.
+5. Create progress.md (with timestamp header) and write your detailed findings to analysis.md and handoff.md in your working directory.
+6. Report your findings back via send_message to the parent orchestrator.

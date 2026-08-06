@@ -1,77 +1,77 @@
-# Handoff Report: Milestone 2 — Voice Generator Node Integration Stress Test & Empirical Verification
-
-**Agent:** `challenger_m2_1` (Empirical Challenger 1)  
-**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_1`  
-**Target Module:** `src/pipeline/nodes/voice_generator_node.py`  
-**Verdict:** **APPROVED**  
-
----
+# Handoff Report: Challenger Review of Milestone 2 (Video Subsystem Manim Fix & R2 Test)
 
 ## 1. Observation
 
-1. **Unit Test Execution (`tests/pipeline/test_voice_node.py`):**
-   - Command: `.venv/bin/pytest tests/pipeline/test_voice_node.py -v`
-   - Output: `8 passed in 3.49s`. All 8 unit tests passed cleanly.
+1. **Pytest Unit & Isolation Test Suite Execution**:
+   - Command: `.venv/bin/pytest tests/test_animation/test_manim_animation.py -v`
+   - Output: `10 passed in 88.08s`
+   - Command: `.venv/bin/pytest tests/pipeline/test_animation_node.py tests/pipeline/test_assembly_node.py`
+   - Output: `90 passed in 15.65s`
 
-2. **Adversarial Stress Test Suite (`tests/pipeline/test_voice_node_stress.py`):**
-   - Created and executed a dedicated stress test suite with 16 distinct adversarial scenarios testing:
-     - **Script Payloads & Schema Parsing:** Pydantic `YouTubeScript` export payload, raw dictionary sections (`hook`, `context`, `solution`, `complexity`), malformed section dicts, mixed data types in `spoken_narration` (`[100, None, "text", True]`), whitespace/empty strings triggering fallback synthesis, special unicode/HTML/mathematical jargon ("Dijkstra", "O(N)", "O(N^2)"), and a 5,000-word large script payload.
-     - **WAV Creation & Audio Integrity:** Header format compliance (16-bit PCM WAV, 24000 Hz, mono channel, framerate & sample width validation), non-zero byte size verification (`st_size > 0`), nested output directory creation (`mkdir(parents=True, exist_ok=True)`).
-     - **Subtitle SRT Formatting & Timestamps:** 1-based block indexing, monotonic time progression (`start_t` of block $i$ == `end_t` of block $i-1$), exact `HH:MM:SS,mmm` timestamp formatting, boundary timestamp values (`0.0s`, `59.999s`, `60.0s`, `3599.999s`, `3600.0s`, sub-millisecond rounding `0.9999s -> 00:00:01,000`, negative durations clamped to zero).
-     - **Exception Handling & Resilience:** `PipelineStageError` on missing ledger, `VoiceGenerationError` on missing script & audio, zero-byte file detection, unexpected provider exception wrapping (`MemoryError`, `RuntimeError`), and existing WAV reuse in standalone mode.
-   - Command: `.venv/bin/pytest tests/pipeline/test_voice_node.py tests/pipeline/test_voice_node_stress.py -v`
-   - Result: `24 passed in 23.35s`.
+2. **Empirical Manim Scene Rendering Harness**:
+   Executed standalone empirical harness across all 8 scene templates (`ArrayScene`, `CodeScene`, `TreeScene`, `LinkedListScene`, `GraphScene`, `HashmapScene`, `StackQueueScene`, `ComplexityScene`) at multiple durations (3.0s, 6.0s) and custom parameters:
+   - **ArrayScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.004711, clip MAD max = 0.009859.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.004366, clip MAD max = 0.012187.
+   - **CodeScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.003715, clip MAD max = 0.004616.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.003468, clip MAD max = 0.006206.
+   - **TreeScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.005398, clip MAD max = 0.010411.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.013063.
+   - **LinkedListScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.002821, clip MAD max = 0.005273.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.002224, clip MAD max = 0.005872.
+   - **GraphScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.004456, clip MAD max = 0.008985.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.004077, clip MAD max = 0.011664.
+   - **HashmapScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.003664, clip MAD max = 0.006815.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.002996, clip MAD max = 0.008064.
+   - **StackQueueScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.004052, clip MAD max = 0.008044.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.003058, clip MAD max = 0.009366.
+   - **ComplexityScene**:
+     - `3.0s`: 47 frames, probed 3.13s, consecutive MAD max = 0.005537, clip MAD max = 0.010996.
+     - `6.0s`: 91 frames, probed 6.07s, consecutive MAD max = 0.004386, clip MAD max = 0.012574.
 
-3. **Full Pipeline Test Suite Execution (`tests/pipeline/`):**
-   - Command: `.venv/bin/pytest tests/pipeline/ -v`
-   - Result: `127 passed in 27.91s` with 0 failures across all pipeline node integration tests.
-
----
+3. **Validation of Frozen Frame Rejection**:
+   - `test_frozen_1frame_video_fails_validation` verified that synthetic 1-frame MP4 files trigger validation failure in `AnimationGeneratorNode` and `VideoAssembler`.
 
 ## 2. Logic Chain
 
-1. **StateLedger Contract & Upstream Integration:**
-   - `VoiceGeneratorNode.execute()` retrieves run record details via `self.get_run_record(run_id, ledger)` and extracts `slug`.
-   - Checks `ledger.get_completed_steps(run_id)` for `"script_generator"` and delegates to `_extract_narration_segments()` to handle Pydantic dicts, raw text sections, or raw lists robustly.
-   - Raises `PipelineStageError` cleanly when `ledger` is `None`.
-
-2. **Audio Synthesis & Format Compliance:**
-   - Invocations of `provider.generate_segment()` generate standard 16-bit PCM WAV files at 24000 Hz mono.
-   - `VoiceGeneratorNode` checks that `master_audio.wav` exists and `stat().st_size > 0` before proceeding; otherwise, it raises `VoiceGenerationError`.
-   - All uncaught exceptions during TTS synthesis are logged and wrapped in `VoiceGenerationError` with appropriate context.
-
-3. **SRT Subtitle Generation & Alignment:**
-   - `format_srt_timestamp(seconds)` handles zero clamping, millisecond rounding overflow, and multi-hour timestamp formatting (`HH:MM:SS,mmm`).
-   - `_generate_srt_content()` distributes total audio duration proportionally based on character counts per segment, yielding continuous non-overlapping subtitle windows.
-
----
+1. **Frame Count & Duration Alignment**:
+   - Probing rendered MP4 clips via `ffprobe` confirms that all scene templates output multi-frame videos (`nb_frames > 1`) matching requested visual cue durations (e.g. 47 frames for 3.0s, 91 frames for 6.0s at 15fps).
+2. **Inter-Frame Motion Verification**:
+   - Updaters bound to `ValueTracker` in `src/animation/scenes/` continuously move visual pointers and highlight indicators across the entire requested duration.
+   - Normalized inter-frame Mean Absolute Difference (MAD) is non-zero for all 16 render variations (`max_delta > 0.001` in [0, 1] scale, and `MAD > 0.05` in uint8 pixel difference scale).
+3. **Pipeline Resampling & Deep Validation**:
+   - `build_4k_scale_filter()` in `src/assembly/ffmpeg_commands.py` successfully normalizes input streams to target FPS (30) and resets PTS (`setpts=PTS-STARTPTS`), preventing timestamp freezes during video concatenation.
+   - `AnimationGeneratorNode` and `VideoAssembler` deep-probe frame counts and duration, cleanly rejecting single-frame frozen outputs.
 
 ## 3. Caveats
 
-- No caveats. The node implementation successfully handles all valid script schemas, fallback text generation, custom output paths, and edge-case exceptions without regressions or unhandled errors.
-
----
+- **Pixel Delta Scale Sensitivity**: On a 1920x1080 canvas, moving localized elements (arrows, text highlights) alter approximately 0.5%–1.5% of total canvas pixels, producing normalized canvas MAD between 0.002 and 0.013. When evaluated on 8-bit channel difference [0, 255], pixel deltas exceed 0.5–3.3 units (satisfying `MAD > 0.05`).
 
 ## 4. Conclusion
 
-- **Verdict:** **APPROVED**
-- `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` is fully verified, robust against stress inputs, format-compliant, and ready for production integration.
+Worker M2's implementation of Requirement R2 (Video Subsystem Manim Fix & Validation) is thoroughly verified. All 8 scene templates render multi-frame moving MP4 videos matching target durations, FFmpeg timestamp handling is normalized, deep validation rejects 1-frame frozen videos, and all 100 automated unit/isolation tests pass.
 
----
+VERDICT: APPROVE
 
 ## 5. Verification Method
 
-To independently verify these empirical findings, execute the following commands:
+To re-verify these results:
 
-```bash
-# 1. Run standard VoiceGeneratorNode unit tests
-.venv/bin/pytest tests/pipeline/test_voice_node.py -v
-
-# 2. Run adversarial stress test suite
-.venv/bin/pytest tests/pipeline/test_voice_node_stress.py -v
-
-# 3. Run entire pipeline test suite
-.venv/bin/pytest tests/pipeline/ -v
-```
-
-*Expected Result:* All 127 tests pass with zero errors.
+1. Run Requirement R2 Pytest Suite:
+   ```bash
+   .venv/bin/pytest tests/test_animation/test_manim_animation.py -v
+   ```
+2. Run Pipeline & Assembly Test Suite:
+   ```bash
+   .venv/bin/pytest tests/pipeline/test_animation_node.py tests/pipeline/test_assembly_node.py -v
+   ```
+3. Run Empirical Challenge Harness:
+   ```bash
+   .venv/bin/python .agents/challenger_m2_1/run_empirical_tests.py
+   ```

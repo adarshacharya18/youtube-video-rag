@@ -1,19 +1,10 @@
-## 2026-08-05T11:33:51Z
-You are Adversarial Challenger 2 for Milestone 2 (Pipeline Node Integration).
-
+## 2026-08-06T05:45:20Z
+<USER_REQUEST>
+You are Challenger 2 for Milestone 2 (Video Subsystem Manim Fix & R2 Test).
 Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2
-
-MANDATORY: Read the original user request at /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md before starting your stress testing.
-Read project specification at /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md.
-Read worker handoff report at /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md.
-
 Task:
-1. Empirically verify CPU execution and edge cases for VoiceGeneratorNode in src/pipeline/nodes/voice_generator_node.py.
-2. Test:
-   - CPU execution without CUDA errors
-   - Empty/missing script outputs in StateLedger
-   - Master audio file output size > 0 bytes
-   - Verification of payload output fields
-3. Run tests using pytest: `pytest tests/pipeline/test_voice_node.py -v`.
-4. Document your empirical findings and declare your verdict (APPROVE or REJECT) in /home/adarsh/Documents/Youtube-Channel/.agents/challenger_m2_2/handoff.md.
-5. Message parent with your verdict and report path.
+1. Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md and /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2/handoff.md.
+2. Stress test the video frame motion assertions in tests/test_animation/test_manim_animation.py and video validation in src/pipeline/nodes/animation_generator_node.py. Ensure that if a single frozen 1-frame MP4 is passed to the validation / frame motion test assertions, it fails immediately.
+3. Create progress.md and write handoff.md in your working directory ending with an explicit verdict line: `VERDICT: APPROVE` or `VERDICT: REJECT`.
+4. Report back via send_message to the parent orchestrator.
+</USER_REQUEST>

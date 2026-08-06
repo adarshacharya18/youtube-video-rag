@@ -1,13 +1,12 @@
-# Progress Log - reviewer_m1_2
+# Progress Log
 
-Last visited: 2026-07-30T17:47:15Z
+Last visited: 2026-08-06T05:37:00Z
 
-## Steps Completed
-- [x] Environment and briefing setup.
-- [x] Read ORIGINAL_REQUEST.md for Phase 14 / Milestone M1 verbatim requirements.
-- [x] Read all node files and pipeline_runner.py.
-- [x] Run pytest on target directories (`tests/orchestrator/`, `tests/cli/`, `tests/workflow/`, `tests/pipeline/`, `tests/production/`).
-- [x] Conduct quality review & adversarial stress testing for integrity violations, edge cases, error handling, contract alignment.
-- [x] Write analysis report `analysis.md`.
-- [x] Write handoff report `handoff.md` with explicit verdict (`REQUEST_CHANGES`).
-- [x] Send message to orchestrator parent.
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Read ORIGINAL_REQUEST.md, PROJECT.md, and worker_m1/handoff.md
+- [x] Read and inspect src/core/media/voice.py and tests/test_voice/test_kokoro_voice.py
+- [x] Run pytest tests (.venv/bin/pytest tests/test_voice/ tests/media/)
+- [x] Discovered test failure: `tests/media/test_voice_stress.py::TestAudioStructureAndPCM::test_speed_multiplier_affects_duration` fails under real Kokoro TTS (2.84 vs 3.29 exceeds abs=0.2 tolerance).
+- [x] Perform integrity audit & adversarial review - Flagged unaddressed test regression / unverified claim in worker_m1 handoff.
+- [x] Write handoff.md with explicit VERDICT: REQUEST_CHANGES
+- [x] Report back to orchestrator via send_message

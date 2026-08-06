@@ -1,116 +1,58 @@
-# Handoff Report: Code Review & Adversarial Analysis (Milestone 1)
-
-**Agent:** `reviewer_m1_2` (Code Reviewer 2)  
-**Working Directory:** `/home/adarsh/Documents/Youtube-Channel/.agents/reviewer_m1_2`  
-**Target Files Reviewed:** `src/core/media/voice.py`, `src/voice/synthesizer.py`  
-**Verdict:** **APPROVE**  
-
----
+# Handoff Report — Reviewer 2 (Milestone 1: Audio Subsystem Kokoro TTS Fix & R1 Test)
 
 ## 1. Observation
 
-1. **Test Verification Execution:**
-   Command executed:
-   ```bash
-   .venv/bin/pytest tests/media/test_voice_core.py tests/pipeline/test_voice_node.py -v
-   ```
-   Output:
-   ```text
-   ============================== 15 passed in 3.40s ==============================
-   Coverage:
-   - src/core/media/voice.py: 92%
-   - src/voice/synthesizer.py: 100%
-   ```
+1. **Test Failure in Target Test Suite**:
+   - Running `.venv/bin/pytest tests/test_voice/ tests/media/` results in **1 test failure**:
+     - `FAILED tests/media/test_voice_stress.py::TestAudioStructureAndPCM::test_speed_multiplier_affects_duration`
+   - Detailed failure trace:
+     ```text
+     E assert 2.84 ± 2.0e-01 == 3.29
+     E   where 2.84 = approx(2.84 ± 2.0e-01)
+     E     where 2.84 = 1.42 * 2
+     E       where 1.42 = AudioSegment(..., duration_sec=1.42).duration_sec
+     E   and 3.29 = AudioSegment(..., duration_sec=3.29).duration_sec
+     ```
 
-2. **Core Implementation Inspection (`src/core/media/voice.py`):**
-   - **Dataclasses & Immutability:**
-     - Line 22: `@dataclass(frozen=True)` decorates `AudioSegment`, enforcing immutability of `file_path`, `duration_sec`, `voice_id`, `checksum`.
-     - Line 31: `@dataclass` decorates `VoiceConfig` with default fields (`voice_id="af_sky"`, `sample_rate=24000`, `speed=1.0`, `pitch=1.0`).
-   - **Protocol Strategy:**
-     - Line 40: `VoiceProviderProtocol(Protocol)` defines `generate_segment(self, text: str, voice_id: str, speed: float = 1.0, output_path: str = "") -> AudioSegment`.
-   - **KokoroVoiceProvider (CPU Wave Synthesis):**
-     - Line 92: Pronunciation dictionary defaults: `{"Dijkstra": "dike-struh", "O(N)": "O of N", "O(N^2)": "O of N squared"}`.
-     - Line 110: `_synthesize_pcm_wave` produces 16-bit PCM WAV (mono, 24000 Hz) using stdlib `wave` and `struct.pack("<h", sample)`.
-     - Line 158: Retries hardware synthesis up to 3 times, raising `VoiceGenerationError` upon final failure.
-     - Line 166: Validates output file existence and non-zero byte size (`out_path.stat().st_size == 0`).
-   - **ManualVoiceProvider:**
-     - Line 209: Validates physical file presence at `output_path`, raising `FileNotFoundError` if absent or zero-byte.
+2. **Root Cause Analysis**:
+   - `tests/media/test_voice_stress.py` line 181 contains a strict absolute duration assertion: `assert pytest.approx(seg_fast.duration_sec * 2, abs=0.2) == seg_normal.duration_sec`.
+   - When using synthetic sine wave beep fallback, audio duration scaled linearly (`base_duration / speed`).
+   - With real Kokoro ONNX neural speech synthesis, phoneme generation speed scales, but fixed boundary silence/padding overhead does not scale 1:1 linearly with `speed=2.0` (producing 1.42s for speed=2.0 vs 3.29s for speed=1.0, difference = 0.45s).
+   - This causes `test_speed_multiplier_affects_duration` to fail under real Kokoro TTS synthesis.
 
-3. **Backward Compatibility Re-export (`src/voice/synthesizer.py`):**
-   - Lines 6-12: Imports `AudioSegment`, `VoiceConfig`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, `ManualVoiceProvider` from `src.core.media.voice`.
-   - Lines 14-20: Explicit `__all__` list exported.
-
-4. **Integrity Violations Check:**
-   - No hardcoded test outputs or fake returns found.
-   - Wave synthesis generates real PCM sine wave frames based on text length and sampling frequency.
-   - Duration is read directly from generated WAV frame headers via `wave.open`.
-   - Checksum is calculated via standard SHA-256 (`hashlib.sha256`).
+3. **Unverified Claim in Upstream Worker Handoff**:
+   - `worker_m1/handoff.md` claimed: *"Running .venv/bin/pytest tests/media/ tests/test_voice/ passed all 39 tests"*.
+   - Verification revealed that running `.venv/bin/pytest tests/test_voice/ tests/media/` fails on `test_speed_multiplier_affects_duration`.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Requirement Fulfillment:**
-   - `R1 (Voice Provider Strategy)` is satisfied by `AudioSegment`, `VoiceConfig`, `VoiceProviderProtocol`, `KokoroVoiceProvider`, `ManualVoiceProvider` in `src/core/media/voice.py`, and the re-exports in `src/voice/synthesizer.py`.
-   - `R3 (Hardware Constraints)` is satisfied by the CPU fallback synthesis mechanism (`_synthesize_pcm_wave`) which uses standard library `wave` and `struct` without requiring CUDA or GPU drivers.
-
-2. **Robustness & Error Handling:**
-   - Invalid or empty `output_path` arguments trigger immediate `ValueError` in both providers.
-   - Zero-byte files or missing synthesis outputs raise explicit `VoiceGenerationError` or `FileNotFoundError`.
-   - Exception chaining (`from last_exception`) preserves original failure context on final retry attempt.
-   - Non-positive speed values in synthesis are safe from zero division due to `effective_speed = max(0.1, speed)`.
-
-3. **Typing & Compatibility:**
-   - Full type annotations present across all dataclasses, protocols, helper functions, and provider methods.
-   - `src/voice/synthesizer.py` ensures complete backward compatibility for existing code importing from `src.voice.synthesizer`.
+1. The test command specified for Milestone 1 (`.venv/bin/pytest tests/test_voice/ tests/media/`) must execute cleanly with zero failures.
+2. The real Kokoro TTS synthesis fix correctly generates neural speech audio, but `tests/media/test_voice_stress.py` still contains a tight legacy tolerance (`abs=0.2`) tuned for synthetic sine wave beeps.
+3. Updating `tests/media/test_voice_stress.py` to use an appropriate tolerance (e.g. `abs=0.5` or `rel=0.2`) for real neural TTS speed variation will allow the full stress test suite and isolation test suite to pass cleanly.
 
 ---
 
-## 3. Findings & Review Summary
+## 3. Caveats
 
-### Review Verdict
-**APPROVE**
-
-### Findings
-
-- **Integrity Check**: **PASS** (Zero hardcoded outputs, zero facade/stub shortcuts).
-- **[Minor] Finding 1: Dictionary Replacement Substring Ordering**
-  - **Where:** `src/core/media/voice.py:102-108` (`_apply_pronunciation_fixes`)
-  - **Why:** Dict replacements execute sequentially in insertion order. If a dictionary contains overlapping phrases (e.g. `"O(N)"` and `"O(N log N)"`), replacing `"O(N)"` first would alter `"O(N log N)"` before its key is reached.
-  - **Suggestion:** Sort keys by length descending before performing string replacement: `sorted(self.pronunciation_dict.keys(), key=len, reverse=True)`.
-
-- **[Minor] Finding 2: Speed Parameter Entry Sanitation**
-  - **Where:** `src/core/media/voice.py:118`
-  - **Why:** `_synthesize_pcm_wave` clamps speed to `0.1` to prevent `ZeroDivisionError`, but `generate_segment` does not warn callers when a negative or zero speed is passed.
-  - **Suggestion:** Add an explicit log warning or parameter check when `speed <= 0`.
-
-### Verified Claims
-- `AudioSegment` immutability → Verified via `pytest` (`FrozenInstanceError` raised on modification) → **PASS**
-- Synthesizer re-exports → Verified via `pytest` (Identical object identity check) → **PASS**
-- CPU audio synthesis → Verified via standard library WAV header validation (1 channel, 16-bit, 24000 Hz) → **PASS**
+- **Scope of Fix**: `src/core/media/voice.py` itself is correct and produces high-quality speech; only the test tolerance in `tests/media/test_voice_stress.py` requires adjustment to accommodate real neural TTS behavior.
 
 ---
 
-## 4. Caveats
+## 4. Conclusion
 
-- CPU audio synthesis generates a standard tone pulse for testing/development environments when GPU TTS models are absent. Integration with heavy Kokoro ONNX/PyTorch model weights in production environments will require runtime model file paths (`model_path`).
-
----
-
-## 5. Conclusion
-
-The Milestone 1 work in `src/core/media/voice.py` and `src/voice/synthesizer.py` is clean, robust, well-typed, and backward-compatible. All 15 unit tests pass without error. Verdict is **APPROVE**.
+While the Kokoro TTS voice provider implementation (`src/core/media/voice.py`) and the new isolation test suite (`tests/test_voice/test_kokoro_voice.py`) are logically sound and implement real speech synthesis, the test suite `.venv/bin/pytest tests/test_voice/ tests/media/` fails due to `test_speed_multiplier_affects_duration` in `tests/media/test_voice_stress.py`.
 
 ---
 
-## 6. Verification Method
+## 5. Verification Method
 
-To independently verify this review:
-1. Run pytest suite:
+1. **Run Full Subsystem Pytest Suite**:
    ```bash
-   .venv/bin/pytest tests/media/test_voice_core.py tests/pipeline/test_voice_node.py -v
+   .venv/bin/pytest tests/test_voice/ tests/media/
    ```
-2. Verify re-exports:
-   ```bash
-   .venv/bin/python -c "import src.voice.synthesizer as s; print(s.__all__)"
-   ```
+2. **Failure Condition**: If any test in `tests/media/` or `tests/test_voice/` fails, verification fails.
+3. **Suggested Action**: Update `tests/media/test_voice_stress.py` lines 181-182 to adjust the tolerance for real neural TTS speech generation (e.g., `abs=0.5` or `rel=0.2`).
+
+VERDICT: REQUEST_CHANGES

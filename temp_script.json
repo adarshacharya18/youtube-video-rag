@@ -1,0 +1,134 @@
+{
+  "script": {
+    "topic": "Reorder List",
+    "slug": "reorder-list",
+    "difficulty": "Medium",
+    "hook": {
+      "title": "Hook",
+      "narration": "Ever wondered how to rearrange a singly linked list in-place into a folded pattern without using extra memory? Reorder List is one of the ultimate interview questions that tests your mastery of core pointer manipulations!",
+      "visual_cues": [
+        {
+          "cue_id": "hook_cue_1",
+          "animation_type": "linked_list_fold",
+          "description": "Animate a linked list folding like an accordion into L0, Ln, L1, Ln-1 pattern",
+          "timestamp_seconds": 0.0,
+          "parameters": {}
+        }
+      ],
+      "estimated_duration": 10.0
+    },
+    "context": {
+      "title": "Understanding the Problem",
+      "narration": "Given the head of a singly linked list, we need to reorder its nodes so they follow the sequence L0, Ln, L1, Ln-1, L2, Ln-2, and so on. We are strictly forbidden from modifying node values, meaning we must rebind node pointers directly. While copying node values to an array makes this easy in linear space, solving it in optimal O(1) auxiliary space requires a clever three-step strategy!",
+      "visual_cues": [
+        {
+          "cue_id": "ctx_cue_1",
+          "animation_type": "array_vs_pointer",
+          "description": "Show comparison of O(N) space array approach vs O(1) in-place pointer manipulation",
+          "timestamp_seconds": 10.0,
+          "parameters": {}
+        }
+      ],
+      "estimated_duration": 20.0
+    },
+    "solution": {
+      "title": "Step-by-Step Algorithm & Code",
+      "narration": "Step one: find the midpoint of the linked list using fast and slow pointers. Slow moves one step while fast moves two steps. Step two: split the list into two halves and reverse the second half in-place using three pointers. Step three: interleave the nodes from the first half and the reversed second half alternatingly until every node is reconnected.",
+      "code_snippet": "def reorderList(head):\n    if not head or not head.next: return\n    slow, fast = head, head.next\n    while fast and fast.next:\n        slow, fast = slow.next, fast.next.next\n    second, slow.next, prev = slow.next, None, None\n    while second:\n        second.next, prev, second = prev, second, second.next\n    first, second = head, prev\n    while second:\n        tmp1, tmp2 = first.next, second.next\n        first.next, second.next = second, tmp1\n        first, second = tmp1, tmp2",
+      "visual_cues": [
+        {
+          "cue_id": "sol_cue_1",
+          "animation_type": "slow_fast_pointers",
+          "description": "Demonstrate fast and slow pointers finding the midpoint of the list",
+          "timestamp_seconds": 30.0,
+          "parameters": {}
+        },
+        {
+          "cue_id": "sol_cue_2",
+          "animation_type": "reverse_linked_list",
+          "description": "Show the second half of the list reversing its links in real-time",
+          "timestamp_seconds": 40.0,
+          "parameters": {}
+        },
+        {
+          "cue_id": "sol_cue_3",
+          "animation_type": "merge_two_lists",
+          "description": "Animate alternating pointers weaving nodes from both halves together",
+          "timestamp_seconds": 48.0,
+          "parameters": {}
+        }
+      ],
+      "estimated_duration": 22.0
+    },
+    "complexity": {
+      "title": "Complexity Analysis",
+      "narration": "Finding the mid-point takes O(N) time, reversing the second half takes O(N) time, and merging both halves takes O(N) time. Summing these up gives a overall time complexity of O(N). Because all operations manipulate existing node references in-place, the space complexity is strictly O(1).",
+      "time_complexity": "O(N)",
+      "space_complexity": "O(1)",
+      "visual_cues": [
+        {
+          "cue_id": "comp_cue_1",
+          "animation_type": "complexity_card",
+          "description": "Display O(N) Time and O(1) Space complexity cards on screen",
+          "timestamp_seconds": 52.0,
+          "parameters": {}
+        }
+      ],
+      "estimated_duration": 10.0
+    },
+    "total_duration": 62.0,
+    "spoken_narration": [
+      "Ever wondered how to rearrange a singly linked list in-place into a folded pattern without using extra memory? Reorder List is one of the ultimate interview questions that tests your mastery of core pointer manipulations!",
+      "Given the head of a singly linked list, we need to reorder its nodes so they follow the sequence L0, Ln, L1, Ln-1, L2, Ln-2, and so on. We are strictly forbidden from modifying node values, meaning we must rebind node pointers directly. While copying node values to an array makes this easy in linear space, solving it in optimal O(1) auxiliary space requires a clever three-step strategy!",
+      "Step one: find the midpoint of the linked list using fast and slow pointers. Slow moves one step while fast moves two steps. Step two: split the list into two halves and reverse the second half in-place using three pointers. Step three: interleave the nodes from the first half and the reversed second half alternatingly until every node is reconnected.",
+      "Finding the mid-point takes O(N) time, reversing the second half takes O(N) time, and merging both halves takes O(N) time. Summing these up gives a overall time complexity of O(N). Because all operations manipulate existing node references in-place, the space complexity is strictly O(1)."
+    ],
+    "visual_cues": [
+      {
+        "cue_id": "hook_cue_1",
+        "animation_type": "linked_list_fold",
+        "description": "Animate a linked list folding like an accordion into L0, Ln, L1, Ln-1 pattern",
+        "timestamp_seconds": 0.0,
+        "parameters": {}
+      },
+      {
+        "cue_id": "ctx_cue_1",
+        "animation_type": "array_vs_pointer",
+        "description": "Show comparison of O(N) space array approach vs O(1) in-place pointer manipulation",
+        "timestamp_seconds": 10.0,
+        "parameters": {}
+      },
+      {
+        "cue_id": "sol_cue_1",
+        "animation_type": "slow_fast_pointers",
+        "description": "Demonstrate fast and slow pointers finding the midpoint of the list",
+        "timestamp_seconds": 30.0,
+        "parameters": {}
+      },
+      {
+        "cue_id": "sol_cue_2",
+        "animation_type": "reverse_linked_list",
+        "description": "Show the second half of the list reversing its links in real-time",
+        "timestamp_seconds": 40.0,
+        "parameters": {}
+      },
+      {
+        "cue_id": "sol_cue_3",
+        "animation_type": "merge_two_lists",
+        "description": "Animate alternating pointers weaving nodes from both halves together",
+        "timestamp_seconds": 48.0,
+        "parameters": {}
+      },
+      {
+        "cue_id": "comp_cue_1",
+        "animation_type": "complexity_card",
+        "description": "Display O(N) Time and O(1) Space complexity cards on screen",
+        "timestamp_seconds": 52.0,
+        "parameters": {}
+      }
+    ]
+  },
+  "slug": "reorder-list",
+  "topic": "Reorder List",
+  "status": "completed"
+}

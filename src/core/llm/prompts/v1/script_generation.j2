@@ -30,6 +30,11 @@ Your script must be divided into 4 mandatory sections:
 3. Solution: Algorithmic breakdown and step-by-step code implementation walkthrough.
 4. Complexity: Big-O Time Complexity and Space Complexity analysis with edge cases.
 
+=== VISUAL SYNC & CUE DENSITY (CRITICAL) ===
+- You MUST generate at least 2 to 3 `visual_cues` per section to keep the video visually dynamic. 
+- Spread the cues evenly across the section's `estimated_duration` using `timestamp_seconds` to exactly match when the concept is mentioned in the narration.
+- EXACT DATA MATCHING: The specific examples (numbers, arrays, linked lists, strings) you talk about in your `narration` MUST EXACTLY MATCH the data passed into the `parameters` dict of the corresponding visual cue. If your narration says 'For example, array [4, 1, 3]', your visual cue `parameters` must be `{"array": [4, 1, 3]}`. Do NOT let the voice narration differ from the on-screen animation data.
+
 === OUTPUT FORMAT & PYDANTIC SCHEMA CONTRACT ===
 You must generate a structured JSON object matching the `YouTubeScript` Pydantic model:
 - `topic`: "{{ topic }}"
@@ -42,3 +47,5 @@ You must generate a structured JSON object matching the `YouTubeScript` Pydantic
 - `total_duration`: float (MUST equal the sum of section durations)
 - `spoken_narration`: list of strings
 - `visual_cues`: list of visual cue objects `{"cue_id": str, "animation_type": str, "description": str, "timestamp_seconds": float, "parameters": dict}`
+  IMPORTANT: The `animation_type` MUST be one of the following exact strings: `array_highlight`, `tree_traversal`, `code_walkthrough`, `graph_animation`, `hashmap_operation`, `linkedlist_operation`, `stack_queue_operation`, or `complexity_chart`. Do NOT invent new animation types.
+  IMPORTANT: The `parameters` dict MUST NOT be empty. You must populate it with relevant variables for the animation (e.g., for a linked list scene: `{"nodes": [1, 2, 3]}`; for an array scene: `{"array": [5, 2, 9]}`, etc) matching the data structures mentioned in the script.

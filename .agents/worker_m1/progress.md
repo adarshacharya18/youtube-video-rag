@@ -1,14 +1,13 @@
-# Progress Log - Worker M1 (Phase 13 Milestone 1)
+# Progress Log - worker_m1
 
-Last visited: 2026-07-30T22:08:26Z
+Last visited: 2026-08-06T10:48:30Z
 
-- [x] Received dispatch for Phase 13 Milestone 1.
-- [x] Initialized DISPATCH.md and BRIEFING.md.
-- [x] Read ORIGINAL_REQUEST.md, SCOPE.md, and explorer handoff reports.
-- [x] Inspect existing codebase contracts (`src/core/exceptions.py`, `src/core/workflow/node.py`, `src/core/state/ledger.py`, `src/schemas/assembly.py`, etc.).
-- [x] Implement `src/assembly/ffmpeg_commands.py`.
-- [x] Implement `src/assembly/assembler.py`.
-- [x] Implement `src/pipeline/nodes/video_assembly_node.py`.
-- [x] Run checks and verification tests.
-- [x] Write `changes.md` and `handoff.md`.
-- [x] Send handoff message to parent.
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Read ORIGINAL_REQUEST.md, PROJECT.md, and explorer_survey_1/handoff.md
+- [x] Inspect src/core/media/voice.py, tests/media/test_voice_stress.py, and existing models directory
+- [x] Implement path resolution and ONNX CPU synthesis fix in src/core/media/voice.py
+- [x] Fix mock_synthesize signature in tests/media/test_voice_stress.py
+- [x] Create tests/test_voice/test_kokoro_voice.py with acoustic waveform analysis (R1)
+- [x] Run pytest verification on tests/media/ and tests/test_voice/ (42/42 PASSED, 96% coverage)
+- [x] Write changes.md and handoff.md
+- [x] Send completion message to parent orchestrator

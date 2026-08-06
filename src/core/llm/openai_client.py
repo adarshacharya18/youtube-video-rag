@@ -53,7 +53,8 @@ class OpenAIClient(BaseLLMProvider):
             # Fallback if config loading fails in testing environments
             config = None
 
-        resolved_model = model_name or (config.default_model if config else "gpt-4o")
+        env_model = os.getenv("OPENAI_MODEL")
+        resolved_model = model_name or env_model or (config.default_model if config else "gpt-4o")
         resolved_temp = (
             temperature if temperature is not None else (config.temperature if config else 0.0)
         )

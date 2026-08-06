@@ -1,59 +1,47 @@
-# Implementation Summary — Phase 13 Milestone 1: Assembly Core & Node Files
+# Changes Summary — Worker 1 (Audio Subsystem Implementer & Test Developer)
 
-## Overview
-Worker M1 successfully implemented all required core assembly and node modules for Phase 13 (Media Production: Video Assembly):
-1. `src/assembly/ffmpeg_commands.py`
-2. `src/assembly/assembler.py`
-3. `src/pipeline/nodes/video_assembly_node.py`
+## Summary of Code Modifications
 
----
+### 1. `src/core/media/voice.py` (`KokoroVoiceProvider`)
+- **Fix Path Resolution in `_synthesize_pcm_wave()`**:
+  - Replaced hardcoded `base_dir = Path.cwd() / "models" / "kokoro"` and `voices.json` path targeting with multi-candidate search relative to `project_root = Path(__file__).resolve().parents[3]` and `Path.cwd()`.
+  - Configured model candidates order: `models/kokoro-v1.0.onnx`, `models/kokoro/kokoro-v0_19.onnx`.
+  - Configured voice binary candidates order: `models/voices-v1.0.bin`, `models/voices.bin`, `models/kokoro/voices-v1.0.bin`, as well as wildcard search for `*.bin` archives in `models/`.
+  - Passed valid numpy `.bin` voice file (`models/voices-v1.0.bin`) to `kokoro_onnx.Kokoro()` instead of text `voices.json` (which triggered `ValueError` in `np.load`).
+- **Fix Class Attribute `_logger`**:
+  - Added `_logger = logging.getLogger(__name__)` at class level to prevent `AttributeError: 'KokoroVoiceProvider' object has no attribute '_logger'` when instances are created without calling `__init__` (e.g. in test mocks or unpickling).
+- **Outcome**: `KokoroVoiceProvider` synthesizes real 24kHz mono PCM voice audio on CPU using `kokoro_onnx` without falling back to the 440 Hz continuous synthetic beep.
 
-## Details of Changes
+### 2. `tests/media/test_voice_stress.py`
+- **Fix Mock Synthesize Signatures**:
+  - Updated `mock_synthesize(text, speed, output_path, voice_id="af_sky")` helper signature.
+  - Updated `mock_synthesize_fail(text, speed, output_path, voice_id="af_sky")` helper signature.
+  - Updated `mock_synthesize_zero_byte(text, speed, output_path, voice_id="af_sky")` helper signature.
+  - Aligned parameter list with `KokoroVoiceProvider._synthesize_pcm_wave(text, speed, output_path, voice_id)`.
 
-### 1. `src/assembly/ffmpeg_commands.py`
-- **Purpose**: Pure CLI command builders with zero side-effects (no file I/O or process execution).
-- **Key Functions**:
-  - `escape_ffmpeg_filter_path(path)`: Escapes colons (`\:`), single quotes (`\'`), backslashes (`\\\\`), and brackets (`\[`, `\]`) to prevent FFmpeg filter graph parsing errors.
-  - `build_4k_scale_filter(input_label, output_label, width, height)`: Generates scaling and padding filter graph fragment for 4K UHD (`3840x2160`, letterbox/pillarbox padding, `setsar=1`).
-  - `build_subtitle_filter(subtitle_path, force_style, input_label, output_label)`: Generates `subtitles` filter clause with white text, black outline, bottom-center alignment ASS/SSA typography styling.
-  - `build_concat_filter_graph(num_video_inputs, num_audio_inputs, subtitle_path, ...)`: Constructs complex multi-stream `-filter_complex` filter graphs.
-  - `build_assembly_command(...)`: Constructs complete non-shell argument array (`List[str]`) enforcing 4K resolution (3840x2160), 30fps (`-r 30`), H.264 video codec (`libx264`), 8-bit `yuv420p` pixel format, CRF 18 (`-crf 18`), preset `medium`, AAC audio (`aac`), 384k bitrate (`-b:a 384k`), and 48kHz stereo audio (`-ar 48000 -ac 2`).
-  - `build_demuxer_assembly_command(...)`: Supports concat demuxer manifest file inputs.
-  - `write_concat_file(file_paths, output_manifest_path)`: Writes text manifest files for concat demuxer mode.
-
-### 2. `src/assembly/assembler.py`
-- **Purpose**: Secure, low-level FFmpeg process execution and temporary directory management.
-- **Key Features**:
-  - `VideoAssembler` class with `run_command(...)` and `assemble(...)` methods.
-  - Secure non-shell execution: `subprocess.run(full_cmd, shell=False, close_fds=True, timeout=300.0, capture_output=True, text=True)`.
-  - Exception mapping: Catches `subprocess.TimeoutExpired`, non-zero exit codes (`returncode != 0`), or OS execution errors and raises `AssemblyError` with captured stderr/stdout details.
-  - Output validation: `_is_valid_video(...)` asserts destination artifact exists and is at least 100 bytes.
-  - Temporary lifecycle: `tempfile.TemporaryDirectory(prefix="assembly_", dir=...)` context manager guarantees complete cleanup of intermediate `.srt` or `.txt` manifest files.
-  - Atomic rename: Writes to temporary output destination (`tmp_dest`) before executing `os.replace(tmp_dest, dest_path)` to ensure complete non-corrupt output artifacts.
-
-### 3. `src/pipeline/nodes/video_assembly_node.py`
-- **Purpose**: Workflow Engine integration subclassing `Node`.
-- **Key Features**:
-  - Sets `@property def name(self) -> str: return "video_assembly"`.
-  - Retrieves visual animation segment paths (`.mp4`) and duration metadata from `animation_generator` step output in `StateLedger`.
-  - Retrieves audio tracks (`.wav`) and subtitle paths (`.srt` or string content) from `voice_generator` or `script_generator` completed step outputs in `StateLedger`.
-  - Instantiates `VideoAssembler` to compile inputs into 4K video.
-  - Sanitizes problem `slug` to match `^[a-z0-9-]+$` and validates final output payload against `AssembledVideo` Pydantic schema (`src/core/models/assets.py`).
-  - Error boundaries: Missing ledger, missing prior step outputs, or nonexistent segment files raise `PipelineStageError`. Subprocess or render failures raise `AssemblyError`.
+### 3. `tests/test_voice/test_kokoro_voice.py` (New Pytest Isolation Test File - R1)
+- **Created Requirement R1 Isolation Test**:
+  - `test_kokoro_voice_provider_cpu_synthesis_real_speech`: Verifies speech synthesis on CPU using acoustic waveform analysis:
+    - 24kHz mono 16-bit PCM WAV file structure.
+    - `non_zero_count > 1000` (non-zero sample check).
+    - `pause_ratio > 0.05` (verifies speech pauses > 5% vs continuous beep's 0%).
+    - `rms_variance > 50.0` (verifies dynamic speech energy range vs flat sine wave's ~18.5).
+    - `spectral_entropy > 4.0` (verifies speech frequency distribution via FFT vs pure sine wave tone).
+  - `test_kokoro_voice_provider_handles_different_voices_and_speeds`: Verifies speed scaling and alternative voices.
+  - `test_kokoro_voice_provider_pronunciation_sanitization`: Verifies technical jargon sanitization (e.g., Dijkstra, O(N)) during synthesis.
 
 ---
 
-## Verification & Test Results
-1. **Python Imports Check**:
-   - Command: `python3 -c "import src.assembly.ffmpeg_commands; import src.assembly.assembler; import src.pipeline.nodes.video_assembly_node"`
-   - Result: Passed (exit code 0).
-2. **Workflow Test Suite**:
-   - Command: `PYTHONPATH=. pytest tests/workflow/ -v`
-   - Result: 22 passed in 0.36s.
-3. **Core Assembly Verification Script**:
-   - Tested filter path escaping, 4K filter graph generation, non-shell command list structure, demuxer command generation, and `VideoAssembler` process execution with mock executable.
-   - Result: Passed (exit code 0).
-4. **Node & StateLedger End-to-End Integration**:
-   - Verified `VideoAssemblyNode.execute(...)` with `StateLedger` database instance and mock `animation_generator` step outputs.
-   - Verified `AssembledVideo` payload output and error condition handling (`ledger is None`, missing steps, nonexistent segment files, non-zero returncodes).
-   - Result: Passed (exit code 0).
+## Build & Test Verification Commands & Results
+
+1. **Pytest Run on Audio Test Suites**:
+   ```bash
+   .venv/bin/pytest tests/media/ tests/test_voice/ tests/pipeline/test_voice_node.py tests/pipeline/test_voice_node_stress.py
+   ```
+   **Result**: 42 passed in 8.79s.
+
+2. **Pytest Code Coverage on Voice Subsystem**:
+   ```bash
+   .venv/bin/pytest --cov=src/core/media/voice tests/media/ tests/test_voice/ tests/pipeline/test_voice_node.py tests/pipeline/test_voice_node_stress.py
+   ```
+   **Result**: 42 passed, `src/core/media/voice.py` test coverage at **96%**.

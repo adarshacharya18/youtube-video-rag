@@ -158,7 +158,7 @@ class PipelineRunner:
             PlanNode(),
             ScriptGeneratorNode(llm_provider=provider_impl),
             VoiceGeneratorNode(),
-            AnimationGeneratorNode(),
+            AnimationGeneratorNode(quality="high"),
             VideoAssemblyNode(),
         ]
 

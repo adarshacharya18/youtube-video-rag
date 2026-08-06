@@ -27,12 +27,12 @@ class VideoAssemblyNode(Node):
     def __init__(
         self,
         ffmpeg_binary: Optional[str] = None,
-        resolution: str = "3840x2160",
+        resolution: str = "1920x1080",
         fps: int = 30,
         crf: int = 18,
-        preset: str = "medium",
+        preset: str = "fast",
         output_dir: Optional[Union[str, Path]] = None,
-        timeout: float = 300.0,
+        timeout: float = 1800.0,
         temp_dir: Optional[Union[str, Path]] = None,
     ) -> None:
         """Initialize VideoAssemblyNode.

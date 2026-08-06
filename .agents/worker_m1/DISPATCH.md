@@ -1,33 +1,22 @@
-## 2026-07-30T22:06:26Z
-You are Worker M1 (teamwork_preview_worker).
-Your working directory is /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1.
+## 2026-08-06T10:44:57Z
+You are Worker 1 (Audio Subsystem Implementer & Test Developer).
+Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m1
 
-OBJECTIVE:
-Implement Phase 13 Milestone 1: Assembly Core & Node files:
-1. `src/assembly/ffmpeg_commands.py`: Pure helper functions building list-based FFmpeg commands for 4K video rendering (3840x2160, 30fps, libx264, yuv420p, crf 18, aac 384k), concat filters, audio merging, and subtitle burning filter graph escaping (`subtitles=...`).
-2. `src/assembly/assembler.py`: `VideoAssembler` class performing secure non-shell `subprocess.run(..., close_fds=True, timeout=300.0, capture_output=True, text=True)`, managing temporary directory cleanup (`tempfile.TemporaryDirectory()`), and raising `AssemblyError` (`src/core/exceptions.py:140`) on errors or timeouts.
-3. `src/pipeline/nodes/video_assembly_node.py`: `VideoAssemblyNode` subclass of `Node` (`src/core/workflow/node.py`), setting `name = "video_assembly"`, retrieving Phase 11 audio and Phase 12 Manim video segment paths from `StateLedger`, calling `VideoAssembler`, and outputting `AssembledVideo` schema payload.
-
-INPUT INFORMATION:
-- Read MANDATORY original requirements: `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md` (Phase 13 section).
-- Scope document: `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase13/SCOPE.md`.
-- Explorer design handoff reports:
-  - `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_1/handoff.md` (and `analysis.md`)
-  - `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_2/handoff.md` (and `analysis.md`)
-  - `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m1_3/handoff.md` (and `analysis.md`)
-
-FILE WRITING BOUNDARIES:
-You exclusively own and may edit:
-- `src/assembly/ffmpeg_commands.py`
-- `src/assembly/assembler.py`
-- `src/pipeline/nodes/video_assembly_node.py`
-
-MANDATORY INTEGRITY WARNING:
-DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
-
-OUTPUT REQUIREMENTS:
-Run python imports/checks/tests on your created code, write implementation summary to `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/changes.md` and handoff report to `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/handoff.md`.
-
-COMPLETION CRITERIA:
-- `src/assembly/ffmpeg_commands.py`, `src/assembly/assembler.py`, and `src/pipeline/nodes/video_assembly_node.py` fully implemented and verified.
-- Handoff report published and message sent to orchestrator parent.
+Scope & Instructions:
+1. Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md, /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator/PROJECT.md, and /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/handoff.md.
+2. Modify src/core/media/voice.py (KokoroVoiceProvider):
+   - Fix path resolution in _synthesize_pcm_wave() so that it resolves voice binary files (e.g. models/voices-v1.0.bin) and ONNX models (e.g. models/kokoro-v1.0.onnx or models/kokoro/kokoro-v0_19.onnx) relative to project root or Path(__file__).
+   - Ensure KokoroVoiceProvider synthesizes real 24kHz mono voice audio on CPU using kokoro_onnx without falling back to the 440 Hz continuous synthetic beep.
+3. Modify tests/media/test_voice_stress.py:
+   - Fix mock_synthesize helper signature to accept (text, speed, output_path, voice_id="af_sky") matching KokoroVoiceProvider._synthesize_pcm_wave().
+4. Create Pytest isolation test file tests/test_voice/test_kokoro_voice.py:
+   - Fulfills Requirement R1.
+   - Verifies KokoroVoiceProvider output voice audio on CPU (not synthetic beep).
+   - Use acoustic waveform analysis (e.g., verifying audio duration, non-zero audio samples, pause ratio > 5%, RMS energy variance > 50, or spectral analysis showing speech frequencies instead of a single 440 Hz sine wave).
+5. Build & Test Verification:
+   - Run pytest on tests/media/ and tests/test_voice/ using .venv/bin/pytest.
+   - Document test commands and results in your report.
+6. MANDATORY INTEGRITY WARNING:
+   DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
+7. Write changes.md and handoff.md in your working directory (/home/adarsh/Documents/Youtube-Channel/.agents/worker_m1/) detailing changes, build/test results, and verification output.
+8. Report back via send_message to the parent orchestrator upon completion.

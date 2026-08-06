@@ -72,3 +72,24 @@ def mock_problem_factory() -> Callable[..., dict[str, Any]]:
             "cpp_code": "class Solution { public: vector<int> twoSum() {} };"
         }
     return _create_problem
+
+
+# ==========================================
+# 4. Async Test Runner Compatibility
+# ==========================================
+
+import asyncio
+import inspect
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Automatically mark async test functions with anyio marker for execution."""
+    for item in items:
+        if inspect.iscoroutinefunction(getattr(item, "obj", None)) or item.get_closest_marker("asyncio"):
+            item.add_marker(pytest.mark.anyio)
+

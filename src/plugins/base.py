@@ -62,7 +62,18 @@ class AbstractBasePlugin(abc.ABC):
         # Plugins start in DISCOVERED until the PluginLoader touches them
         self._state = ModuleState.DISCOVERED
         self._context: PluginContext | None = None
-        self._logger = logging.getLogger(f"plugin.{self.manifest.name}")
+        self._logger: logging.Logger | None = None
+
+
+    @property
+    def logger(self) -> logging.Logger:
+        if self._logger is None:
+            try:
+                name = self.manifest.name
+            except Exception:
+                name = "unnamed"
+            self._logger = logging.getLogger(f"plugin.{name}")
+        return self._logger
 
     @property
     @abc.abstractmethod
@@ -81,7 +92,7 @@ class AbstractBasePlugin(abc.ABC):
         """
         self._context = context
         self._state = ModuleState.INITIALIZED
-        self._logger.info(f"[{self.manifest.name}] Initialized v{self.manifest.version}")
+        self.logger.info(f"[{self.manifest.name}] Initialized v{self.manifest.version}")
 
     async def configure(self, config_overrides: dict[str, Any]) -> None:
         """Override to parse specific plugin configs (e.g., API keys)."""
@@ -98,27 +109,28 @@ class AbstractBasePlugin(abc.ABC):
     async def start(self) -> None:
         """Override to bind Event Bus subscriptions and background tasks."""
         self._state = ModuleState.RUNNING
-        self._logger.info(f"[{self.manifest.name}] Started executing.")
+        self.logger.info(f"[{self.manifest.name}] Started executing.")
 
     async def pause(self) -> None:
         """Override to suspend consuming queue events temporarily."""
         self._state = ModuleState.PAUSED
-        self._logger.info(f"[{self.manifest.name}] Paused.")
+        self.logger.info(f"[{self.manifest.name}] Paused.")
 
     async def resume(self) -> None:
         """Override to resume consuming queue events."""
         self._state = ModuleState.RUNNING
-        self._logger.info(f"[{self.manifest.name}] Resumed.")
+        self.logger.info(f"[{self.manifest.name}] Resumed.")
 
     async def stop(self) -> None:
         """Override to stop processing gracefully, but keep connections warm."""
         self._state = ModuleState.STOPPED
-        self._logger.info(f"[{self.manifest.name}] Stopped.")
+        self.logger.info(f"[{self.manifest.name}] Stopped.")
 
     async def shutdown(self) -> None:
         """Override to cleanly close SQLite connections, HTTP client sessions, etc."""
         self._state = ModuleState.SHUTDOWN
-        self._logger.info(f"[{self.manifest.name}] Shut down successfully.")
+        self.logger.info(f"[{self.manifest.name}] Shut down successfully.")
+
 
     def health(self) -> PluginHealth:
         """Override to provide custom metrics (e.g., DB ping latency)."""

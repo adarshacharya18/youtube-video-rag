@@ -44,7 +44,7 @@ class GeminiClient(BaseLLMProvider):
             backoff_factor: Multiplier factor for backoff (default 2.0).
             max_backoff: Maximum backoff delay cap in seconds (default 30.0).
         """
-        resolved_model = model_name or "gemini-3.5-flash"
+        resolved_model = model_name or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
         resolved_temp = temperature if temperature is not None else 0.0
         resolved_retries = max_retries if max_retries is not None else 3
         resolved_timeout = timeout if timeout is not None else 60.0

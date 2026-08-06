@@ -1,32 +1,41 @@
-# BRIEFING — 2026-07-30T13:05:40Z
+# BRIEFING — 2026-08-06T10:44:20+05:30
 
 ## Mission
-Investigate Node abstractions, state ledger integration, script generator visual cues structure, and error handling to prepare Phase 12 AnimationGeneratorNode implementation strategy.
+Investigate Kokoro TTS audio subsystem, determine fallback to synthetic beep cause, and analyze CPU execution/test isolation.
 
 ## 🔒 My Identity
-- Archetype: Teamwork explorer
-- Roles: Codebase explorer and surveyor
+- Archetype: Explorer
+- Roles: Audio Subsystem Specialist
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1
-- Original parent: 0f1d5dbc-7894-43ee-934f-cc066271f8d1
-- Milestone: Phase 12 Media Production: Animation (Manim) Survey
+- Original parent: a18a871f-5012-4fe5-8871-39fef9503339
+- Milestone: Audio Subsystem Isolation & Diagnosis
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement pipeline nodes or modify source code files outside .agents/explorer_survey_1
-- Focus on codebase alignment: Node base class, Workflow Engine, State Ledger integration, Script Pydantic models & visual cues, exceptions.
+- Read-only investigation — do NOT implement production code changes
+- Document findings in analysis.md and handoff.md in working directory
+- Maintain progress.md heartbeat
 
 ## Current Parent
-- Conversation ID: 0f1d5dbc-7894-43ee-934f-cc066271f8d1
-- Updated: 2026-07-30T13:05:40Z
+- Conversation ID: a18a871f-5012-4fe5-8871-39fef9503339
+- Updated: 2026-08-06T10:44:20+05:30
 
 ## Investigation State
-- **Explored paths**: `src/core/workflow/node.py`, `src/core/workflow/engine.py`, `src/pipeline/nodes/script_generator_node.py`, `src/models/script.py`, `src/core/models/assets.py`, `src/core/models/plan.py`, `src/core/models/video.py`, `src/core/exceptions.py`, `src/core/orchestrator/state_ledger.py`, `src/animation/scenes/`.
-- **Key findings**: Documented Node subclass execution model, SQLite State Ledger read/write mechanics, Workflow Engine fault isolation, YouTubeScript VisualCue Pydantic schema, and visual cue mapping to Manim scene templates.
-- **Unexplored areas**: None (Survey objective complete).
+- **Explored paths**: `src/core/media/voice.py`, `src/voice/synthesizer.py`, `src/pipeline/nodes/voice_generator_node.py`, `models/`, `tests/media/test_voice_core.py`, `tests/media/test_voice_stress.py`, `tests/pipeline/test_voice_node.py`
+- **Key findings**: 
+  - Root cause of synthetic 440 Hz beep fallback is `KokoroVoiceProvider` attempting to load `voices.json` (JSON text file) via `np.load()` inside `kokoro_onnx`, which raises `ValueError`.
+  - The exception is caught by `KokoroVoiceProvider._synthesize_pcm_wave()`, falling back to 440 Hz sine wave beep.
+  - `models/voices-v1.0.bin` (28.2 MB `.npz` archive) exists and loads successfully with `kokoro_onnx.Kokoro` on CPU.
+  - CPU inference with `models/kokoro-v1.0.onnx` (or `kokoro-v0_19.onnx`) and `models/voices-v1.0.bin` outputs real spoken audio in ~0.3 seconds.
+  - Existing tests passed because they only asserted valid WAV header attributes (mono, 16-bit, 24kHz), which the 440 Hz sine wave generator satisfies.
+- **Unexplored areas**: None for audio scope.
 
 ## Key Decisions Made
-- Written detailed architectural survey to `analysis.md`.
-- Formulated 5-component handoff report in `handoff.md`.
+- Completed deep-dive investigation into audio fallback mechanism and CPU ONNX inference.
+- Documented findings in `analysis.md` and `handoff.md`.
 
 ## Artifact Index
-- `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md` — Complete codebase analysis report
-- `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/handoff.md` — Handoff report for Phase 12 survey
+- DISPATCH.md — Dispatch instructions log
+- BRIEFING.md — Context and briefing
+- progress.md — Liveness heartbeat and progress tracking
+- analysis.md — Detailed technical analysis report
+- handoff.md — 5-component handoff report

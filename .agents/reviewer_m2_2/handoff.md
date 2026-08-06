@@ -1,114 +1,70 @@
-# Code Review Report: Milestone 2 — Voice Generator Node Integration
-
-**Reviewer Agent:** `reviewer_m2_2` (Code Reviewer & Adversarial Critic)  
-**Target File:** `src/pipeline/nodes/voice_generator_node.py`  
-**Test File:** `tests/pipeline/test_voice_node.py`  
-**Verdict:** **APPROVE**  
-
----
+# Reviewer Handoff Report — Milestone 2 (Video Subsystem Manim Fix & R2 Test)
 
 ## 1. Observation
 
-1. **Integrity Violations Check:**
-   - Evaluated `src/pipeline/nodes/voice_generator_node.py` and `src/core/media/voice.py` for integrity violations (hardcoded test results, facade/dummy logic, shortcuts, self-certifying work).
-   - **Findings:** Zero integrity violations. Real WAV file generation (16-bit PCM WAV at 24000 Hz, mono), actual SRT subtitle alignment calculations, and real exception handling are fully implemented.
+- **Implementation Verification**:
+  - `src/animation/scenes/` (`array_scene.py`, `code_scene.py`, `tree_scene.py`, `linkedlist_scene.py`, `graph_scene.py`, `hashmap_scene.py`, `stack_queue_scene.py`, `complexity_scene.py`): All 8 scene templates extract `duration = float(self.params.get("duration", 5.0))` and budget scene timelines across intro, step2, and wait_time. Continuous motion updaters attached to `ValueTracker` run frame-by-frame during `wait_time`, preventing single frozen frame renders.
+  - `src/assembly/ffmpeg_commands.py`: `build_4k_scale_filter()` and `build_concat_filter_graph()` include per-stream framerate resampling (`fps={fps}`) and timestamp resets (`setpts=PTS-STARTPTS`). `tpad=stop_mode=clone:stop=-1` is applied only when audio inputs are present to handle audio-video length matching cleanly without freezing input streams prematurely.
+  - Deep Video Validation (`src/pipeline/nodes/animation_generator_node.py:121` and `src/assembly/assembler.py:72`): `_is_valid_video_file` and `_is_valid_video` invoke `ffprobe` to verify `nb_frames > 1` and `duration > 0.1s`. Frozen 1-frame MP4 files fail validation. Mock byte headers in unit test fixtures are safely supported.
+  
+- **Pytest Isolation Test Execution (Requirement R2)**:
+  - Command: `.venv/bin/pytest tests/test_animation/test_manim_animation.py -v`
+  - Result: **10 passed in 121.83s**
+  - Verified tests:
+    - 8 scene templates rendered via `ManimRenderer`, probed via `ffprobe` (`nb_frames > 1`, `duration > 0.1s`), PNG frames extracted via FFmpeg (`fps=5`), and inter-frame mean absolute difference (MAD) computed via PIL `ImageChops`. All 8 scenes demonstrated non-zero motion (`max_delta > 0.001`).
+    - `test_frozen_1frame_video_fails_validation`: Confirmed that 1-frame static MP4s fail video validation in both `AnimationGeneratorNode` and `VideoAssembler`.
+    - `test_duration_parameter_budgeting`: Confirmed requested duration parameter controls rendered video length (`duration >= 4.5s` for 5s requested duration).
 
-2. **Node Contract Compliance (`src/core/workflow/node.py`):**
-   - `VoiceGeneratorNode` inherits from `Node`.
-   - `name` property correctly returns `"voice_generator"`.
-   - `execute(run_id, ledger)` enforces strict `StateLedger` state retrieval using `self.get_run_record(run_id, ledger)` and `self.get_step_output(run_id, ledger, "script_generator")`.
-   - Raises `PipelineStageError` if `ledger` is missing or `run_id` is invalid.
+- **Pipeline & Assembly Unit Test Execution**:
+  - Command: `.venv/bin/pytest tests/pipeline/test_animation_node.py tests/pipeline/test_assembly_node.py tests/test_assembly/test_ffmpeg_commands.py -v`
+  - Result: **92 passed in 27.10s**
 
-3. **Audio Synthesis & Subtitle Alignment:**
-   - Uses strategy pattern (`VoiceProviderProtocol` / `KokoroVoiceProvider`).
-   - Parses multiple formats of script payload (`YouTubeScript` model dict, raw section dicts, spoken narration list, raw string).
-   - Handles fallback narration if script payload is present but empty.
-   - Generates SRT subtitle entries using proportional character length duration allocations.
-   - SRT millisecond formatting handles overflow edge cases (`millis >= 1000`) in `format_srt_timestamp()`.
-   - Ensures output audio file exists on disk and has `stat().st_size > 0`.
-   - Returns a structured dictionary matching downstream consumer requirements (`VideoAssemblyNode`).
-
-4. **Test Verification Results:**
-   - Ran command: `.venv/bin/pytest tests/pipeline/test_voice_node.py -v`
-     - **Result:** 8 passed in 3.74s
-   - Ran command: `.venv/bin/pytest tests/pipeline/test_voice_node.py tests/media/test_voice_core.py -v`
-     - **Result:** 26 passed in 9.53s
-   - Ran command: `.venv/bin/pytest tests/pipeline/ -v`
-     - **Result:** 111 passed in 6.97s
-
----
+- **Integrity Violation Check**:
+  - Checked for hardcoded test results, facade implementations, shortcuts, or self-certifying mock logic in source and test code.
+  - Result: No integrity violations detected. Tests perform genuine subprocess execution of `manim` and `ffmpeg`, and calculate genuine pixel difference metrics on rendered frame PNGs.
 
 ## 2. Logic Chain
 
-1. **Integrity & Real Implementation Verification:**
-   - `KokoroVoiceProvider._synthesize_pcm_wave()` builds binary 16-bit PCM WAV samples using `struct.pack('<h', ...)` and writes them with Python's standard `wave` module.
-   - `VoiceGeneratorNode._generate_srt_content()` and `format_srt_timestamp()` generate exact SRT timestamp lines (`HH:MM:SS,mmm`).
-   - Independent test execution confirmed real files are generated on disk and tested dynamically.
+1. **Continuous Motion & Duration Budgeting**:
+   Extracting `duration` and budgeting animation timelines across `intro_time`, `step2_time`, and `wait_time` ensures Manim scenes adjust dynamically to visual cue durations. Attaching updaters to `ValueTracker` guarantees that scene objects modify state on every rendered frame during `self.wait(wait_time)`.
 
-2. **Error Handling & Resilience:**
-   - The node wraps unexpected synthesis errors into `VoiceGenerationError` while preserving original tracebacks using `raise ... from e`.
-   - Millisecond calculation `millis = int(round((seconds - int(seconds)) * 1000))` handles rounding up to 1000 by advancing `total_seconds` by 1 and resetting `millis` to 0, preventing invalid timestamp formatting.
+2. **FFmpeg Filtergraph Timestamp Normalization**:
+   Resampling every video stream to 30 FPS (`fps=30`) and resetting presentation timestamps (`setpts=PTS-STARTPTS`) prior to stream concatenation prevents timestamp discontinuity bugs and freeze states during multi-stream video assembly.
 
-3. **Interface Compatibility:**
-   - `VoiceGeneratorNode.execute()` returns `slug`, `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, and `status`.
-   - This payload matches `VideoAssemblyNode`'s expected inputs when reading `completed_steps["voice_generator"].output_payload`.
+3. **Deep Video Validation**:
+   Checking `nb_frames > 1` and `duration > 0.1s` via `ffprobe` eliminates silent propagation of static 1-frame MP4 files through the video generation pipeline.
 
----
+4. **Requirement R2 Isolation Testing**:
+   `tests/test_animation/test_manim_animation.py` provides end-to-end verification of rendering, frame extraction, ffprobe probing, and pixel motion delta calculation across all 8 supported scene types.
 
 ## 3. Caveats
 
-- **No caveats.** The node implementation and unit tests are complete, robust, fully typed, and verified.
-
----
+No caveats. All 8 scene templates render multi-frame moving MP4 clips, `ffprobe` deep validation rejects frozen 1-frame MP4s, FFmpeg filtergraph normalizes timestamps, and 102 total test cases pass cleanly without errors.
 
 ## 4. Conclusion
 
-- **Verdict:** **APPROVE**
-- `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` is production-ready, satisfies all requirements for Milestone 2, adheres strictly to architecture guidelines, and passes all unit tests.
+The video subsystem fixes and R2 isolation test suite fully satisfy the requirements of Milestone 2:
+1. Animation scenes render continuous moving frames across requested visual cue durations.
+2. FFmpeg filter graph normalizes framerates and presentation timestamps per input stream.
+3. Deep video validation rejects static 1-frame MP4s.
+4. Requirement R2 test suite in `tests/test_animation/test_manim_animation.py` passes 10/10 tests.
 
----
+VERDICT: APPROVE
 
 ## 5. Verification Method
 
-To re-verify the review findings independently:
+To independently verify these results:
 
-1. **Run Voice Generator Node Unit Tests:**
+1. **Run Video Subsystem Isolation Test Suite (Requirement R2)**:
    ```bash
-   .venv/bin/pytest tests/pipeline/test_voice_node.py -v
+   .venv/bin/pytest tests/test_animation/test_manim_animation.py -v
    ```
-   *Expected Output:* 8 passed.
+   *Expected Output*: 10 passed.
 
-2. **Run Voice Subsystem & Core Unit Tests:**
+2. **Run Pipeline & Assembly Unit Tests**:
    ```bash
-   .venv/bin/pytest tests/pipeline/test_voice_node.py tests/media/test_voice_core.py -v
+   .venv/bin/pytest tests/pipeline/test_animation_node.py tests/pipeline/test_assembly_node.py tests/test_assembly/test_ffmpeg_commands.py -v
    ```
-   *Expected Output:* 26 passed.
+   *Expected Output*: 92 passed.
 
-3. **Run Pipeline Test Suite:**
-   ```bash
-   .venv/bin/pytest tests/pipeline/ -v
-   ```
-   *Expected Output:* 111 passed.
-
----
-
-## Review & Challenge Summary
-
-### Findings
-- **Integrity**: Clean. No hardcoded results, dummy implementations, or shortcuts found.
-- **Node Contract**: Fully compliant with `Node` base class and `StateLedger` pattern.
-- **Typing & Docs**: 100% typed and documented.
-- **Edge Cases**: Handles missing ledger, missing upstream script payload, millisecond timing rounding overflow, zero-byte audio files.
-
-### Verified Claims
-- `test_voice_generator_node_name` → verified via pytest → PASS
-- `test_voice_generator_node_default_provider` → verified via pytest → PASS
-- `test_voice_generator_node_missing_ledger` → verified via pytest → PASS
-- `test_voice_generator_node_missing_audio_file` → verified via pytest → PASS
-- `test_voice_generator_node_successful_execution` → verified via pytest → PASS
-- `test_voice_generator_node_synthesis_with_script_ledger` → verified via pytest → PASS
-- `test_voice_generator_node_provider_error` → verified via pytest → PASS
-- `test_format_srt_timestamp` → verified via pytest → PASS
-
-### Coverage Gaps
-- None.
+VERDICT: APPROVE
