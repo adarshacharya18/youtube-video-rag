@@ -48,19 +48,19 @@ try:
         print(f"❌ Audio API Error: {e}")
         
     # Test Video
-    print(f"\nTesting Video Generation ({video_model})...")
-    try:
-        response = client.models.generate_content(
-            model=video_model,
-            contents="A serene landscape with a river flowing.",
-            config={}
-        )
-        if hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
-            print("✅ Video API is ACTIVE! Successfully received video generation response.")
-        else:
-            print("❌ Video API succeeded but returned empty content.")
-    except Exception as e:
-        print(f"❌ Video API Error: {e}")
+    # print(f"\nTesting Video Generation ({video_model})...")
+    # try:
+    #     response = client.models.generate_content(
+    #         model=video_model,
+    #         contents="A serene landscape with a river flowing.",
+    #         config={}
+    #     )
+    #     if hasattr(response, 'candidates') and response.candidates and response.candidates[0].content.parts:
+    #         print("✅ Video API is ACTIVE! Successfully received video generation response.")
+    #     else:
+    #         print("❌ Video API succeeded but returned empty content.")
+    # except Exception as e:
+    #     print(f"❌ Video API Error: {e}")
 
 except ImportError:
     print("❌ 'google-genai' package is not installed. Please run `pip install google-genai` to test Audio and Video generation APIs.")

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 MANIM_AVAILABLE = False
 try:
     import manim  # type: ignore # noqa: F401
-    from manim import LEFT, UP, DOWN, Scene, Text  # type: ignore
+    from manim import LEFT, UP, Scene, Text  # type: ignore
 
     MANIM_AVAILABLE = True
 except ImportError:
@@ -85,23 +85,15 @@ class BaseDSAScene(Scene):
             logger.info("Manim not installed: Skipping graphical construction.")
 
     def setup_scene_header(self) -> None:
-        """Renders standard scene header title and description if present."""
+        """Renders standard scene header title if present."""
         if not MANIM_AVAILABLE:
             return
         title_text = self.params.get("title", "")
-        desc_text = self.params.get("description", "")
         
         if title_text:
             header = Text(title_text, font_size=28, color=self.theme.PRIMARY_ACCENT)
             header.to_corner(UP + LEFT, buff=0.5)
             self.add(header)
-            
-        if desc_text:
-            import textwrap
-            wrapped_desc = "\n".join(textwrap.wrap(desc_text, width=70))
-            desc_mob = Text(wrapped_desc, font_size=24, color=self.theme.TEXT_PRIMARY)
-            desc_mob.to_edge(DOWN, buff=0.5)
-            self.add(desc_mob)
 
     def construct_dsa_animation(self) -> None:
         """Override in concrete scene subclasses to build visual animations."""

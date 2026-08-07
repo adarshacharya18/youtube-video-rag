@@ -42,7 +42,7 @@ class VoiceGeneratorNode(Node):
         provider: Optional[VoiceProviderProtocol] = None,
         output_dir: Optional[Union[str, Path]] = None,
         voice_id: str = "af_sky",
-        speed: float = 0.85,
+        speed: float = 0.75,
     ) -> None:
         """Initialize VoiceGeneratorNode.
 

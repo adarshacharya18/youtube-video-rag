@@ -28,7 +28,7 @@ class VisualCue(BaseModel):
         "complexity_chart"
     ] = Field(..., description="Type of visual animation")
     description: str = Field(..., description="Detailed description of visual action")
-    timestamp_seconds: float = Field(default=0.0, ge=0.0, description="Timestamp offset in seconds")
+    timestamp_seconds: float = Field(default=0.0, description="Timestamp offset in seconds")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary parameters for renderer")
 
     @field_validator("cue_id", "animation_type", "description")
@@ -37,6 +37,14 @@ class VisualCue(BaseModel):
         """Ensure string fields are non-empty and non-whitespace."""
         if not v or not v.strip():
             raise ValueError("String field cannot be empty or whitespace-only")
+        return v
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters_not_empty(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure parameters dict is not empty — forces LLM to populate animation data."""
+        if not v:
+            raise ValueError("parameters dict must not be empty — populate it with animation data matching the animation_type schema")
         return v
 
     @field_validator("timestamp_seconds", mode="before")
@@ -58,8 +66,24 @@ class HookSection(BaseModel):
 
     title: str = Field(default="Hook", description="Section title")
     narration: str = Field(..., description="Fast-paced opening narration to intrigue viewers")
-    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for hook")
-    estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
+    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for hook")
+    estimated_duration: float = Field(..., description="Duration in seconds")
+
+    @field_validator("visual_cues")
+    @classmethod
+    def validate_min_cues(cls, v: List[VisualCue]) -> List[VisualCue]:
+        """Ensure at least 3 visual cues per section."""
+        if len(v) < 3:
+            raise ValueError(f"visual_cues must have at least 3 items, got {len(v)}")
+        return v
+
+    @field_validator("estimated_duration")
+    @classmethod
+    def validate_positive_duration(cls, v: float) -> float:
+        """Ensure duration is positive."""
+        if v <= 0.0:
+            raise ValueError("estimated_duration must be greater than 0")
+        return v
 
     @field_validator("title", "narration")
     @classmethod
@@ -88,8 +112,24 @@ class ContextSection(BaseModel):
 
     title: str = Field(default="Context", description="Section title")
     narration: str = Field(..., description="Problem statement breakdown and real-world intuition")
-    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for context")
-    estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
+    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for context")
+    estimated_duration: float = Field(..., description="Duration in seconds")
+
+    @field_validator("visual_cues")
+    @classmethod
+    def validate_min_cues(cls, v: List[VisualCue]) -> List[VisualCue]:
+        """Ensure at least 3 visual cues per section."""
+        if len(v) < 3:
+            raise ValueError(f"visual_cues must have at least 3 items, got {len(v)}")
+        return v
+
+    @field_validator("estimated_duration")
+    @classmethod
+    def validate_positive_duration(cls, v: float) -> float:
+        """Ensure duration is positive."""
+        if v <= 0.0:
+            raise ValueError("estimated_duration must be greater than 0")
+        return v
 
     @field_validator("title", "narration")
     @classmethod
@@ -119,8 +159,24 @@ class SolutionSection(BaseModel):
     title: str = Field(default="Solution", description="Section title")
     narration: str = Field(..., description="Step-by-step algorithmic breakdown and code narration")
     code_snippet: Optional[str] = Field(default=None, description="Reference code implementation")
-    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for solution step")
-    estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
+    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for solution step")
+    estimated_duration: float = Field(..., description="Duration in seconds")
+
+    @field_validator("visual_cues")
+    @classmethod
+    def validate_min_cues(cls, v: List[VisualCue]) -> List[VisualCue]:
+        """Ensure at least 3 visual cues per section."""
+        if len(v) < 3:
+            raise ValueError(f"visual_cues must have at least 3 items, got {len(v)}")
+        return v
+
+    @field_validator("estimated_duration")
+    @classmethod
+    def validate_positive_duration(cls, v: float) -> float:
+        """Ensure duration is positive."""
+        if v <= 0.0:
+            raise ValueError("estimated_duration must be greater than 0")
+        return v
 
     @field_validator("title", "narration")
     @classmethod
@@ -159,8 +215,24 @@ class ComplexitySection(BaseModel):
     narration: str = Field(..., description="Narration explaining Big-O bounds and edge cases")
     time_complexity: str = Field(default="O(N)", description="Big-O Time Complexity")
     space_complexity: str = Field(default="O(1)", description="Big-O Space Complexity")
-    visual_cues: List[VisualCue] = Field(default_factory=list, min_length=2, description="Visual cues for complexity analysis")
-    estimated_duration: float = Field(..., gt=0.0, description="Duration in seconds")
+    visual_cues: List[VisualCue] = Field(default_factory=list, description="Visual cues for complexity analysis")
+    estimated_duration: float = Field(..., description="Duration in seconds")
+
+    @field_validator("visual_cues")
+    @classmethod
+    def validate_min_cues(cls, v: List[VisualCue]) -> List[VisualCue]:
+        """Ensure at least 3 visual cues per section."""
+        if len(v) < 3:
+            raise ValueError(f"visual_cues must have at least 3 items, got {len(v)}")
+        return v
+
+    @field_validator("estimated_duration")
+    @classmethod
+    def validate_positive_duration(cls, v: float) -> float:
+        """Ensure duration is positive."""
+        if v <= 0.0:
+            raise ValueError("estimated_duration must be greater than 0")
+        return v
 
     @field_validator("title", "narration", "time_complexity", "space_complexity")
     @classmethod
@@ -194,7 +266,7 @@ class YouTubeScript(BaseModel):
     context: ContextSection = Field(..., description="Problem context section")
     solution: SolutionSection = Field(..., description="Algorithmic solution section")
     complexity: ComplexitySection = Field(..., description="Complexity analysis section")
-    total_duration: float = Field(..., gt=0.0, description="Total script duration in seconds")
+    total_duration: float = Field(..., description="Total script duration in seconds")
     spoken_narration: List[str] = Field(default_factory=list, description="Aggregated spoken narration strings")
     visual_cues: List[VisualCue] = Field(default_factory=list, description="Aggregated visual animation cues")
 

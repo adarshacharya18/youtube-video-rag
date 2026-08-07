@@ -284,10 +284,24 @@ class AnimationGeneratorNode(Node):
                 # Inject description for text overlays
                 if "description" not in parameters and "description" in cue:
                     parameters["description"] = cue["description"]
+                
+                script_data = script_payload.get("script", {})
                     
                 # Inject code snippet for code_walkthrough if missing
                 if anim_type == "code_walkthrough" and "code" not in parameters:
-                    parameters["code"] = script_payload.get("script", {}).get("solution", {}).get("code_snippet", "")
+                    parameters["code"] = script_data.get("solution", {}).get("code_snippet", "")
+                
+                # Inject complexity data for complexity_chart if missing
+                if anim_type == "complexity_chart":
+                    if "time_complexity" not in parameters:
+                        parameters["time_complexity"] = script_data.get("complexity", {}).get("time_complexity", "O(N)")
+                    if "space_complexity" not in parameters:
+                        parameters["space_complexity"] = script_data.get("complexity", {}).get("space_complexity", "O(1)")
+                
+                # Inject title for title_card if missing
+                if anim_type == "title_card":
+                    if "title" not in parameters and "text" not in parameters:
+                        parameters["title"] = script_data.get("hook", {}).get("title", script_payload.get("topic", "DSA"))
 
                 output_file = run_output_dir / f"segment_{cue_id}.mp4"
 
