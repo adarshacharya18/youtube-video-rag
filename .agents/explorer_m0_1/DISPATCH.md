@@ -1,16 +1,16 @@
-## 2026-07-30T17:37:01Z
-You are Explorer 1 for Phase 14 Milestone M0 (Exploration).
-Your working directory is `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1`.
-You MUST create your directory if it doesn't exist and maintain `progress.md` inside it.
+## 2026-08-07T11:14:08Z
+You are Explorer 1 for Milestone M0 (Framework & Parameter Schema Core).
+Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1
+Original Request: /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md
+Master Project Index: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md
+Scope: /home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m0/SCOPE.md
 
-Mandatory Task:
-1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` for verbatim requirements.
-2. Investigate the codebase at `/home/adarsh/Documents/Youtube-Channel/src/`:
-   - List all existing pipeline nodes in `src/pipeline/nodes/` and core engine files in `src/core/workflow/`, `src/core/events/`, etc.
-   - Examine how nodes pass data/artifacts between each other (e.g. State Ledger, Context, or parameters).
-   - Identify how nodes for Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg are currently structured.
-3. Propose the design for `src/core/orchestrator/pipeline_runner.py`:
-   - How `PipelineRunner` chronologically links these nodes.
-   - How it handles resume points, failure propagation, and event bus emissions.
-4. Write your findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1/analysis.md` and deliver a soft/hard handoff report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1/handoff.md`.
-5. Send a message to the orchestrator when finished.
+Your Task:
+Investigate `src/animation/scenes/base_scene.py` (`BaseDSAScene`), its inheritance hierarchy, existing methods, current state management, and how Manim scenes are constructed in this project.
+1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md`, `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md`, and `/home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m0/SCOPE.md`.
+2. Inspect `src/animation/scenes/base_scene.py` and any related scene base classes or utilities.
+3. Identify existing class attributes, `__init__`, `setup`, `construct`, or `wait` overrides.
+4. Recommend exact code structures and integration points in `BaseDSAScene` for parameter schema loading, alias mapping, dynamic step runtime calculation, and ambient continuous wait functions.
+
+Write your report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1/analysis.md` and write a summary handoff in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_1/handoff.md`.
+Send a message back to sub_orch_m0 when complete referencing your report path.

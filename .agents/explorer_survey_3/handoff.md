@@ -1,74 +1,98 @@
-# Handoff Report: Explorer 3 — Test Harness & Integration Exploration
+# Handoff Report: Test Harness, Rendering Infrastructure & Verification Setup
+
+**Agent**: Explorer 3  
+**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3`  
+**Date**: 2026-08-07  
+**Handoff Type**: Hard (Task Complete)
+
+---
 
 ## 1. Observation
 
-- **ORIGINAL_REQUEST Requirements**:
-  - R1: Pytest test file under `tests/test_voice/` verifying `KokoroVoiceProvider` output voice audio on CPU (not synthetic beep).
-  - R2: Pytest test file under `tests/test_animation/` verifying Manim animation renders moving frames (not single frozen frame).
-- **Codebase Mapping**:
-  - `src/core/media/voice.py` lines 123-125:
-    ```python
-    base_dir = Path.cwd() / "models" / "kokoro"
-    model_path = base_dir / "kokoro-v0_19.onnx"
-    voices_path = base_dir / "voices.json"
-    ```
-  - When running `Kokoro(str(model_path), str(voices_path))` with `models/kokoro/voices.json`, `kokoro-onnx` raises:
-    `ValueError: Failed to interpret file PosixPath('models/kokoro/voices.json') as a pickle` or `ValueError: This file contains pickled (object) data.`
-  - Valid models exist in repository root:
-    - `/home/adarsh/Documents/Youtube-Channel/models/kokoro-v1.0.onnx` (325,525,180 bytes)
-    - `/home/adarsh/Documents/Youtube-Channel/models/voices-v1.0.bin` (28,214,398 bytes)
-  - Python execution command tested:
-    `Kokoro('models/kokoro-v1.0.onnx', 'models/voices-v1.0.bin')` successfully synthesized 53,248 samples of speech at 24,000 Hz (mono) without falling back to a synthetic beep.
-- **Existing Test Suite State**:
-  - `tests/test_voice/__init__.py` and `tests/test_animation/__init__.py` exist, but contain no actual pytest test files (`test_*.py`).
-  - `tests/media/test_voice_core.py` tests WAV headers and output existence, but does not distinguish real TTS speech from synthetic 440 Hz sine wave beeps.
-  - Manim CLI v0.20.1 and `ffmpeg` CLI are both fully installed and functional in the environment. `python3 -m manim render -ql src/animation/scenes/array_scene.py ArrayScene` rendered `media/videos/array_scene/480p15/ArrayScene.mp4`.
-  - Frame extraction via `ffmpeg` and pixel delta calculation (`Mean Absolute Difference`) on `ArrayScene.mp4` yielded `mean pixel diff = 1.9812` between Frame 0 and Frame 5, proving motion.
+1. **Pytest Harness Configuration**:
+   - `pyproject.toml` lines 34-37 define pytest options:
+     ```toml
+     [tool.pytest.ini_options]
+     testpaths = ["tests"]
+     pythonpath = ["."]
+     addopts = "-v --tb=short"
+     ```
+   - Python virtual environment is active at `.venv/bin/python` (Python 3.13.7, pytest 9.1.1).
+
+2. **Manim Rendering & Parameter Infrastructure**:
+   - `src/animation/renderer.py` lines 52-54 write `parameters.json` into `output_dir` before subprocess execution:
+     ```python
+     if parameters is not None:
+         params_file = output_dir / "parameters.json"
+         params_file.write_text(json.dumps(parameters, indent=2), encoding="utf-8")
+     ```
+   - `src/animation/renderer.py` lines 86-99 build CLI command:
+     ```python
+     cmd = [sys.executable, "-m", "manim", "render", q_flag, "--format=mp4", "--media_dir", str(output_dir), "-o", output_filename, str(scene_script), class_name]
+     ```
+   - `src/animation/scenes/base_scene.py` lines 35-62: `BaseDSAScene` auto-loads `parameters.json` during initialization, setup, and construction.
+
+3. **Workflow Node Routing & Mapping**:
+   - `src/pipeline/nodes/animation_generator_node.py` lines 43-72 defines `ANIMATION_TYPE_MAP` mapping visual cue animation types (`title_card`, `array_highlight`, `tree_traversal`, `code_walkthrough`, `graph_animation`, `hashmap_operation`, `linkedlist_pointer`, `stack_queue_operation`, `complexity_chart`) to scene template file paths in `src/animation/scenes/` and scene class names.
+   - `AnimationGeneratorNode` computes SHA-256 cache hashes for rendered clips in `data/cache/animation/<hash>.mp4` and outputs assets to `data/assets/renders/<run_id>/`.
+
+4. **Acceptance Criteria & Video Verification Methodology**:
+   - `tests/test_animation/test_manim_animation.py` lines 57-93 defines `probe_video(video_path)` using `ffprobe` to assert `nb_frames > 1` and `duration > 0.1s`.
+   - `tests/test_animation/test_manim_animation.py` lines 28-55 defines `extract_frames(video_path, output_dir, fps=5)` using `ffmpeg` and `compute_frame_motion_delta(img_path1, img_path2)` using PIL `ImageChops.difference` to compute Mean Absolute Difference (MAD).
+   - Lines 177-179 assert `max_delta > 0.001` across consecutive frames.
+
+5. **Test Failure Verbatim Outputs**:
+   - Executing `pytest tests/test_animation/test_manim_animation.py` resulted in 8 passed and 2 failures:
+     ```text
+     FAILED tests/test_animation/test_manim_animation.py::test_manim_renders_moving_frames_for_scene_templates[src/animation/scenes/graph_scene.py-GraphScene-params4] - AssertionError: Expected non-zero motion delta for GraphScene, but max delta was 0.000000
+     FAILED tests/test_animation/test_manim_animation.py::test_manim_renders_moving_frames_for_scene_templates[src/animation/scenes/complexity_scene.py-ComplexityScene-params7] - AssertionError: Expected non-zero motion delta for ComplexityScene, but max delta was 0.000000
+     ```
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation**: `KokoroVoiceProvider._synthesize_pcm_wave()` hardcodes `models/kokoro/voices.json` which causes `np.load()` inside `kokoro-onnx` to fail with `ValueError`.
-2. **Observation**: The `except Exception:` block in `_synthesize_pcm_wave()` catches this failure and silently falls back to generating a 440 Hz sine wave beep.
-3. **Logic Step**: To satisfy R1, `KokoroVoiceProvider` should use valid model/voice files (`models/kokoro-v1.0.onnx` and `models/voices-v1.0.bin`), and `tests/test_voice/test_kokoro_voice.py` must include acoustic waveform assertions (pause ratio and energy variance) to guarantee output is real human speech and not a pure sine beep.
-4. **Observation**: Existing animation tests (`tests/pipeline/test_animation_node.py`) use dummy file writer scripts (`mock_manim.py`) which bypass Manim rendering entirely.
-5. **Observation**: Manim CLI and `ffmpeg` are available. Extracting frames with `ffmpeg` and comparing early frames vs mid/late frames using `numpy` and `PIL` yields a non-zero pixel difference (`diff > 0.05`) for moving animations vs `diff == 0` for frozen frames.
-6. **Logic Step**: To satisfy R2, `tests/test_animation/test_manim_animation.py` must execute real Manim scene renders and run `ffmpeg` + `numpy` frame difference assertions to prove animations contain moving frames.
+1. **Observation 1 & 2** establish that the project uses `pytest` as its primary harness, and `ManimRenderer` executes Manim renders via subprocess while dumping parameter dictionaries to `parameters.json`.
+2. **Observation 2 & 3** show that `BaseDSAScene` subclasses automatically parse `parameters.json` and `AnimationGeneratorNode` routes cue types to the 9 scene scripts (`array_scene.py`, `linkedlist_scene.py`, `tree_scene.py`, `graph_scene.py`, `hashmap_scene.py`, `stack_queue_scene.py`, `code_scene.py`, `complexity_scene.py`, `title_scene.py`).
+3. **Observation 4** shows that video clip validity and motion criteria are enforced programmatically using `ffprobe` (`nb_frames > 1`, `duration > 0.1s`) and PIL `ImageChops` frame motion delta (`max_delta > 0.001`).
+4. **Observation 5** demonstrates that existing scene templates (`GraphScene` and `ComplexityScene`) currently fail motion verification tests because static waits (`self.wait()`) produce zero inter-frame pixel deltas (`max_delta == 0.000000`), proving static frame freeze bugs in the current implementation.
 
 ---
 
 ## 3. Caveats
 
-- Real Kokoro TTS inference on CPU takes ~1-3 seconds per sentence. Isolation tests for R1 should use short phrases (e.g. 5-10 words) to keep pytest execution time under ~5 seconds.
-- Real Manim scene rendering at high quality (`-qh`) takes 5-10 seconds per scene. Isolation tests for R2 should use low quality (`-ql` / 480p15) and short 1-2 second scene animations to optimize test run duration.
+- **External Hardware Dependencies**: GPU acceleration was not required or tested; ONNX Runtime CPU mode and software-rendered Manim Cairo backend were used.
+- **Gemini Video Fallback**: `AnimationGeneratorNode` contains an optional fallback path for `GEMINI_VIDEO_MODEL` when specified in environment variables, which was not active during local testing.
 
 ---
 
 ## 4. Conclusion
 
-- **Audio Subsystem (R1)**: Root cause of synthetic beep fallback identified as invalid path / JSON voice file passed to `kokoro-onnx`. Tests in `tests/test_voice/test_kokoro_voice.py` can conclusively verify real voice audio on CPU using pause ratio (`quiet_ratio > 0.05`) and RMS energy variance (`rms_std > 50.0`).
-- **Video Subsystem (R2)**: Test strategy for `tests/test_animation/test_manim_animation.py` verified using Manim CLI `-ql` renders and `ffmpeg` frame extraction + `numpy` mean pixel difference (`mean_diff > 0.05`) to verify moving frames.
+The test harness, rendering infrastructure, and verification setup are well-structured and fully operational for auditing Manim scene render quality:
+1. Pytest commands (`.venv/bin/pytest tests/test_animation/test_manim_animation.py`) provide fast feedback on scene rendering and frame motion.
+2. `parameters.json` provides a seamless bridge for passing arbitrary custom parameters to Manim scene scripts.
+3. Acceptance criteria verification (`ffprobe` + PIL frame-by-frame MAD delta analysis) effectively catches static/frozen frame defects.
+4. Refactoring is required in `src/animation/scenes/` to dynamically support custom data inputs and eliminate static frame freeze states (`max_delta == 0`).
 
 ---
 
 ## 5. Verification Method
 
-To independently verify findings:
+To independently verify the test harness, rendering infrastructure, and verification setup:
 
-1. **Verify Kokoro TTS ONNX Model Execution**:
+1. **Run the Manim Animation Isolation Test Suite**:
    ```bash
-   python3 -c "
-   from kokoro_onnx import Kokoro
-   k = Kokoro('models/kokoro-v1.0.onnx', 'models/voices-v1.0.bin')
-   samples, sr = k.create('Testing speech', voice='af_sky')
-   print('Samples count:', len(samples), 'Sample rate:', sr)
-   "
+   .venv/bin/pytest tests/test_animation/test_manim_animation.py
    ```
-   *Expected result*: `Samples count: > 20000`, `Sample rate: 24000`.
+   *Expected Result*: Executes 10 test cases verifying frame count, duration, motion delta analysis, and frozen frame rejection. Identifies the existing 2 failures in `GraphScene` and `ComplexityScene`.
 
-2. **Verify Manim Rendering and Motion Analysis**:
+2. **Run the Animation Generator Node Test Suite**:
    ```bash
-   python3 -m manim render -ql src/animation/scenes/array_scene.py ArrayScene
+   .venv/bin/pytest tests/pipeline/test_animation_node.py
    ```
-   *Expected result*: Rendered MP4 output file created at `media/videos/array_scene/480p15/ArrayScene.mp4`.
+   *Expected Result*: Verifies visual cue extraction, `parameters.json` writing, SHA-256 caching, and temporary directory cleanup.
+
+3. **Inspect Key Verification Files**:
+   - `src/animation/renderer.py` (subprocess invocation & `parameters.json` writing)
+   - `src/animation/scenes/base_scene.py` (`parameters.json` auto-loading)
+   - `tests/test_animation/test_manim_animation.py` (`ffprobe` & PIL `ImageChops` motion delta calculation)

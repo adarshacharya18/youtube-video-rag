@@ -1,92 +1,92 @@
-# Handoff Report — Explorer 1 (Audio Subsystem Specialist)
+# Explorer 1 Codebase Survey Handoff Report
 
 ## 1. Observation
 
-1. **Failure Observation in `src/core/media/voice.py`**:
-   - File: `/home/adarsh/Documents/Youtube-Channel/src/core/media/voice.py`
-   - Line numbers 123–125:
-     ```python
-     base_dir = Path.cwd() / "models" / "kokoro"
-     model_path = base_dir / "kokoro-v0_19.onnx"
-     voices_path = base_dir / "voices.json"
-     ```
-   - Verbatim exception log when attempting `Kokoro(str(model_path), str(voices_path))` via `.venv/bin/python`:
-     ```
-     ValueError: Failed to interpret file 'models/kokoro/voices.json' as a pickle
-     ```
-   - Verbatim code lines 143–167 in `src/core/media/voice.py`:
-     ```python
-     except Exception as e:
-         self._logger.error(f"Kokoro ONNX inference failed: {e}. Falling back to beep.")
-     
-     # Fallback Beep Synthesis
-     sample_rate = 24000
-     ...
-     frequency = 440.0
-     ...
-     ```
-
-2. **Filesystem Observations in `models/`**:
-   - `models/kokoro/voices.json` (size: 30,789,387 bytes) header starts with `b'{"af": [[[-0.2652...` — a JSON text file.
-   - `models/voices-v1.0.bin` (size: 28,214,398 bytes) is a valid NumPy `.npz` archive loaded by `np.load(allow_pickle=True)`.
-   - `models/kokoro-v1.0.onnx` (size: 326,128,103 bytes) and `models/kokoro/kokoro-v0_19.onnx` (size: 326,128,103 bytes) exist locally.
-   - `models/kokoro-82m-openvino/` is empty and `openvino` package is not installed in `.venv`.
-
-3. **Empirical CPU Execution Result**:
-   - Running `.venv/bin/python`:
-     ```python
-     from kokoro_onnx import Kokoro
-     kokoro = Kokoro("models/kokoro-v1.0.onnx", "models/voices-v1.0.bin")
-     samples, sample_rate = kokoro.create("Hello world! Voice synthesis working on CPU.", voice="af_sky", speed=1.0)
-     ```
-   - Command Output: `Kokoro initialized successfully! Audio generated! Samples shape: (71168,) Sample rate: 24000`.
-
-4. **Test Suite Behavior**:
-   - Running `.venv/bin/pytest tests/media/test_voice_core.py tests/media/test_voice_stress.py` results in `33 PASSED, 3 FAILED`.
-   - The 33 passing tests check basic WAV header attributes (mono, 16-bit, 24kHz), which the fallback 440 Hz sine wave synthesis satisfies.
-   - The 3 failing tests in `test_voice_stress.py` failed due to a mock signature mismatch (`mock_synthesize` takes 3 args instead of 4).
+### 1.1 Inspected File Locations & Line References
+- **`src/animation/scenes/base_scene.py`**:
+  - `BaseDSAScene(Scene)` class definition (lines 32-101).
+  - `load_params_from_json()` candidate path search: `Path("parameters.json")` and `Path.cwd() / "parameters.json"` (lines 41-62).
+  - `setup_scene_header()` adds title text to `UP + LEFT` corner (lines 87-96).
+  - `construct()` executes `load_params_from_json()`, `setup_scene_header()`, and `construct_dsa_animation()` (lines 71-76).
+- **`src/animation/renderer.py`**:
+  - `ManimRenderer.render()` serializes `parameters` dict into `output_dir / "parameters.json"` (lines 52-54).
+  - Subprocess execution `subprocess.run(cmd, ..., cwd=str(output_dir))` sets child process working directory (line 108).
+- **`src/pipeline/nodes/animation_generator_node.py`**:
+  - `ANIMATION_TYPE_MAP` maps visual cue animation types to scene files (lines 43-72).
+  - Preprocesses cue parameters, injecting default fallback values for `code`, `time_complexity`, `space_complexity`, and `title` (lines 274-305).
+- **`src/animation/scenes/linkedlist_scene.py`**:
+  - `LinkedListScene(BaseDSAScene)` (lines 10-276). Reads `nodes`, `action`, `duration`, `highlight_indices`, `pointers`.
+  - `do_fast_slow()` only jumps to custom pointer targets in 1 step (lines 126-130).
+  - `do_reverse()` transforms arrows in-place without node movement or pointer labels (lines 182-202).
+  - `do_split()` hardcodes mid-split index `len(node_groups)//2` (line 216).
+  - `do_merge()` hardcodes reversing the second half `nodes[mid:][::-1]` (line 237).
+- **`src/animation/scenes/array_scene.py`**:
+  - `ArrayScene(BaseDSAScene)` (lines 7-126).
+  - `action_two_pointers()` hardcodes target indices `len(arr)//2 - 1` and `len(arr)//2`, ignoring `pointers` dictionary parameter (lines 58-67).
+  - `action_swap()` moves boxes in linear straight lines causing collision (lines 80-84).
+  - Lacks index labels below array boxes; no auto-scaling for large arrays.
+- **`src/animation/scenes/tree_scene.py`**:
+  - `TreeScene(BaseDSAScene)` (lines 7-115).
+  - Flawed DFS index counting (`valid_count = sum(1 for x in nodes_data[:idx] if x is not None)`) breaks when `None` nodes exist in preceding levels (lines 88-95).
+  - `action_insert()` hardcodes inserting value `4` (line 110).
+  - `tests/test_animation/test_manim_animation.py` line 111 passes `{"root": 42}` which is ignored because `TreeScene` expects `nodes`.
+- **`src/animation/scenes/graph_scene.py`**:
+  - `GraphScene(BaseDSAScene)` (lines 7-72).
+  - Uses `manim.Graph(..., layout="spring")` which is non-deterministic (line 28). Undirected edges only; no edge traversal highlights.
+- **`src/animation/scenes/hashmap_scene.py`**:
+  - `HashmapScene(BaseDSAScene)` (lines 7-81).
+  - `action_put()` hardcodes inserting `"C": 3` (line 46). Collision action doesn't show buckets or chaining.
+- **`src/animation/scenes/stack_queue_scene.py`**:
+  - `StackQueueScene(BaseDSAScene)` (lines 7-104).
+  - Stack pop removes element `container[0]`, but visual ordering lacks Top/Bottom labels. Lacks container boundary graphics.
+- **`src/animation/scenes/code_scene.py`**:
+  - `CodeScene(BaseDSAScene)` (lines 10-98).
+  - Uses `manim.Code` with line scrolling. Lacks variable state execution tracking panel.
+- **`src/animation/scenes/complexity_scene.py`**:
+  - `ComplexityScene(BaseDSAScene)` (lines 12-42).
+  - Static text card; lacks growth curves or comparative axes.
+- **`src/animation/scenes/title_scene.py`**:
+  - `TitleScene(BaseDSAScene)` (lines 9-27).
+  - Renders single centered text line; ignores `subtitle` parameter.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation 1 & 2** show that `KokoroVoiceProvider` targets `models/kokoro/voices.json` for ONNX voice inference.
-2. `kokoro_onnx.Kokoro.__init__` executes `np.load(voices_path)`. Passing a JSON file to `np.load()` triggers a `ValueError`.
-3. **Observation 1** shows that `KokoroVoiceProvider` catches all exceptions during ONNX model initialization and executes fallback sine wave synthesis generating a 440 Hz beep.
-4. **Observation 3** proves that when `voices-v1.0.bin` is passed to `kokoro_onnx.Kokoro`, CPU voice generation succeeds without errors.
-5. **Observation 4** explains why unit tests pass: tests check basic PCM WAV format properties that both real speech and synthetic beeps satisfy.
-6. **Conclusion**: To ensure `KokoroVoiceProvider` outputs voice audio on CPU, `KokoroVoiceProvider` must point to `models/voices-v1.0.bin` (or search for `.bin` voice archives relative to project root) instead of `voices.json`. Additionally, an isolated test file (`tests/test_voice/test_kokoro_voice_isolation.py`) must be added to verify real CPU voice output (R1 requirement).
+1. **Observation**: `ManimRenderer.render()` writes `parameters` to `output_dir / "parameters.json"` and runs `manim render` with `cwd=output_dir`. `BaseDSAScene.__init__` invokes `load_params_from_json()` which reads `parameters.json` from `cwd`.
+2. **Logic Step**: Parameter ingestion works seamlessly via disk file serialization, but scene subclasses unpack parameters using simple `.get(key, default)` calls without schema validation, alias normalization, or error handling.
+3. **Observation**: In `ArrayScene`, `action_two_pointers` ignores `pointers` dict; `TreeScene` ignores `root`; `HashmapScene.action_put` hardcodes key `"C": 3`; `TreeScene.action_insert` hardcodes value `4`; `LinkedListScene.do_split` hardcodes mid-splitting.
+4. **Logic Step**: Multiple scene templates contain hardcoded data assumptions and ignore passed custom parameters, directly violating Requirement R1 ("must cleanly parse and animate arbitrary custom input arguments").
+5. **Observation**: Test suites and LLM prompt schemas pass different key names (e.g. `root` vs `nodes`, `left`/`right` pointers vs target indices).
+6. **Logic Step**: Without unified parameter alias mapping and type validation, scene templates silently fall back to default arrays/values or crash during execution.
 
 ---
 
 ## 3. Caveats
 
-- **OpenVINO vs ONNX Runtime**: Documentation mentions OpenVINO targeting NPU/CPU, but OpenVINO models/packages are not installed. `onnxruntime` CPU execution via `kokoro-onnx` is fully functional and takes ~0.3s per sentence on CPU.
-- **Path Resolution**: `Path.cwd()` assumes execution from project root. Robust resolution should include `Path(__file__).resolve().parents[...}`.
+- **Scope Limits**: Read-only codebase survey phase. No code modifications were made to `src/`.
+- **Assumptions**: Assumed standard Manim CLI rendering mode via subprocess. Execution environment has Python 3.13 and Manim installed in virtual environment `.venv`.
+- **Uninvestigated Areas**: Advanced Manim GPU acceleration options or custom C-extension render plugins.
 
 ---
 
 ## 4. Conclusion
 
-The audio fallback to a synthetic beep is caused by passing `voices.json` instead of `voices-v1.0.bin` to `kokoro_onnx.Kokoro`, causing `np.load()` to fail and trigger the 440 Hz fallback generator.
-
-To resolve:
-1. Update `KokoroVoiceProvider` in `src/core/media/voice.py` to resolve voice model paths using `voices-v1.0.bin` and `kokoro-v1.0.onnx` (or `kokoro-v0_19.onnx`).
-2. Update mock signature in `tests/media/test_voice_stress.py` to accept 4 arguments (`text, speed, output_path, voice_id`).
-3. Add `tests/test_voice/test_kokoro_voice_isolation.py` (or similar Pytest file) ensuring Kokoro outputs real speech on CPU.
+The current Manim scene templates provide a functional rendering foundation but fail Requirement R1 due to hardcoded data operations, ignored parameter keys, missing layout auto-scaling, fragile indexing, and lack of parameter validation. Refactoring is required to establish a unified parameter normalization layer, robust schema validation, and flexible step-by-step sequence animation support across all 9 scene templates.
 
 ---
 
 ## 5. Verification Method
 
-1. **Inspect Code**:
-   - Check `src/core/media/voice.py` lines 120–145 to verify path resolution for `voices-v1.0.bin` and `kokoro-v1.0.onnx`.
-2. **Run Python Inference**:
-   ```bash
-   .venv/bin/python -c "from src.core.media.voice import KokoroVoiceProvider; p = KokoroVoiceProvider(); seg = p.generate_segment('Testing real voice synthesis', 'af_sky', output_path='/tmp/test_voice.wav'); print(seg)"
-   ```
-3. **Run Isolation Test**:
-   ```bash
-   .venv/bin/pytest tests/test_voice/
-   ```
-4. **Invalidation Condition**: If `generate_segment` produces a file containing constant 440 Hz frequency or if `np.load` fails, verification fails.
+### 5.1 Inspection of Analysis Files
+- Inspect `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md` for full scene-by-scene audit matrix and architectural recommendations.
+
+### 5.2 Command Verification
+- Run existing animation tests to verify current baseline rendering:
+  ```bash
+  pytest tests/test_animation/test_manim_animation.py
+  pytest tests/pipeline/test_animation_node.py
+  ```
+
+### 5.3 Invalidation Conditions
+- If `parameters.json` key names change without update to `ANIMATION_TYPE_MAP` or `BaseDSAScene`, renders will fall back to hardcoded defaults or raise KeyError/AttributeError.

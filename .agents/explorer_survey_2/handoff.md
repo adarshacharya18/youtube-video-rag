@@ -1,101 +1,108 @@
-# Handoff Report: Manim Video Subsystem & Animation Freeze Diagnosis
+# Handoff Report: Codebase Survey — DSA Visualization & Animation Routines
+
+**Explorer Agent**: Explorer 2  
+**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2`  
+**Target Analysis File**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`
+
+---
 
 ## 1. Observation
 
-### Codebase Observations
-1. **Scene Templates Runtimes (`src/animation/scenes/`)**:
-   - `ArrayScene` (`src/animation/scenes/array_scene.py:32-33`):
-     ```python
-     self.play(manim.Create(array_group))
-     self.wait(1)
-     ```
-   - `CodeScene` (`src/animation/scenes/code_scene.py:27-28`):
-     ```python
-     self.play(manim.Create(code_block))
-     self.wait(1)
-     ```
-   - `TreeScene` (`src/animation/scenes/tree_scene.py:20-21`):
-     ```python
-     self.play(manim.Create(node))
-     self.wait(1)
-     ```
-   - `LinkedListScene` (`src/animation/scenes/linkedlist_scene.py:29-30`):
-     ```python
-     self.play(manim.Create(chain))
-     self.wait(1)
-     ```
-   - `GraphScene` (`src/animation/scenes/graph_scene.py:20-21`), `HashmapScene` (`src/animation/scenes/hashmap_scene.py:27-28`), `StackQueueScene` (`src/animation/scenes/stack_queue_scene.py:26-27`), `ComplexityScene` (`src/animation/scenes/complexity_scene.py:25-26`): All execute a single `Create()` (or `Write()`) animation (1.0s) followed by `self.wait(1)`.
-   - **Parameter Discrepancy**: `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py:190`) extracts `duration = float(parameters.get("duration") or 5.0)`. None of the scene templates read or budget against `duration`.
+Direct observations from codebase inspection across all 10 Manim scene templates:
 
-2. **FFmpeg Concatenation & Image Cloning (`src/assembly/ffmpeg_commands.py`)**:
-   - `build_concat_filter_graph()` (`src/assembly/ffmpeg_commands.py:168`):
+1. **Static Wait Freezes**:
+   - `src/animation/scenes/complexity_scene.py`: Lines 38-41:
      ```python
-     if num_audio_inputs > 0:
-         clauses.append(f"[{current_v_label}]tpad=stop_mode=clone:stop=-1[v_padded]")
-         current_v_label = "v_padded"
+     # Deterministic wait replacing broken dt updater
+     self.wait(wait_time)
      ```
-   - `build_4k_scale_filter()` (`src/assembly/ffmpeg_commands.py:88-94`):
+     `wait_time` consumes `duration - intro_time - step2_time` (approx 3.5 seconds out of 5.0 seconds total clip duration), keeping the screen frozen on a static card.
+   - `src/animation/scenes/title_scene.py`: Line 26: `self.wait(wait_time)` holds a static title screen for up to 4.0 seconds.
+   - `src/animation/scenes/code_scene.py`: Lines 83 & 92: `self.wait(max(0.1, step_time - 0.5))` inside the `for line_num in highlight_lines:` loop, producing static frame pauses between each line highlight transition.
+   - `src/animation/scenes/array_scene.py`: Lines 50, 68, 85, 102, 125: `self.wait(duration * 0.1)` adds a static 0.5s pause at the end of every action routine.
+   - `src/animation/scenes/linkedlist_scene.py`: Lines 71, 100, 143, 180, 192, 214, 234 contain `self.wait(...)` static pauses.
+   - `src/animation/scenes/tree_scene.py`: Lines 65, 78, 101, 114 contain `self.wait(...)` static pauses.
+   - `src/animation/scenes/graph_scene.py`: Lines 39, 55, 71 contain `self.wait(...)` static pauses.
+   - `src/animation/scenes/hashmap_scene.py`: Lines 38, 51, 66, 80 contain `self.wait(...)` static pauses.
+   - `src/animation/scenes/stack_queue_scene.py`: Lines 46, 62, 74, 88, 103 contain `self.wait(...)` static pauses.
+
+2. **Fixed Duration Slicing vs Algorithmic Complexity**:
+   - `src/animation/scenes/array_scene.py`: Line 46: `step_time = (duration * 0.5) / len(arr)` forces step duration to be inversely proportional to input size $N$ within a fixed duration budget.
+   - `src/animation/scenes/array_scene.py`: Lines 63-67 (`action_two_pointers`): Jumps left and right pointers directly to center indices in a single step (`run_time=duration * 0.4`), skipping intermediate step-by-step traversal.
+
+3. **Collision & Morphing Transformations**:
+   - `src/animation/scenes/array_scene.py`: Lines 80-84 (`action_swap`):
      ```python
-     return (
-         f"[{input_label}]"
-         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
-         f"setsar=1"
-         f"[{output_label}]"
+     self.play(
+         box_i.animate.move_to(box_j.get_center()),
+         box_j.animate.move_to(box_i.get_center()),
+         run_time=duration * 0.6
      )
      ```
-     `build_4k_scale_filter` does not include `fps=fps` or `setpts=PTS-STARTPTS` per input stream. `-r 30` is only specified on output encoding options.
+     Moves boxes in a straight line, causing them to collide and overlap mid-air.
+   - `src/animation/scenes/tree_scene.py`: Line 113 (`action_insert`) and `src/animation/scenes/hashmap_scene.py`: Line 50 (`action_put`): Use `manim.Transform()` between old and new VGroups, squishing/morphing nodes linearly across the canvas.
 
-3. **Shallow Video Validation (`src/pipeline/nodes/animation_generator_node.py` & `src/assembly/assembler.py`)**:
-   - `_is_valid_video_file()` (`src/pipeline/nodes/animation_generator_node.py:121-134`):
-     Checks only `file_path.exists()`, `file_path.stat().st_size >= 100`, and reads 100 header bytes.
-   - `_is_valid_video()` (`src/assembly/assembler.py:71-78`):
-     Checks only `file_path.exists()` and `file_path.stat().st_size >= 100`.
+4. **Hardcoded Fallback Values & Broken Input Handling**:
+   - `src/animation/scenes/tree_scene.py`: Line 110: `nodes_data_new = nodes_data + [4]` hardcodes node insertion value `4` instead of accepting custom input parameters.
+   - `src/animation/scenes/hashmap_scene.py`: Line 46: `new_entries = {**entries, "C": 3}` hardcodes new entry `"C": 3`.
+   - `src/animation/scenes/tree_scene.py`: Lines 45-52: Computes tree layout assuming complete 1D heap array indices (`2*idx+1`, `2*idx+2`), which breaks on general binary trees or dictionary inputs.
+   - `src/animation/scenes/graph_scene.py`: Line 28: Uses `layout="spring"` without random seed or fixed vertex map, causing graph node positions to shift non-deterministically across render runs.
 
-4. **Test Suite Status (`tests/pipeline/test_animation_node.py`)**:
-   - Running `pytest tests/pipeline/test_animation_node.py` ran 37 tests (36 passed, 1 failed in `test_cli_flags_and_command_array_construction` due to absolute path string matching).
+5. **Legacy Fix Script**:
+   - `fix_scenes.py`: Lines 17-24 regex-replaces `time_tracker` blocks with static `self.wait(wait_time)`.
+
+6. **Missing Visual Components**:
+   - Arrays: No cell indices (0..N-1) or pointer labels ("left", "right").
+   - Linked Lists: No `NULL` node box; `do_reverse` flips arrow directions in place without node movements or `prev`/`curr`/`next` pointers.
+   - Trees: No BFS Queue or DFS Stack panels; tree traversal does not pulse/glow connecting edges.
+   - Graphs: Duplicate BFS/DFS routines only change node fill color without highlighting edges traversed; no `DiGraph` or edge weight support.
+   - Hash Maps: No Hash Function box (`hash(key) % M`), bucket array indices, chaining linked lists, or probing.
+   - Stacks & Queues: No physical container boundaries (U-shaped box / horizontal tube) or `TOP`/`FRONT`/`REAR` pointers.
+   - Code Blocks: No Variable Watcher side panel or natural language step caption bar.
+   - Complexity Charts: No 2D Big-O coordinate graph or growth curve tracer dots.
+   - Title Cards: No topic category badges, difficulty indicators, or exit transitions.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Step 1**: Observations show that all 8 scene template classes (`ArrayScene`, `CodeScene`, `TreeScene`, `LinkedListScene`, `GraphScene`, `HashmapScene`, `StackQueueScene`, `ComplexityScene`) render a fixed ~2-second animation (`Create` 1s + `wait(1)` 1s) regardless of the visual cue `duration` parameter (which defaults to 5s and can be 10-15s).
-2. **Step 2**: Observations show that when `VideoAssemblyNode` concats the ~2-second visual segment with section audio narration (e.g. 10-15 seconds long), FFmpeg applies `tpad=stop_mode=clone:stop=-1`.
-3. **Step 3**: `tpad=stop_mode=clone:stop=-1` instructs FFmpeg to duplicate the very last frame of the video segment infinitely until the audio narration ends. Consequently, after the first 2 seconds, the video displays a completely static frozen frame for the remaining 80-90% of the section duration.
-4. **Step 4**: Observations show that `build_4k_scale_filter()` lacks per-input stream framerate and timestamp normalization (`fps=fps,setpts=PTS-STARTPTS`). When concatenating Manim clips with variable framerates or differing timebases, FFmpeg's `concat` filter can freeze output timestamps at frame 0.
-5. **Step 5**: Observations show that scene templates contain no updater functions (`add_updater`), pointer objects (`ValueTracker`), or step-by-step keyframe sequences. Even during the initial 2 seconds, motion stops after 1 second (`Create` completion).
-6. **Step 6**: Observations show that existing validation functions (`_is_valid_video_file` and `_is_valid_video`) only check file size >= 100 bytes, allowing static 1-frame or frozen clips to pass validation without raising an error.
+1. **From Observation 1 & 5**: The legacy script `fix_scenes.py` replaced dynamic updaters with `self.wait(...)`. This introduced mandatory static pauses across 9 scene files, causing Manim clips to freeze for 10% to 80% of their total duration.
+2. **From Observation 2**: Coupling step run times to percentages of a fixed 5.0s `duration` parameter forces rapid step rushing for large datasets and unnaturally stretched, static holds for small datasets, violating Requirement R3 (Unconstrained Educational Timing).
+3. **From Observation 3 & 4**: Using linear `move_to` for array swaps causes cell overlapping collisions. Using `manim.Transform()` for tree insertion and hashmap put operations morphs existing geometry unnaturally. Hardcoding values (like `4` or `"C": 3`) and relying on 1D complete heap indexing breaks dynamic custom input parsing (Requirement R1).
+4. **From Observation 6**: Omitting standard DSA visual elements (indices, pointer badges, queue/stack state panels, hash function boxes, container walls, Big-O growth curves, variable watch panels) reduces visual clarity and engagement, failing Requirement R2.
+5. **Conclusion**: Refactoring all 9 scene templates is required to eliminate static waits, introduce dynamic step-driven timing, support arbitrary structural inputs, and add standard high-quality visualization routines.
 
 ---
 
 ## 3. Caveats
 
-- Manim binary execution was tested with mock Python scripts during pytest; physical GPU/OpenGL rendering under full Manim Community binary was not executed in this read-only survey turn.
-- FFmpeg behavior with `tpad` is based on standard FFmpeg filtergraph specification and verified code path analysis in `src/assembly/ffmpeg_commands.py`.
+- **No Caveats**: All 10 scene files (`src/animation/scenes/*.py`), renderer module (`renderer.py`), animation node (`animation_generator_node.py`), test suite (`test_manim_animation.py`), and legacy scripts (`fix_scenes.py`) were directly inspected.
 
 ---
 
 ## 4. Conclusion
 
-Animations freeze on the first frame (or freeze after 1-2 seconds) because:
-1. **Scene Runtimes are Fixed at ~2 Seconds**: Scene templates do not use `duration` parameter and end after `Create()` + `wait(1)`.
-2. **FFmpeg `tpad=stop_mode=clone` Clones Frozen Frames**: FFmpeg holds the final frame static for the entire audio duration (up to 15s).
-3. **Lack of Updaters & Dynamic Keyframes**: No continuous motion or step animations exist in scene templates.
-4. **FFmpeg Filtergraph Lacks Input Stream Normalization**: Pre-concat scaling does not normalize `fps` or `setpts`.
-5. **Shallow File Validation**: Validation checks only file size >= 100 bytes, ignoring frame motion or duration.
-
-To fix the issue and implement requirement R2:
-- Update scene templates to extract `duration`, budget animation keyframes, and use `add_updater` / `ValueTracker`.
-- Update `build_4k_scale_filter` to include `fps=fps,setpts=PTS-STARTPTS`.
-- Enhance `_is_valid_video_file` using `ffprobe` to verify `nb_frames > 1`.
-- Build pytest isolation suite `tests/test_animation/test_manim_moving_frames.py` verifying frame count and non-zero frame motion deltas.
+All Manim scene templates currently rely on rigid duration slicing, static `.wait()` pauses, straight-line collisions, and incomplete structural mechanics. To meet Requirements R1, R2, and R3:
+- Every scene file must be updated to eliminate static `.wait()` holds.
+- Animation timing must scale dynamically based on step count and input complexity.
+- Structural algorithms must be equipped with dedicated, high-quality visualization routines (curved swaps, index labels, pointer badges, state panels, container boundaries, growth curves, and live variable watch panels).
 
 ---
 
 ## 5. Verification Method
 
-To independently verify these observations and conclusions:
-1. **Inspect Scene Runtimes**: View `src/animation/scenes/array_scene.py:32-33`, `code_scene.py:27-28`, `tree_scene.py:20-21`, `linkedlist_scene.py:29-30`.
-2. **Inspect FFmpeg Commands**: View `src/assembly/ffmpeg_commands.py:88-94` and `168`.
-3. **Inspect Validation Logic**: View `src/pipeline/nodes/animation_generator_node.py:121-134` and `src/assembly/assembler.py:71-78`.
-4. **Run Pytest Suite**: Execute `pytest tests/pipeline/test_animation_node.py` in terminal.
+To independently verify the survey findings:
+
+1. **Inspect Scene Files**:
+   - `view_file` on `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/complexity_scene.py` (lines 38-41) to confirm static 3.5s wait.
+   - `view_file` on `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/array_scene.py` (lines 80-84) to confirm linear swap collision.
+   - `view_file` on `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/tree_scene.py` (lines 45-52, 110) to confirm 1D heap array indexing and hardcoded value `4`.
+
+2. **Execute Test Suite**:
+   ```bash
+   pytest tests/test_animation/test_manim_animation.py
+   ```
+   Verifies that renders currently pass basic motion delta check (>0.001) but still produce static freeze windows within rendered MP4 clips.
+
+3. **Inspect Detailed Analysis**:
+   - Read `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_2/analysis.md`.

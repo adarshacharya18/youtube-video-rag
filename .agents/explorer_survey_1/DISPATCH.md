@@ -1,10 +1,18 @@
-## 2026-08-06T10:42:37+05:30
-You are Explorer 1 (Audio Subsystem Specialist).
-Your working directory is: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1
-Your task:
-1. Read /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md.
-2. Investigate the codebase for Kokoro TTS and KokoroVoiceProvider.
-3. Determine why audio falls back to a continuous synthetic beep and how to ensure KokoroVoiceProvider outputs voice audio on CPU.
-4. Analyze existing audio code, voice providers, TTS models, fallback mechanisms, CPU vs GPU settings, and test patterns.
-5. Create progress.md (with timestamp header) and write your detailed findings to analysis.md and handoff.md in your working directory.
-6. Report your findings back via send_message to the parent orchestrator.
+## 2026-08-07T05:39:33Z
+
+You are Explorer 1 for the codebase survey phase.
+
+Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1
+Original Request: /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md
+
+Your Task:
+Investigate the codebase architecture, specifically focusing on parameter parsing and scene template structures:
+1. Examine all scene files under `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/`:
+   - `linkedlist_scene.py`, `array_scene.py`, `tree_scene.py`, `graph_scene.py`, `hashmap_scene.py`, `stack_queue_scene.py`, `code_scene.py`, `complexity_scene.py`, `title_scene.py`
+2. Analyze how parameters are currently received, loaded, parsed, or hardcoded, and how `parameters.json` (or equivalent config mechanism) is used or should be used across scenes.
+3. Identify base classes, helper utilities, data structures, and configuration schemas.
+4. Enumerate all scene types and their custom parameter capabilities/gaps for Objective R1.
+
+Deliverables:
+Write your findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_1/analysis.md` and `handoff.md`. Include concrete file paths, class names, method signatures, parameter requirements, and structural recommendations.
+Send a completion message back to the orchestrator when finished.

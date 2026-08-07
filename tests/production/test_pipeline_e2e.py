@@ -55,43 +55,6 @@ def mock_voice_synthesis(tmp_path_factory):
         yield
 
 
-@pytest.fixture
-def mock_binaries(tmp_path):
-    """Fixture providing mock python scripts for manim and ffmpeg binaries."""
-    manim_script = tmp_path / "mock_manim.py"
-    manim_script.write_text(
-        """import sys, os
-media_dir = None
-out_arg = "output.mp4"
-for i, arg in enumerate(sys.argv):
-    if arg == "--media_dir" and i + 1 < len(sys.argv):
-        media_dir = sys.argv[i + 1]
-    if arg == "-o" and i + 1 < len(sys.argv):
-        out_arg = sys.argv[i + 1]
-if media_dir:
-    os.makedirs(media_dir, exist_ok=True)
-    out_file = os.path.join(media_dir, out_arg)
-    with open(out_file, "wb") as f:
-        f.write(b"MOCK_MANIM_VIDEO_SEGMENT_DATA_" * 10)
-sys.exit(0)
-""",
-        encoding="utf-8",
-    )
-
-    ffmpeg_script = tmp_path / "mock_ffmpeg.py"
-    ffmpeg_script.write_text(
-        """import sys, os
-out_file = sys.argv[-1]
-os.makedirs(os.path.dirname(os.path.abspath(out_file)), exist_ok=True)
-with open(out_file, "wb") as f:
-    f.write(b"MOCK_ASSEMBLED_4K_VIDEO_STREAM_DATA_" * 10)
-sys.exit(0)
-""",
-        encoding="utf-8",
-    )
-
-    return str(manim_script), str(ffmpeg_script)
-
 
 def _build_test_nodes(manim_bin: str, ffmpeg_bin: str):
     """Build production node sequence configured with mock binary paths."""

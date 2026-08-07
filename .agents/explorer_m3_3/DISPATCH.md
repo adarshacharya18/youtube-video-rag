@@ -1,23 +1,21 @@
-## 2026-07-30T12:33:55Z
-You are explorer_m3_3 in working directory /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_3.
-Your task is to explore and analyze the codebase to design the Memory Management Architecture, Tempdir Sanitation, and Fault Isolation section for Milestone 3 documentation `PromptBook/Phase12/01_Animation_Production.md`.
+## 2026-08-07T05:54:31Z
+You are Explorer 3 for Milestone M3 (Auxiliary & Educational Scene Renderers).
+Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_3
 
-MANDATORY ASSIGNMENT:
-1. Read the following authoritative source files:
-   - `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
-   - `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
-   - `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/animation_generator_node.py`
-   - `/home/adarsh/Documents/Youtube-Channel/src/animation/renderer.py`
-   - `/home/adarsh/Documents/Youtube-Channel/tests/pipeline/test_animation_node.py`
-   - `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase12/GATE_STATUS.md`
+Mandatory files to read first:
+- Original Request: /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md
+- Master Project Index: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md
+- Scope Document: /home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m3/SCOPE.md
 
-2. Deeply analyze:
-   - Memory Management & Storage Sanitation Architecture: Use of `tempfile.TemporaryDirectory()` for per-run output isolation (`run_output_dir`), ensuring zero storage leaks across heavy renders.
-   - Cleanup Mechanics: Explicit context manager exit and `finally` block execution cleaning up temporary directories and intermediate files on both success and `AnimationError` failures.
-   - FD & Subprocess Leak Prevention: Subprocess execution with `close_fds=True`, standard output/error pipe closure, explicit timeout cleanup, and prevention of lingering processes or open file descriptors (`/proc/self/fd`).
-   - Exception Resilience: Handling of sub-render failures in multi-cue scripts, guaranteeing cleanup of already-created files and temporary run directories when `AnimationError` is raised.
-   - High-quality Mermaid sequence and state diagrams illustrating resource allocation, execution lifecycle, exception safety, and sanitation guarantees.
+Your Task:
+Investigate `src/animation/scenes/title_scene.py`, `src/animation/scenes/base_dsa_scene.py`, and existing pytest suite in `tests/`.
+Analyze requirements for `TitleScene` & test environment:
+1. Dynamic Custom Input & Parameter Parsing (R1): Accept custom topic title, subtitle, difficulty badge, and category tag via `BaseDSAScene` parameters.
+2. DSA Visualization & Refactoring (R2): Render dynamic title text, difficulty badges, continuous ambient particle/glow background animations without static 4.0s wait freeze.
+3. Unconstrained Educational Timing & Continuous Animation (R3): Dynamic step duration scaling using `get_step_runtime()`, replace static `self.wait()` pauses with `animate_continuous_wait()` anti-freeze animation helper.
+4. Test Suite Audit: Identify all current pytest tests for scenes and base infrastructure, verify how scenes are tested, and specify verification commands for pytest.
 
-3. Write a comprehensive exploration report and detailed documentation blueprint to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_3/analysis.md` and deliver `handoff.md` in your working directory summarizing your findings. Write progress updates to `progress.md` with timestamps.
-
-Send a completion message back to parent upon finishing.
+Examine existing codebase and tests. Produce:
+- `analysis.md` in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_3/analysis.md` with detailed code analysis and recommended implementation strategy.
+- `handoff.md` in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_3/handoff.md` summarizing findings.
+Send a message to parent when finished.

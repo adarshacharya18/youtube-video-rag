@@ -1,167 +1,161 @@
-# Explorer 3 Analysis Report: Test Harness, Audio (Kokoro TTS) & Video (Manim) Subsystem Integration
+# Codebase Survey & Analysis: Test Harness, Rendering Infrastructure & Verification Setup
 
-## 1. Executive Summary & Problem Diagnosis
-
-This investigation maps the test harness, project structure, and subsystem implementations to diagnose and provide test specifications for requirements **R1** (Audio Generation Isolation Tests) and **R2** (Video Generation Isolation Tests).
-
-### Key Findings & Root Cause Analysis
-
-1. **Audio Generation (Kokoro TTS) Fallback to Beep**:
-   - **Observed Behavior**: In `src/core/media/voice.py` line 123-125, `KokoroVoiceProvider._synthesize_pcm_wave()` hardcodes model paths to `Path.cwd() / "models" / "kokoro" / "kokoro-v0_19.onnx"` and `voices.json`.
-   - **Root Cause**: `kokoro-onnx` executes `self.voices: np.ndarray = np.load(voices_path)`. When passed `voices.json`, NumPy 2.5 raises `ValueError: Failed to interpret file as a pickle` or `ValueError: This file contains pickled (object) data`. The `try...except` block in `_synthesize_pcm_wave()` catches this failure and silently falls back to generating a 440 Hz pure sine wave synthetic beep.
-   - **Verified Fix Location**: Valid model files exist at `/home/adarsh/Documents/Youtube-Channel/models/kokoro-v1.0.onnx` and `/home/adarsh/Documents/Youtube-Channel/models/voices-v1.0.bin`. Calling `Kokoro('models/kokoro-v1.0.onnx', 'models/voices-v1.0.bin')` generates true speech audio (24,000 Hz, mono) without falling back to a beep.
-
-2. **Video Generation (Manim) Animation & Motion Verification**:
-   - **Observed Behavior**: `tests/test_animation/` currently contains no isolation tests. `tests/pipeline/test_animation_node.py` uses mock scripts (`mock_manim.py`) that generate static dummy byte strings, without rendering real Manim scenes or verifying video frame motion.
-   - **Root Cause**: Absence of isolated tests verifying that real Manim CLI subprocess renders generate moving frames (`mean pixel difference > 0.05`) rather than frozen single-frame outputs.
-   - **Verified Solution**: Use `ffmpeg` to extract frames from rendered `.mp4` clips and compute the frame-to-frame pixel delta (Mean Absolute Difference via `Pillow` and `numpy`).
+**Explorer**: Explorer 3  
+**Working Directory**: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_survey_3`  
+**Date**: 2026-08-07  
+**Scope**: Pytest test suite, Manim CLI rendering infrastructure, parameter override mechanism, video validation (`.mp4`), and verification setup.
 
 ---
 
-## 2. Codebase Structure & Test Harness Mapping
+## 1. Executive Summary
 
-### Project Layout
-```
-/home/adarsh/Documents/Youtube-Channel/
-├── pyproject.toml               # Python 3.10+, pytest >= 8.0.0, pytest-cov
-├── pytest.ini                   # Options: --strict-markers --cov=src -v
-├── requirements.txt             # kokoro-onnx>=0.5.0, soundfile>=0.14.0, pytest
-├── models/
-│   ├── kokoro-v1.0.onnx         # Kokoro ONNX model weights (325 MB)
-│   └── voices-v1.0.bin          # Kokoro voice embeddings NPZ binary (28.2 MB)
-├── src/
-│   ├── animation/               # Manim renderer & scene templates
-│   │   ├── renderer.py          # ManimRenderer subprocess wrapper
-│   │   └── scenes/              # BaseDSAScene, ArrayScene, TreeScene, CodeScene, etc.
-│   ├── core/media/
-│   │   └── voice.py             # KokoroVoiceProvider, AudioSegment, VoiceConfig
-│   └── pipeline/nodes/          # AnimationGeneratorNode, VoiceGeneratorNode
-└── tests/
-    ├── conftest.py              # Global fixtures (temp_data_dir, test_config, mock_logger)
-    ├── test_voice/              # Dedicated directory for R1 (currently empty __init__.py)
-    └── test_animation/          # Dedicated directory for R2 (currently empty __init__.py)
-```
+This report documents the test harness, Manim rendering pipeline, parameter configuration mechanism, and video verification methodology in the `Youtube-Channel` codebase.
 
-### System Dependencies Available
-- **Python**: 3.13 / 3.10+ virtualenv
-- **Pytest**: 9.1.1 (`pytest-cov` installed)
-- **Audio Libraries**: `kokoro-onnx`, `soundfile`, standard `wave`, `struct`
-- **Video/Graphics Tools**: `manim` CLI (v0.20.1), `ffmpeg`, `PIL` (Pillow 12.3.0), `numpy` (2.5.1)
+Key findings:
+- **Test Runner & Config**: Pytest 9.1.1 configured via `pyproject.toml` (`[tool.pytest.ini_options]`). Executable via `pytest` or `.venv/bin/pytest`.
+- **Manim Execution**: `ManimRenderer` (`src/animation/renderer.py`) spawns subprocess calls to `manim render` (or `python -m manim render`) with isolated temporary working directories.
+- **Parameter Delivery**: Parameters passed to `ManimRenderer.render()` are automatically dumped to `parameters.json` in the renderer's working directory. `BaseDSAScene` (`src/animation/scenes/base_scene.py`) auto-loads `parameters.json` upon initialization/construction.
+- **Workflow Node**: `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py`) maps script visual cues to 9 scene scripts (`src/animation/scenes/*_scene.py`), computes SHA-256 cache hashes, and saves segments into `data/assets/renders/<run_id>/`.
+- **Video Verification & Acceptance Criteria**: Acceptance criteria enforce valid `.mp4` files (> 100 bytes, `nb_frames > 1`, `duration > 0.1s` via `ffprobe`) and non-zero motion delta (`max_delta > 0.001` calculated via PIL `ImageChops.difference` between FFmpeg-extracted PNG frames at 5 FPS).
+- **Current Technical Debt / Test Failures**: Running `pytest tests/test_animation/test_manim_animation.py` yields 2 failures (`GraphScene` and `ComplexityScene`) due to static `self.wait()` calls causing zero inter-frame motion delta (`max_delta == 0.000000`).
 
 ---
 
-## 3. Requirement R1: Audio Generation (Kokoro TTS) Isolation Test Strategy
+## 2. Dependencies & Build Configuration
 
-### Target File
-`tests/test_voice/test_kokoro_voice.py`
+### 2.1 Project Configuration Files
+- **`pyproject.toml`**: Main project metadata and pytest settings.
+  ```toml
+  [tool.pytest.ini_options]
+  testpaths = ["tests"]
+  pythonpath = ["."]
+  addopts = "-v --tb=short"
 
-### Test Verification Methodology (Real Speech vs. Synthetic Beep)
-A 440 Hz synthetic beep is a pure sine wave with:
-1. Constant peak amplitude ($1000$) across every single audio frame.
-2. Zero silence or pauses between words.
-3. Single spectral peak at 440 Hz (harmonic purity = 1.0).
+  [tool.uv.workspace]
+  members = ["manimations"]
+  ```
+- **`manimations/pyproject.toml`**: uv workspace package declaring `manim>=0.19.1`.
+- **`requirements.txt`**: Lists core dependencies (`pydantic>=2.0.0`, `structlog`, `python-dotenv`, `pyyaml`, `markdown-it-py`, `beautifulsoup4`, `langchain`, `openai`, `anthropic`, `jinja2`, `pytest>=8.0.0`, `pytest-cov>=5.0.0`, `langchain-google-genai`, `kokoro-onnx`, `soundfile`).
 
-Real Kokoro TTS speech output features:
-1. Dynamic amplitude envelope with silence/near-zero amplitude during pauses between words.
-2. Dynamic RMS energy variation across phonemes.
-3. Spectral energy spread across 100 Hz – 8000 Hz.
-
-#### Practical Audio Assertion Strategy
-```python
-import wave
-import numpy as np
-
-def verify_real_speech_not_beep(wav_path: str):
-    """Asserts that WAV file is real TTS speech audio and NOT a synthetic sine beep."""
-    with wave.open(wav_path, "rb") as wf:
-        n_channels = wf.getnchannels()
-        sampwidth = wf.getsampwidth()
-        rate = wf.getframerate()
-        frames = wf.readframes(wf.getnframes())
-
-    assert n_channels == 1, "Expected mono audio"
-    assert sampwidth == 2, "Expected 16-bit PCM"
-    assert rate == 24000, "Expected 24kHz sample rate"
-
-    samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
-    assert len(samples) > 0, "Audio samples must not be empty"
-
-    # 1. Beep detection via Amplitude Envelope Variance & Zero-count
-    # Real speech contains quiet frames/pauses (abs sample < 100)
-    quiet_samples = np.sum(np.abs(samples) < 100)
-    quiet_ratio = quiet_samples / len(samples)
-    assert quiet_ratio > 0.05, f"Audio lacks natural speech pauses (quiet_ratio={quiet_ratio:.4f}), likely synthetic beep"
-
-    # 2. Beep detection via standard deviation of frame energies
-    frame_size = 2400 # 100ms frames
-    num_frames = len(samples) // frame_size
-    if num_frames > 2:
-        frame_rms = [
-            np.sqrt(np.mean(samples[i * frame_size:(i + 1) * frame_size] ** 2))
-            for i in range(num_frames)
-        ]
-        rms_std = np.std(frame_rms)
-        assert rms_std > 50.0, f"Audio energy is too uniform (rms_std={rms_std:.2f}), likely synthetic beep"
-```
+### 2.2 System Binaries Required
+1. **Python 3.10+ / 3.13.7**: Environment located at `.venv/bin/python`.
+2. **Manim CLI (`manim`)**: Used to compile scene scripts into MP4 clips.
+3. **FFmpeg (`ffmpeg`)**: Used to extract PNG frames for motion validation and concatenate video/audio streams during assembly.
+4. **FFprobe (`ffprobe`)**: Used to inspect container metadata (stream count, frame count `nb_frames`, duration).
 
 ---
 
-## 4. Requirement R2: Video Generation (Manim) Isolation Test Strategy
+## 3. Manim Rendering Infrastructure
 
-### Target File
-`tests/test_animation/test_manim_animation.py`
+### 3.1 `ManimRenderer` (`src/animation/renderer.py`)
+`ManimRenderer` encapsulates subprocess execution for Manim scene scripts:
+- **Quality Map**:
+  - `"low"` / `"480p"` -> `-ql`
+  - `"medium"` / `"720p"` -> `-qm`
+  - `"high"` / `"1080p"` -> `-qh`
+  - `"fourk"` / `"4k"` -> `-qk`
+- **Subprocess Command Construction**:
+  ```bash
+  python -m manim render -ql --format=mp4 --media_dir <output_dir> -o <output_filename> <scene_script> <class_name>
+  ```
+- **Execution Environment**:
+  Runs via `subprocess.run(cmd, capture_output=True, text=True, close_fds=True, timeout=self.timeout, cwd=str(output_dir))`.
+- **Parameter Dumping**: If `parameters` dictionary is provided, `ManimRenderer.render()` writes `output_dir / "parameters.json"` before invoking the subprocess.
 
-### Test Verification Methodology (Moving Frames vs. Frozen Frame)
-If an animation freezes on the first frame, all extracted video frames are identical (pixel delta = 0).
-To verify moving frames:
-1. Render scene via `ManimRenderer` or Manim CLI (`-ql` quality for fast test execution).
-2. Use `ffmpeg` subprocess to extract frames at 5 fps into `tmp_path`.
-3. Read frame images using `PIL` (Pillow) and convert to `numpy` arrays.
-4. Calculate Mean Absolute Difference (MAD) between Frame 0 and Mid/Final Frame.
-
-#### Practical Video Assertion Strategy
-```python
-import subprocess
-import numpy as np
-from PIL import Image
-from pathlib import Path
-
-def verify_video_has_moving_frames(mp4_path: Path, tmp_path: Path):
-    """Extracts frames from MP4 and asserts that animation renders moving frames."""
-    assert mp4_path.exists() and mp4_path.stat().st_size > 100
-
-    frames_dir = tmp_path / "extracted_frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
-
-    # Extract 5 frames per second using ffmpeg
-    subprocess.run([
-        "ffmpeg", "-y", "-i", str(mp4_path),
-        "-vf", "fps=5", str(frames_dir / "frame_%03d.png")
-    ], capture_output=True, check=True)
-
-    frame_files = sorted(list(frames_dir.glob("frame_*.png")))
-    assert len(frame_files) >= 2, f"Expected at least 2 frames, found {len(frame_files)}"
-
-    img_start = np.array(Image.open(frame_files[0]), dtype=np.float32)
-    img_mid = np.array(Image.open(frame_files[len(frame_files) // 2]), dtype=np.float32)
-
-    mean_diff = np.mean(np.abs(img_start - img_mid))
-    assert mean_diff > 0.05, f"Animation is frozen on first frame! Pixel mean diff={mean_diff:.4f}"
-```
+### 3.2 Workflow Node: `AnimationGeneratorNode` (`src/pipeline/nodes/animation_generator_node.py`)
+- Reads visual cues from `script_generator` step in `StateLedger`.
+- **`ANIMATION_TYPE_MAP`**: Maps cue `animation_type` strings to scene scripts and class names:
+  | Cue `animation_type` | Scene Script Path | Scene Class |
+  |---|---|---|
+  | `title_card` | `src/animation/scenes/title_scene.py` | `TitleScene` |
+  | `array_highlight`, `array_traversal` | `src/animation/scenes/array_scene.py` | `ArrayScene` |
+  | `tree_traversal`, `binary_tree` | `src/animation/scenes/tree_scene.py` | `TreeScene` |
+  | `code_highlight`, `code_walkthrough`, `code_scene` | `src/animation/scenes/code_scene.py` | `CodeScene` |
+  | `graph_animation`, `graph_traversal` | `src/animation/scenes/graph_scene.py` | `GraphScene` |
+  | `hashmap_operation`, `hashmap_insert`, `hashmap_lookup`, `hashmap` | `src/animation/scenes/hashmap_scene.py` | `HashmapScene` |
+  | `linkedlist_pointer`, `linked_list`, `linkedlist`, `linkedlist_operation`, `list_folding`, `pointer_movement`, `slow_fast_pointers`, `list_reversal`, `list_merge`, `text_overlay` | `src/animation/scenes/linkedlist_scene.py` | `LinkedListScene` |
+  | `stack_queue_operation`, `stack_queue` | `src/animation/scenes/stack_queue_scene.py` | `StackQueueScene` |
+  | `complexity_chart`, `complexity` | `src/animation/scenes/complexity_scene.py` | `ComplexityScene` |
+- **Caching Mechanism**: SHA-256 hash of `anim_type`, `parameters` (sorted JSON), and `quality`. Saved in `data/cache/animation/<hash>.mp4`.
+- **Atomic Operations**: Isolated per-cue temp directory (`tempfile.TemporaryDirectory`), validated before copying to output `data/assets/renders/<run_id>/segment_<cue_id>.mp4`.
 
 ---
 
-## 5. Summary of Recommended Test Files Structure
+## 4. Parameter Override Mechanism (`parameters.json`)
 
-1. `tests/test_voice/test_kokoro_voice.py`:
-   - `test_kokoro_voice_provider_cpu_inference`: Verifies KokoroVoiceProvider generates speech without fallback beep using CPU ONNX.
-   - `test_kokoro_speech_waveform_non_beep_properties`: Checks RMS variance and silence pauses to confirm speech vs sine wave.
-   - `test_kokoro_voice_id_and_speed`: Tests custom voices (`af_sky`, `af_bella`) and speech speed settings.
-   - `test_kokoro_technical_pronunciation`: Tests technical jargon replacements (Dijkstra -> dike-struh).
+### 4.1 How Parameters Flow to Scenes
+1. **Source**: Visual cue dictionary specified in test suite or generated by `script_generator` node.
+2. **Delivery**: `ManimRenderer.render(..., parameters=params)` writes `parameters.json` into `output_dir`.
+3. **Loading**: Base class `BaseDSAScene` (`src/animation/scenes/base_scene.py`) executes `load_params_from_json()` during `__init__`, `setup()`, and `construct()`. It checks candidates:
+   - Explicit `json_path` if provided
+   - `Path("parameters.json")`
+   - `Path.cwd() / "parameters.json"`
+4. **Consumption**: Scene templates access parameters via `self.params.get(key, default)`.
 
-2. `tests/test_animation/test_manim_animation.py`:
-   - `test_manim_renderer_array_scene_moving_frames`: Renders ArrayScene and verifies moving frames via frame extraction & pixel delta.
-   - `test_manim_renderer_tree_scene_moving_frames`: Renders TreeScene and verifies moving frames.
-   - `test_manim_renderer_code_scene_moving_frames`: Renders CodeScene.
-   - `test_manim_renderer_quality_flags`: Tests `-ql`, `-qm`, `-qh` flag passed to Manim CLI.
-   - `test_manim_renderer_parameters_json_injection`: Verifies custom parameters passed to scenes render correctly.
+### 4.2 Scene-Specific Parameter Schema
+- **`ArrayScene`**: `array` (list), `action` (`"traverse"`, `"two_pointers"`, `"swap"`, `"highlight"`, `"sliding_window"`), `highlight_indices` (list), `swap_indices` (list), `window_size` (int), `duration` (float).
+- **`LinkedListScene`**: `nodes` (list), `action` (`"traverse"`, `"fast_slow"`, `"reverse"`, `"split"`, `"merge"`), `pointers` (dict e.g. `{"slow": 1, "fast": 2}`), `highlight_indices` (list), `duration` (float).
+- **`TreeScene`**: `nodes` (list e.g. `[1, 2, 3, None, 4]`), `root` (val), `action` (`"display"`, `"bfs"`, `"dfs"`, `"insert"`), `duration` (float).
+- **`GraphScene`**: `vertices` (list), `edges` (list of pairs `[[1,2], [2,3]]`), `traversal_path` (list), `action` (`"display"`, `"bfs"`, `"dfs"`), `duration` (float).
+- **`HashmapScene`**: `entries` (dict e.g. `{"key": "val"}`), `highlight_key` (str), `action` (`"display"`, `"put"`, `"get"`, `"collision"`), `duration` (float).
+- **`StackQueueScene`**: `elements` (list), `new_element` (val), `container_type` (`"stack"`/`"queue"`), `action` (`"display"`, `"push"`, `"pop"`, `"enqueue"`, `"dequeue"`), `duration` (float).
+- **`CodeScene`**: `code` (string), `language` (string e.g. `"python"`), `highlight_lines` (list of line numbers), `lines` (range string e.g. `"1-3"`), `duration` (float).
+- **`ComplexityScene`**: `time_complexity` (string e.g. `"O(N log N)"`), `space_complexity` (string e.g. `"O(O(1))"`), `duration` (float).
+- **`TitleScene`**: `title` / `text` (string), `duration` (float).
+
+---
+
+## 5. Acceptance Criteria & Video Verification Setup
+
+### 5.1 Verification Protocol in `test_manim_animation.py`
+The test harness uses a three-tier validation strategy to enforce render quality:
+
+1. **File & Size Validation**:
+   - `rendered_video.exists()` is `True`
+   - `rendered_video.stat().st_size > 100` bytes
+
+2. **Stream Metadata Verification (`ffprobe`)**:
+   - `probe_video(video_path)` executes `ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets,nb_frames,duration -show_entries format=duration -of json <video_path>`
+   - Asserts `nb_frames > 1` (rejects 1-frame frozen MP4 files)
+   - Asserts `duration > 0.1` seconds
+
+3. **Inter-Frame Motion Delta Analysis (`Pillow` / `ImageChops`)**:
+   - Frames extracted at 5 FPS: `ffmpeg -y -i <video> -vf fps=5 <tmp>/frame_%03d.png`
+   - Normalized Mean Absolute Difference (MAD) between consecutive PNG frames:
+     ```python
+     def compute_frame_motion_delta(img_path1: Path, img_path2: Path) -> float:
+         im1 = Image.open(img_path1).convert("L")
+         im2 = Image.open(img_path2).convert("L")
+         diff = ImageChops.difference(im1, im2)
+         diff_bytes = diff.tobytes()
+         if not diff_bytes:
+             return 0.0
+         return float(sum(diff_bytes) / (len(diff_bytes) * 255.0))
+     ```
+   - Asserts `max_delta > 0.001` across extracted frames (proves non-static visual motion).
+
+4. **FFmpeg Filtergraph Timestamp Synchronization (Assembly Level)**:
+   - Filtergraph includes `fps=fps,setpts=PTS-STARTPTS` in `src/assembly/ffmpeg_commands.py` to eliminate frame dropping or freeze states during multi-clip assembly.
+
+---
+
+## 6. Test Commands & Runner Tools
+
+### 6.1 Test Command Reference
+| Target Subsystem | Command | Purpose |
+|---|---|---|
+| **Full Test Suite** | `.venv/bin/pytest tests/` | Runs all 38 test modules |
+| **Manim Isolation Suite** | `.venv/bin/pytest tests/test_animation/test_manim_animation.py` | Renders all 8 scene templates & verifies motion deltas |
+| **Animation Generator Node** | `.venv/bin/pytest tests/pipeline/test_animation_node.py` | Validates node orchestration, `parameters.json` output, caching |
+| **FFmpeg & Assembly** | `.venv/bin/pytest tests/test_assembly/test_ffmpeg_commands.py` | Tests video stitching, filtergraph timestamp sync |
+| **End-to-End Pipeline** | `.venv/bin/pytest tests/integration/test_end_to_end_pipeline.py` | Full pipeline run from ingestion to publishing |
+
+---
+
+## 7. Observed Deficiencies & Findings
+
+1. **`GraphScene` Zero-Motion Failure**: `test_manim_renders_moving_frames_for_scene_templates` fails for `GraphScene` because `action_display` renders a static graph and immediately enters `self.wait(duration * 0.2)`. The frames extracted at 5 FPS detect zero pixel difference (`max_delta == 0.000000`).
+2. **`ComplexityScene` Zero-Motion Failure**: `ComplexityScene` has `# Deterministic wait replacing broken dt updater` followed by `self.wait(wait_time)`, leaving the final 1.92 seconds of video frozen, causing `max_delta == 0.000000`.
+3. **Hardcoded Fallbacks in Scene Templates**: Several scenes revert to default fallback data (e.g. `[1, 2, 3, 4, 5]`) if custom parameters are missing or incomplete, rather than dynamically scaling layout for arbitrary data structure sizes.
+
+---

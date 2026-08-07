@@ -1,21 +1,33 @@
-# Summary of Changes for Phase 12 Animation Documentation & Verification
+# M3 Worker 1 Changes Log
 
-## Overview
-Author worker `worker_m3_1` completed the synthesis of findings from three explorer reports (`explorer_m3_1`, `explorer_m3_2`, `explorer_m3_3`) and the Phase 12 codebase (`src/pipeline/nodes/animation_generator_node.py` and `src/animation/renderer.py`) into the complete, high-quality, production-grade architectural specification:
-`/home/adarsh/Documents/Youtube-Channel/PromptBook/Phase12/01_Animation_Production.md`.
+## Files Modified
+1. `src/animation/scenes/code_scene.py`
+   - Refactored `CodeScene` to inherit from `BaseDSAScene`.
+   - Added schema parameter parsing with alias resolution via `CodeSceneParameters` schema and `get_parameter`.
+   - Implemented dynamic screen layout supporting split-view with live `VARIABLE WATCHER` side panel when `variables` parameter is provided.
+   - Added bottom execution caption bar displaying natural language explanations per step.
+   - Added line highlight cursor with smooth focus transitions (`SurroundingRectangle` animation).
+   - Added auto-scrolling support for code blocks > 15 lines or when target line moves below visible frame.
+   - Replaced static `self.wait()` pauses with dynamic `get_step_runtime()` scaling and `animate_continuous_wait()` anti-freeze helper.
 
-## Deliverables Authored / Modified
-- **`PromptBook/Phase12/01_Animation_Production.md`**: Created new comprehensive architectural documentation containing 7 detailed sections, complete ASCII diagrams, equations, Pydantic V2 schemas, 3 Mermaid diagrams (Sequence Diagram, Flowchart, State Diagram), and a full 37-test verification matrix.
+2. `src/animation/scenes/complexity_scene.py`
+   - Refactored `ComplexityScene` to inherit from `BaseDSAScene`.
+   - Added schema parameter parsing with alias resolution via `ComplexitySceneParameters` schema and `get_parameter`.
+   - Implemented modular action dispatcher (`time_complexity`, `space_complexity`, `dual_complexity`, `growth_curves`, `curve_tracer`, `comparison_bars`).
+   - Implemented 2D Big-O coordinate Axes graph plotting curves for $O(1)$, $O(\log N)$, $O(N)$, $O(N \log N)$, $O(N^2)$, $O(2^N)$ with color-coded labels.
+   - Implemented dynamic growth curve tracer dot animation along Axes with real-time $[N, \text{Ops}]$ coordinate readout badge.
+   - Implemented comparative operation bar charts across input sizes ($N=10, 50, 100$).
+   - Replaced static `self.wait()` freezes with `animate_continuous_wait()` ambient micro-pulsing to guarantee `max_delta > 0.001`.
 
-## Key Sections Covered in `PromptBook/Phase12/01_Animation_Production.md`
-1. **Section 1: Executive Overview & Pipeline Architecture**: StateLedger integration (`step="script_generator"` -> `step="animation_generator"`), node lifecycle within `WorkflowEngine`, synchronous batch pipeline positioning, and Pydantic V2 schema contracts (`RenderSegment`, `AssetReference`).
-2. **Section 2: Visual Cue Extraction, Mapping, & Sanitization**: 4-tier visual cue fallback extraction hierarchy (`YouTubeScript` model, root dict, section scanning `hook`/`context`/`solution`/`complexity`, top-level payload fallback) and cue ID path traversal sanitization via `_sanitize_cue_id`.
-3. **Section 3: Scene Template Hierarchy & Parameter Passing**: 8-category mapping table of visual cue types to Manim scene classes (`ArrayScene`, `TreeScene`, `CodeScene`, `GraphScene`, `HashmapScene`, `LinkedListScene`, `StackQueueScene`, `ComplexityScene`) and dynamic `parameters.json` ingestion by `BaseDSAScene`.
-4. **Section 4: Secure Subprocess Sandbox & CLI Invocation Engine**: `ManimRenderer` design, quality flag mapping (`-ql`, `-qm`, `-qh`, `-qk`), subprocess sandbox flags (`close_fds=True`, `cwd=output_dir`, `timeout=120.0`, python script fallback), and video file integrity validation.
-5. **Section 5: Content-Addressable SHA-256 Caching & Atomic Storage Mechanics**: SHA-256 hash formulation, corrupt cache sub-100 byte invalidation logic, PID-isolated atomic write-then-rename staging (`.tmp.<pid>` -> `os.replace`).
-6. **Section 6: Memory Sanitation & Resource Cleanup Architecture**: `tempfile.TemporaryDirectory()` context management, per-run output directory isolation, file descriptor leak prevention via `/proc/self/fd`, and multi-cue render failure cleanup rollback.
-7. **Section 7: Verification Suite & Architectural Diagrams**: Mermaid sequence diagram, execution flowchart, node state diagram, and 37-test verification matrix.
+3. `src/animation/scenes/title_scene.py`
+   - Refactored `TitleScene` to inherit from `BaseDSAScene`.
+   - Added schema parameter parsing with alias resolution via `TitleSceneParameters` schema and `get_parameter`.
+   - Implemented action dispatcher (`main_title`, `subtitle`, `difficulty_badge`, `category_badge`, `particle_ambient`).
+   - Created styled pill badge mobjects for difficulty levels (Easy, Medium, Hard with green/orange/red styling) and category tags.
+   - Implemented background ambient particle system with continuous sinuous float & pulse micro-animations.
+   - Replaced static 4.0s `self.wait()` pause with `animate_continuous_wait()` and ambient particle motion loop.
 
-## Verification & Testing
-- Executed `pytest tests/pipeline/test_animation_node.py` on the codebase.
-- **Results**: 37 passed out of 37 tests (100% pass rate).
+## Build and Test Verification Status
+- `pytest tests/test_animation/test_manim_animation.py -k "T1_CD or T1_CX or T1_TT" -v`: 15/15 PASSED
+- `pytest tests/test_animation/test_parameter_schema.py -v`: 15/15 PASSED
+- Full test suite run in progress.

@@ -1,40 +1,36 @@
-# Handoff Report — Explorer 2 (Phase 14 Milestone M0)
+# Handoff Report - Explorer 2 (Milestone M0)
 
 ## 1. Observation
-- **Original Requirements**: Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` (lines 122-148). Requirement R1 specifies `src/cli/ops.py` master CLI (`run`, `status`, `resume`, `health`); R2 specifies `src/core/orchestrator/pipeline_runner.py` linking all nodes; Acceptance criteria requires `tests/production/test_pipeline_e2e.py` passing.
-- **Existing CLI Modules**: Examined `src/cli/ops.py` (120 lines stub), `src/cli/ingestion_cli.py`, `src/cli/content_cli.py`, `pyproject.toml`, `requirements.txt`. Standard library `argparse` is used everywhere; exit codes are integers (0 for success, 1/2 for failure).
-- **Existing Orchestrator & Node Infrastructure**:
-  - Node base contract in `src/core/workflow/node.py` (`Node.execute(run_id, ledger)`).
-  - Workflow execution engine in `src/core/workflow/engine.py` (`WorkflowEngine.run(run_id)` handling step idempotency, event publishing, and fault tolerance).
-  - State ledger persistence in `src/core/orchestrator/state_ledger.py` (`StateLedger`).
-  - Implemented nodes in `src/pipeline/nodes/`: `script_generator_node.py`, `animation_generator_node.py`, `video_assembly_node.py`.
-- **Existing Test Infrastructure**:
-  - `pyproject.toml` configures `pytest` with `testpaths = ["tests"]` and `pythonpath = ["."]`.
-  - `tests/conftest.py` provides `temp_data_dir` and `test_config`.
-  - `tests/production/test_production_suite.py` contains basic mocks. `tests/production/test_pipeline_e2e.py` does NOT exist yet.
+- **Current `BaseDSAScene` Implementation**: Located at `src/animation/scenes/base_scene.py:38-63`. `load_params_from_json()` loads `parameters.json` from `cwd` into `self.params` dictionary without alias mapping, type validation, or type coercion.
+- **Subclass Key Usage**: Subclasses directly call `self.params.get(...)` with hardcoded, inconsistent key names across 9 scene templates:
+  - `src/animation/scenes/array_scene.py:36`: `self.params.get("array", [1, 2, 3, 4, 5])`
+  - `src/animation/scenes/linkedlist_scene.py:17`: `self.params.get("nodes", [1, 2, 3, 4, 5])`
+  - `src/animation/scenes/stack_queue_scene.py:41`: `self.params.get("elements", [1, 2, 3])`
+  - `src/animation/scenes/hashmap_scene.py:35`: `self.params.get("entries", ...)`
+  - `src/animation/scenes/graph_scene.py:22`: `self.params.get("vertices", ...)`
+  - `src/animation/scenes/code_scene.py:16`: `self.params.get("code", ...)`
+  - `src/animation/scenes/complexity_scene.py:18`: `self.params.get("time_complexity", ...)`
+- **Renderer Serialization**: `src/animation/renderer.py:53-54` writes `parameters.json` to temporary output directories before executing Manim CLI.
+- **Existing Test Coverage**: `tests/pipeline/test_animation_node.py:422-436` asserts `BaseDSAScene.load_params_from_json()` reads `parameters.json`.
 
 ## 2. Logic Chain
-1. `src/cli/ops.py` currently exists as a stub missing `run` and `resume` subcommands, and providing mock output for `status` and `health`.
-2. To satisfy R1, `src/cli/ops.py` needs full implementations for:
-   - `run`: Instantiate `PipelineRunner`, create run in `StateLedger`, call `runner.run(run_id)`.
-   - `status`: Query `StateLedger` for run states, completed steps, error details.
-   - `resume`: Call `runner.run(run_id)` on an existing run ID to resume execution from the last failed/pending step.
-   - `health`: Perform live checks on SQLite DB, `ffmpeg` binary, `manim` binary, and API keys.
-3. To satisfy R2 and the acceptance criteria, `PipelineRunner` (`src/core/orchestrator/pipeline_runner.py`) will assemble the node sequence into `WorkflowEngine` and manage execution.
-4. `tests/production/test_pipeline_e2e.py` will provide comprehensive integration tests verifying node linkage, step idempotency/resumption, fault tolerance, event bus emissions, and `ops.py` CLI invocation.
+1. Downstream scene renderers (M1-M3) must dynamically accept custom problem arguments provided via `parameters.json` or dictionary inputs (Requirement R1).
+2. Input generators or callers frequently use varied parameter aliases (e.g. `arr`/`input_array` for `array`, `speed` for `duration`, `lines` for `highlight_lines`, `nodes` for `vertices`).
+3. Under the current implementation, any alias mismatch or stringified parameter value (e.g., `"duration": "5.0"` or `"highlight_lines": "1-3"`) causes silent fallback to hardcoded scene defaults, ignoring custom problem inputs.
+4. Implementing `GLOBAL_ALIAS_MAP`, `load_parameters()`, `get_parameter(key, default, expected_type)`, and `parse_parameters(schema)` in `BaseDSAScene` provides:
+   - Centralized alias normalization mapping all legacy and variant keys to canonical names.
+   - Multi-source candidate search order for `parameters.json` (explicit path, `cwd`, env var `MANIM_PARAMS_PATH`).
+   - Safe type coercion for numbers, string ranges (`"1-5"` -> `[1, 2, 3, 4, 5]`), and scalar-to-list conversions.
+   - Robust fallback defaults when optional keys are absent or corrupt.
 
 ## 3. Caveats
-- **Read-Only Scope**: This report is produced during read-only exploration (Milestone M0). Source code implementations in `src/cli/ops.py` and `tests/production/test_pipeline_e2e.py` will be performed during implementation milestones.
-- **Pipeline Runner Dependency**: `src/cli/ops.py` depends on `PipelineRunner` (`src/core/orchestrator/pipeline_runner.py`), which will be implemented alongside CLI updates.
+- **Pydantic Compatibility**: `parse_parameters()` relies on Pydantic `BaseModel` schema instantiation, compatible with both Pydantic v1 and v2.
+- **Downstream Adoption**: In M1-M3, concrete scene subclasses should be refactored to access parameters via `self.get_parameter(...)` instead of raw `self.params.get(...)` to fully utilize type coercion and alias resolution.
 
 ## 4. Conclusion
-The repository has a solid workflow engine (`WorkflowEngine`), state ledger (`StateLedger`), and node architecture (`Node`). Implementing `src/cli/ops.py` using `argparse` and `PipelineRunner` will complete the DevOps operational interface, and building `tests/production/test_pipeline_e2e.py` will provide full test coverage for Phase 14. Detailed specifications and code blueprints have been documented in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md`.
+`BaseDSAScene` in `src/animation/scenes/base_scene.py` must be updated with the specification detailed in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md`. This upgrade establishes a robust parameter schema management foundation for Milestone M0 with 100% backward compatibility.
 
 ## 5. Verification Method
-1. Inspect analysis report: `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md`.
-2. Upon implementation in subsequent milestones, verify with:
-   - `pytest tests/production/test_pipeline_e2e.py`
-   - `python -m src.cli.ops health`
-   - `python -m src.cli.ops run --slug two-sum`
-   - `python -m src.cli.ops status`
-   - `python -m src.cli.ops resume --run-id <run_id>`
+1. **Report Inspection**: Review detailed analysis report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md`.
+2. **Code Verification**: Check proposed `BaseDSAScene` class implementation in Section 6 of `analysis.md`.
+3. **Unit Test Matrix Execution**: Once implemented, run `pytest tests/pipeline/test_animation_node.py` and new unit tests in `tests/test_animation/test_parameter_schema.py`.

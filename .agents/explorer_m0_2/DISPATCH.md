@@ -1,19 +1,16 @@
-## 2026-07-30T17:37:01Z
-You are Explorer 2 for Phase 14 Milestone M0 (Exploration).
-Your working directory is `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2`.
-You MUST create your directory if it doesn't exist and maintain `progress.md` inside it.
+## 2026-08-07T05:44:08Z
+You are Explorer 2 for Milestone M0 (Framework & Parameter Schema Core).
+Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2
+Original Request: /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md
+Master Project Index: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md
+Scope: /home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m0/SCOPE.md
 
-Mandatory Task:
-1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md` for verbatim requirements.
-2. Investigate existing CLI modules, entry points, and CLI libraries used in the repository (`src/cli/`, `pyproject.toml`, `requirements.txt` or similar).
-3. Analyze requirements for `src/cli/ops.py`:
-   - Commands: `run`, `status`, `resume`, `health`.
-   - Arguments, output formatting, error handling, integration with `pipeline_runner.py`.
-4. Investigate existing pytest configuration and test files (`tests/`) to determine the structure for `tests/production/test_pipeline_e2e.py`.
-5. Write your findings to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md` and deliver a soft/hard handoff report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/handoff.md`.
-6. Send a message to the orchestrator when finished.
+Your Task:
+Investigate parameter schema management, `parameters.json` parsing, and parameter alias mapping requirements for `BaseDSAScene`.
+1. Read `/home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md`, `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md`, and `/home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m0/SCOPE.md`.
+2. Search the repository for any existing `parameters.json` files, parameter loading scripts, or schema definitions.
+3. Design a robust parameter loading, type validation, default fallback, and alias resolution specification for `BaseDSAScene`.
+4. Detail how alias resolution should work (e.g. mapping `array` -> `input_array`, `arr` -> `input_array`, `speed` -> `step_duration`, etc.) and how missing optional keys should be handled cleanly with defaults.
 
-## 2026-07-30T17:40:05Z
-**Context**: Checking status of Explorer 2 for Phase 14 Milestone M0 exploration.
-**Content**: Please report your progress on analyzing `src/cli/ops.py` and `tests/production/test_pipeline_e2e.py`.
-**Action**: Complete your analysis and write your findings to `analysis.md` and `handoff.md`.
+Write your report in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/analysis.md` and write a summary handoff in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m0_2/handoff.md`.
+Send a message back to sub_orch_m0 when complete referencing your report path.

@@ -1,248 +1,443 @@
-# Phase 14 Milestone M0 Exploration Analysis Report
+# Comprehensive Technical Analysis: `BaseDSAScene` Architecture & Core Enhancements (Milestone M0)
 
-## Executive Summary
-This report provides a comprehensive architectural investigation of the video generation pipeline codebase at `/home/adarsh/Documents/Youtube-Channel/src/` in preparation for Phase 14 Integration & Production Orchestration. It catalogs existing workflow engine components, state management primitives, event bus mechanisms, and pipeline node implementations (`ScriptGeneratorNode`, `AnimationGeneratorNode`, `VideoAssemblyNode`), details how data/artifacts flow across step boundaries via the SQLite `StateLedger`, and proposes the detailed design for `src/core/orchestrator/pipeline_runner.py` and master CLI integration.
-
----
-
-## 1. Codebase Inventory & Component Assessment
-
-### 1.1 Core Workflow Engine (`src/core/workflow/`)
-* **`src/core/workflow/node.py` (`Node` Abstract Base Class)**
-  * **Role**: Interface contract for all modular execution nodes in the pipeline.
-  * **Key Interface Methods**:
-    * `@property name(self) -> str`: Unique step identifier (e.g., `'ingest'`, `'plan'`, `'script_generator'`, `'voice_generator'`, `'animation_generator'`, `'video_assembly'`).
-    * `execute(self, run_id: str, ledger: StateLedger) -> dict[str, Any]`: Step processing logic. Communicates strictly via `StateLedger` using `run_id`.
-    * `get_run_record(run_id, ledger) -> PipelineRunRecord`: Fetches run record from `StateLedger` or raises `PipelineStageError`.
-    * `get_completed_step_outputs(run_id, ledger) -> dict[str, dict[str, Any]]`: Returns mapping of all completed step names to their recorded `output_payload` dictionaries.
-    * `get_step_output(run_id, ledger, step_name) -> dict[str, Any]`: Retrieves specific prior step's output payload or raises `PipelineStageError`.
-  * **Constraint Enforcement**: Direct in-memory state object passing between node instances is strictly prohibited. Nodes communicate exclusively via SQLite `StateLedger`.
-
-* **`src/core/workflow/engine.py` (`WorkflowEngine`)**
-  * **Role**: Synchronous, fault-tolerant execution orchestrator.
-  * **Key Attributes & Methods**:
-    * `__init__(self, nodes: Sequence[Node], ledger: Optional[StateLedger] = None, event_bus: Optional[EventBus] = None)`
-    * `run(run_id: str) -> EngineResult` (aliases: `execute`, `run_pipeline`).
-  * **Execution Lifecycle**:
-    1. Validates `run_id` existence in `StateLedger`.
-    2. Retrieves previously completed step records via `ledger.get_completed_steps(run_id)`.
-    3. Iterates sequentially over `self.nodes`:
-       * **Idempotency Check**: If `node.name` is recorded as `COMPLETED` in `StateLedger`, execution is skipped, its cached `output_payload` is loaded into `outputs`, and execution advances to the next node.
-       * **Step Start**: Calls `ledger.record_step_start(run_id, node.name)` -> returns `step_id`. Emits `NodeStarted(run_id, node.name, step_id)` on `EventBus`.
-       * **Execution**: Invokes `node.execute(run_id, self.ledger)`.
-       * **Completion**: Calls `ledger.record_step_completion(step_id, output)`, emits `NodeCompleted(run_id, node.name, step_id, output)`.
-       * **Failure Trap**: Catches any exception, records failure via `ledger.record_step_failure(step_id, error_message, error_details)` (which updates parent run status to `FAILED`), emits `NodeFailed(...)`, halts loop, and returns `EngineResult(success=False, failed_step=node.name, status=StepStatus.FAILED)`.
-
-### 1.2 Event Bus Architecture (`src/core/events/`)
-* **`src/core/events/bus.py` (`EventBus`)**
-  * **Event Models**:
-    * `BaseEvent(timestamp: str)`
-    * `NodeStarted(run_id: str, node_name: str, step_id: str)`
-    * `NodeCompleted(run_id: str, node_name: str, step_id: str, output: Any)`
-    * `NodeFailed(run_id: str, node_name: str, step_id: str, error_message: str, error_details: Any)`
-  * **Fault Tolerance**: `EventBus.publish(event)` catches and suppresses all exceptions raised by subscriber listeners, guaranteeing listener failures never halt core pipeline execution.
-
-### 1.3 Persistence & State Tracking (`src/core/orchestrator/state_ledger.py`)
-* **`StateLedger`**
-  * **Storage Engine**: SQLite in WAL mode with `busy_timeout=5000` and thread locking (`threading.Lock()`).
-  * **Schemas**:
-    * `pipeline_runs`: `pipeline_run_id` (PK), `slug`, `status`, `created_at`, `updated_at`, `metadata`.
-    * `step_executions`: `step_execution_id` (PK), `pipeline_run_id` (FK), `step_name`, `status`, `input_payload`, `output_payload`, `error_message`, `error_details`, `created_at`, `updated_at`.
-  * **Status States** (`StepStatus` Enum): `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`.
+**Author**: Explorer 1 (`explorer_m0_1`)  
+**Target File**: `src/animation/scenes/base_scene.py`  
+**Milestone**: M0 (Framework & Parameter Schema Core)  
+**Date**: 2026-08-07  
 
 ---
 
-## 2. Pipeline Node Inventory & Data Flow Analysis
+## 1. Executive Summary
 
-### 2.1 Existing Pipeline Nodes (`src/pipeline/nodes/`)
+Milestone M0 establishes the foundational framework for dynamic parameter ingestion, alias resolution, unconstrained educational step timing, and continuous ambient wait animations across all 9 DSA scene renderers in the repository.
 
-| Node Class | Step Name (`name`) | Primary Inputs (from `StateLedger`) | Primary Outputs (to `StateLedger`) | Key Logic / Subsystems |
-|---|---|---|---|---|
-| `ScriptGeneratorNode` | `"script_generator"` | Prior outputs: `"plan"`, `"educational_plan"`, `"ingest"`, or run metadata `slug`. | `{"script": dict, "slug": str, "topic": str, "status": "completed"}` | LLM prompt rendering + Error-Feedback Retry Loop validating against Pydantic `YouTubeScript` schema. |
-| `AnimationGeneratorNode` | `"animation_generator"` | Prior output: `"script_generator"` (`slug`, `visual_cues`). | `{"slug": str, "segments": list[RenderSegment], "render_count": int, "output_directory": str, "status": "completed"}` | Maps visual cues to Manim scene templates (`ArrayScene`, `TreeScene`, etc.), renders MP4s via isolated subprocesses with SHA-256 caching. |
-| `VideoAssemblyNode` | `"video_assembly"` | Prior output: `"animation_generator"` (`segments`) and `"voice_generator"`/`"script_generator"` (`audio_path`, `subtitle_path`, `srt_content`). | Dict representation of `AssembledVideo` model (`slug`, `final_video_path`, `total_duration_seconds`, `file_size_bytes`, `segments`, `assembled_at`). | Combines MP4 animation clips, WAV voice audio, and SRT subtitles using FFmpeg via `VideoAssembler` into 4K video. |
-
-### 2.2 Complete 6-Stage Chronological Sequence
-
-To construct the complete `Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg` pipeline:
-
-```
-┌────────────────────────┐
-│  Stage 1: Ingestion    │ step_name: "ingest"
-└───────────┬────────────┘
-            │ Output: { slug, title, problem_description, difficulty, code, constraints, examples }
-            ▼
-┌────────────────────────┐
-│  Stage 2: Plan         │ step_name: "plan"
-└───────────┬────────────┘
-            │ Output: { slug, topic, difficulty, plan_sections, teaching_plan }
-            ▼
-┌────────────────────────┐
-│  Stage 3: Script       │ step_name: "script_generator" (ScriptGeneratorNode)
-└───────────┬────────────┘
-            │ Output: { script: YouTubeScript, slug, topic, status: "completed" }
-            ▼
-      ┌─────┴───────────────────────────────────┐
-      │                                         │
-      ▼                                         ▼
-┌────────────────────────┐            ┌────────────────────────┐
-│  Stage 4: TTS          │            │  Stage 5: Manim        │
-│  (voice_generator)     │            │  (animation_generator) │
-└───────────┬────────────┘            └─────────┬──────────────┘
-            │ Output: { audio_path,             │ Output: { segments: list[RenderSegment],
-            │   subtitle_path, srt_content }    │   output_directory, render_count }
-            │                                   │
-            └─────────────────┬─────────────────┘
-                              │
-                              ▼
-                  ┌────────────────────────┐
-                  │  Stage 6: FFmpeg       │ step_name: "video_assembly"
-                  │  (video_assembly)      │ (VideoAssemblyNode)
-                  └────────────────────────┘
-                              │ Output: AssembledVideo model dict
-                              ▼
-                  Final 4K Video Artifact
-```
+This investigation evaluated `src/animation/scenes/base_scene.py` (`BaseDSAScene`), its inheritance hierarchy from Manim's `Scene` class (including graceful stub fallbacks), existing lifecycle methods, parameter loading mechanisms, and timing logic. We surveyed parameter and timing usages across all downstream scene subclasses (`array_scene.py`, `linkedlist_scene.py`, `stack_queue_scene.py`, `hashmap_scene.py`, `tree_scene.py`, `graph_scene.py`, `code_scene.py`, `complexity_scene.py`, and `title_scene.py`) to formulate exact code structures for `BaseDSAScene`.
 
 ---
 
-## 3. Detailed Design Proposal for `src/core/orchestrator/pipeline_runner.py`
+## 2. Current State Analysis of `src/animation/scenes/base_scene.py`
 
-### 3.1 Architecture Overview
-`PipelineRunner` serves as the high-level orchestration wrapper over `WorkflowEngine`, `StateLedger`, and `EventBus`. It provides a clean, production-grade interface for launching, resuming, querying, and managing multi-stage video generation pipeline runs.
+### 2.1 File Architecture & Class Hierarchy
+- **File Location**: `src/animation/scenes/base_scene.py` (102 lines).
+- **Graceful Import Fallback**:
+  - Checks `MANIM_AVAILABLE` boolean flag.
+  - If Manim is unavailable, instantiates a lightweight stub `Scene` class with dummy `__init__` and `construct` methods (lines 19–27).
+- **Class Inheritance**:
+  - `BaseDSAScene` inherits directly from `Scene` (either `manim.Scene` or the stub `Scene`).
+- **Instance Attributes**:
+  - `self.theme: ThemeColors`: Initialized to `DEFAULT_THEME` (Catppuccin Mocha palette from `src/animation/theme.py`).
+  - `self.params: Dict[str, Any]`: Raw dictionary holding parameters loaded from JSON.
 
-### 3.2 Detailed Class Blueprint
+### 2.2 Lifecycle & Execution Flow
+1. **`__init__(*args, **kwargs)`** (lines 35–39):
+   - Calls `super().__init__(*args, **kwargs)`.
+   - Initializes `self.theme` and `self.params = {}`.
+   - Invokes `self.load_params_from_json()`.
+2. **`load_params_from_json(json_path: Optional[str] = None) -> Dict[str, Any]`** (lines 41–62):
+   - Checks candidate paths in order: explicit `json_path`, `"parameters.json"` (relative), `Path.cwd() / "parameters.json"`.
+   - Parses JSON into `self.params`. Returns `self.params`.
+3. **`setup()`** (lines 64–70):
+   - Calls `super().setup()` if present.
+   - Reloads parameters if `self.params` is empty.
+4. **`construct()`** (lines 71–76):
+   - Primary Manim CLI entry point. Checks parameters, calls `self.setup_scene_header()`, and delegates to `self.construct_dsa_animation()`.
+5. **`render_with_params(params: Dict[str, Any])`** (lines 78–85):
+   - Entry point used when programmatically passing a parameter dictionary. Assigns `self.params = params` and invokes header and animation construction.
+6. **`setup_scene_header()`** (lines 87–96):
+   - Reads `self.params.get("title", "")`.
+   - If present and Manim is available, creates a header `Text` mobject aligned to `UP + LEFT` with `buff=0.5`.
+7. **`construct_dsa_animation()`** (lines 98–100):
+   - Abstract hook method (default `pass`) implemented by concrete scene subclasses.
+
+### 2.3 Key Deficiencies Identified
+1. **Lack of Type Validation & Pydantic Integration**:
+   - `self.params` is an unvalidated raw dictionary. Malformed or missing JSON keys lead to `KeyError`, silent defaults, or rendering crashes.
+2. **No Alias Resolution Mechanism**:
+   - Subclasses currently hardcode parameter key lookups (e.g. `self.params.get("array")`). If an LLM pipeline node passes `data`, `input_array`, or `arr`, lookup fails and falls back to hardcoded default values (`[1, 2, 3, 4, 5]`).
+3. **Fixed Percentage Slicing & Rushed Timings**:
+   - Scenes currently calculate step durations via naive division (e.g., `step_time = (duration * 0.5) / len(arr)`). For large inputs (e.g. 20 elements), step durations drop to `< 0.1s`, creating unreadable flickering.
+4. **Static Frame Freezes During Waits**:
+   - Scenes call standard `self.wait(duration)`, rendering static identical frames. This causes 0-motion-delta freeze frames, violating Requirement R2 and failing motion analysis tests (`max_delta <= 0.001`).
+
+---
+
+## 3. Downstream Scene Survey & Parameter Inventory
+
+Across all 9 scene files in `src/animation/scenes/`, we audited key lookups and identified alias requirements and timing patterns:
+
+| Scene Class | Canonical Parameter Keys | Common Aliases / Observed Variants | Default Fallback |
+| :--- | :--- | :--- | :--- |
+| **`ArrayScene`** | `array`, `action`, `swap_indices`, `highlight_indices`, `window_size` | `data`, `arr`, `input_array`, `values`, `swap`, `highlights` | `[1, 2, 3, 4, 5]` |
+| **`LinkedListScene`** | `nodes`, `action`, `pointers`, `highlight_indices` | `nodes_data`, `vals`, `elements`, `list`, `ptrs` | `[1, 2, 3, 4, 5]` |
+| **`StackQueueScene`** | `elements`, `action`, `operation_sequence` | `items`, `values`, `queue`, `stack`, `ops` | `[1, 2, 3]` |
+| **`HashmapScene`** | `entries`, `action`, `highlight_key`, `hash_table` | `key_values`, `map`, `dict`, `kv_pairs`, `key` | `{"A": 1, "B": 2}` |
+| **`TreeScene`** | `tree`, `root`, `action`, `traversal_order` | `tree_data`, `nodes`, `root_val`, `traversal` | Root `42` / binary tree |
+| **`GraphScene`** | `vertices`, `edges`, `action`, `traversal_path` | `nodes`, `edge_list`, `path`, `graph` | Vertices `[1,2,3,4]` |
+| **`CodeScene`** | `code`, `language`, `action`, `highlight_lines` | `code_snippet`, `snippet`, `lines`, `active_lines` | `# DSA Implementation...` |
+| **`ComplexityScene`**| `time_complexity`, `space_complexity`, `n_values` | `time`, `space`, `big_o`, `complexities` | `"O(N)"`, `"O(1)"` |
+| **`TitleScene`** | `title`, `subtitle`, `category`, `difficulty` | `header`, `topic`, `sub_title`, `level` | `""` |
+
+---
+
+## 4. Technical Recommendations & Architectural Design for `BaseDSAScene`
+
+To resolve all identified deficiencies, `BaseDSAScene` must be enhanced with four core subsystems:
+
+### 4.1 Parameter Schema Loading & Validation System
+`BaseDSAScene` will provide a unified parameter loading interface supporting raw dictionaries, JSON files, and Pydantic models (`pydantic.BaseModel`).
 
 ```python
-"""
-Pipeline Runner Orchestrator for Phase 14 Production Execution.
+def load_parameters(
+    self,
+    param_path_or_dict: Optional[Union[str, Path, Dict[str, Any]]] = None,
+    schema: Optional[Type[BaseModel]] = None,
+    custom_aliases: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+```
+- **Behavior**:
+  1. Ingests raw data from `param_path_or_dict` (or checks `parameters.json` / `cwd/parameters.json`).
+  2. Applies alias normalization (`resolve_aliases`).
+  3. If a Pydantic `schema` is passed, validates raw parameters into the model instance and converts back to a dict using `model.model_dump()`.
+  4. Stores the normalized, validated parameters in `self.params`.
 
-Chronologically links all pipeline nodes (Ingestion -> Plan -> Script -> TTS -> Manim -> FFmpeg)
-into a cohesive, crash-resilient execution pipeline with step resumption and event tracking.
-"""
+### 4.2 Canonical Alias Resolution Engine
+A global `DEFAULT_ALIAS_MAP` maps known alternative keys to canonical parameter names.
 
+```python
+DEFAULT_ALIAS_MAP: Dict[str, str] = {
+    # Array aliases
+    "data": "array",
+    "arr": "array",
+    "input_array": "array",
+    "values": "array",
+    "swap": "swap_indices",
+    "highlights": "highlight_indices",
+    # LinkedList aliases
+    "nodes_data": "nodes",
+    "vals": "nodes",
+    "list": "nodes",
+    # Stack / Queue aliases
+    "items": "elements",
+    "queue": "elements",
+    "stack": "elements",
+    # Hashmap aliases
+    "key_values": "entries",
+    "map": "entries",
+    "kv_pairs": "entries",
+    # Graph aliases
+    "node_list": "vertices",
+    "edge_list": "edges",
+    "path": "traversal_path",
+    # Code aliases
+    "code_snippet": "code",
+    "snippet": "code",
+    "active_lines": "highlight_lines",
+    # Complexity & Metadata
+    "time": "time_complexity",
+    "space": "space_complexity",
+    "header": "title",
+}
+```
+- **Helper Method**: `get_parameter(key: str, default: Any = None) -> Any`
+  - Looks up `key` in `self.params`.
+  - If missing, checks if `key` has an alias or if `key` is an alias for a canonical name present in `self.params`.
+  - Returns `default` if no match is found.
+
+### 4.3 Unconstrained Educational Step Runtime Engine
+`BaseDSAScene` will provide dynamic runtime calculation via `get_step_runtime()` to guarantee readable animation paces without artificial rush or static stagnation.
+
+```python
+def get_step_runtime(
+    self,
+    total_steps: int,
+    default_step_time: float = 1.0,
+    complexity_factor: float = 1.0,
+    min_step_time: float = 0.5,
+    max_step_time: float = 2.5,
+) -> float:
+```
+- **Algorithm**:
+  1. Retrieve requested total duration from `self.params.get("duration", 5.0)`.
+  2. Reserve 20% budget (minimum `0.5s`) for setup and header rendering: `available_budget = max(0.5, total_duration * 0.8)`.
+  3. Compute unconstrained step time: `raw_step_time = (available_budget / max(1, total_steps)) * complexity_factor`.
+  4. Clamp output: `clamped_time = max(min_step_time, min(raw_step_time, max_step_time))`.
+
+### 4.4 Continuous Ambient Wait & Anti-Freeze Animation Engine
+To eliminate static frame duplication and satisfy frame motion delta requirements (`max_delta > 0.001`), `BaseDSAScene` will provide `animate_continuous_wait()`.
+
+```python
+def animate_continuous_wait(
+    self,
+    duration: float = 1.0,
+    pulse_targets: Optional[List[Any]] = None,
+    rate_func: Any = None,
+) -> None:
+```
+- **Behavior**:
+  - If `MANIM_AVAILABLE` is `True` and `pulse_targets` (or header mobjects) exist:
+    - Executes a continuous micro-amplitude breathing scale (`scale(1.015)` followed by `scale(1/1.015)`) or subtle opacity shimmer over `duration`.
+  - If no specific targets exist, performs a micro-shift/glow on the scene header or active background mobjects.
+  - Fallback: Calls standard `self.wait(duration)` if no visual mobjects are present or if running in stub mode.
+
+---
+
+## 5. Complete Proposed Code Structure for `src/animation/scenes/base_scene.py`
+
+Below is the complete, drop-in replacement specification for `src/animation/scenes/base_scene.py`:
+
+```python
+"""Base DSA Scene Class supporting Manim rendering, schema validation, and ambient continuous waits."""
+
+import json
+import logging
 from pathlib import Path
-from typing import Any, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Type, Union
 
-from src.core.events import BaseEvent, EventBus
-from src.core.exceptions import PipelineError
-from src.core.logger import get_logger
-from src.core.orchestrator.state_ledger import StateLedger, StepStatus
-from src.core.workflow import EngineResult, Node, WorkflowEngine
-from src.pipeline.nodes import (
-    AnimationGeneratorNode,
-    ScriptGeneratorNode,
-    VideoAssemblyNode,
-)
+logger = logging.getLogger(__name__)
 
-logger = get_logger(__name__)
+# Graceful Manim Import Fallback
+MANIM_AVAILABLE = False
+try:
+    import manim  # type: ignore # noqa: F401
+    from manim import LEFT, UP, Scene, Text, there_and_back  # type: ignore
+
+    MANIM_AVAILABLE = True
+except ImportError:
+
+    class Scene:  # type: ignore
+        """Stub Scene base class when Manim is not installed."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def construct(self) -> None:
+            pass
+
+        def wait(self, duration: float = 1.0) -> None:
+            pass
+
+        def add(self, *mobjects: Any) -> None:
+            pass
+
+        def play(self, *args: Any, **kwargs: Any) -> None:
+            pass
 
 
-class PipelineRunner:
-    """
-    Production Orchestrator for end-to-end DSA video generation pipelines.
-    
-    Coordinates node sequence construction, state ledger tracking, event bus emissions,
-    crash resumption, and operational metrics reporting.
-    """
+# Optional Pydantic Import
+try:
+    from pydantic import BaseModel
+except ImportError:
+    BaseModel = Any  # type: ignore
 
-    def __init__(
+from src.animation.theme import DEFAULT_THEME, ThemeColors
+
+# Canonical Alias Mapping for parameter key normalization
+DEFAULT_ALIAS_MAP: Dict[str, str] = {
+    "data": "array",
+    "arr": "array",
+    "input_array": "array",
+    "values": "array",
+    "swap": "swap_indices",
+    "highlights": "highlight_indices",
+    "nodes_data": "nodes",
+    "vals": "nodes",
+    "list": "nodes",
+    "items": "elements",
+    "queue": "elements",
+    "stack": "elements",
+    "key_values": "entries",
+    "map": "entries",
+    "kv_pairs": "entries",
+    "node_list": "vertices",
+    "edge_list": "edges",
+    "path": "traversal_path",
+    "code_snippet": "code",
+    "snippet": "code",
+    "active_lines": "highlight_lines",
+    "time": "time_complexity",
+    "space": "space_complexity",
+    "header": "title",
+}
+
+
+class BaseDSAScene(Scene):
+    """Abstract Base Class for all DSA Visual Scene Templates."""
+
+    ALIAS_MAP: Dict[str, str] = DEFAULT_ALIAS_MAP
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.theme: ThemeColors = DEFAULT_THEME
+        self.params: Dict[str, Any] = {}
+        self.header_mobject: Optional[Any] = None
+        self.load_parameters()
+
+    def _resolve_aliases(
+        self, raw_params: Dict[str, Any], custom_aliases: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Resolves alias key names into canonical parameter keys."""
+        alias_map = dict(self.ALIAS_MAP)
+        if custom_aliases:
+            alias_map.update(custom_aliases)
+
+        resolved = dict(raw_params)
+        for alias, canonical in alias_map.items():
+            if alias in raw_params and canonical not in resolved:
+                resolved[canonical] = raw_params[alias]
+        return resolved
+
+    def load_parameters(
         self,
-        nodes: Optional[Sequence[Node]] = None,
-        ledger: Optional[StateLedger] = None,
-        event_bus: Optional[EventBus] = None,
-        db_path: str = "data/state_ledger.db",
-    ) -> None:
-        self.ledger = ledger if ledger is not None else StateLedger(db_path)
-        self.event_bus = event_bus if event_bus is not None else EventBus()
-        self.nodes = list(nodes) if nodes else self._build_default_nodes()
-        self.engine = WorkflowEngine(
-            nodes=self.nodes,
-            ledger=self.ledger,
-            event_bus=self.event_bus,
-        )
+        param_path_or_dict: Optional[Union[str, Path, Dict[str, Any]]] = None,
+        schema: Optional[Type[BaseModel]] = None,
+        custom_aliases: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Loads, normalizes aliases, and validates parameters."""
+        raw_data: Dict[str, Any] = {}
 
-    def _build_default_nodes(self) -> List[Node]:
-        """Construct the default 6-stage production node sequence."""
-        # Note: Concrete wrappers for Ingestion, Plan, and TTS nodes will be included
-        return [
-            ScriptGeneratorNode(),
-            AnimationGeneratorNode(),
-            VideoAssemblyNode(),
-        ]
-
-    def run_problem(
-        self,
-        slug: str,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> EngineResult:
-        """
-        Execute pipeline for a problem slug. Automatically creates run or resumes existing run.
-        """
-        existing_run = self.ledger.get_run_by_slug(slug)
-        if existing_run is not None and existing_run.status != StepStatus.COMPLETED:
-            logger.info("Resuming existing incomplete run for slug", slug=slug, run_id=existing_run.pipeline_run_id)
-            run_id = existing_run.pipeline_run_id
+        if isinstance(param_path_or_dict, dict):
+            raw_data = param_path_or_dict
+        elif isinstance(param_path_or_dict, (str, Path)):
+            path = Path(param_path_or_dict)
+            if path.exists() and path.is_file():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        raw_data = json.load(f)
+                except Exception as e:
+                    logger.warning("Failed to parse parameters from %s: %s", path, e)
         else:
-            run_id = self.ledger.create_run(slug, metadata=metadata)
-            logger.info("Created new pipeline run", slug=slug, run_id=run_id)
+            candidates = [Path("parameters.json"), Path.cwd() / "parameters.json"]
+            for path in candidates:
+                if path.exists() and path.is_file():
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            raw_data = json.load(f)
+                        break
+                    except Exception as e:
+                        logger.warning("Failed to parse parameters from %s: %s", path, e)
 
-        return self.engine.run(run_id)
+        # Apply Alias Normalization
+        normalized = self._resolve_aliases(raw_data, custom_aliases)
 
-    def resume_run(self, run_id: str) -> EngineResult:
-        """Resume an existing pipeline run by run_id."""
-        run_record = self.ledger.get_run(run_id)
-        if run_record is None:
-            raise PipelineError(f"Cannot resume: run_id '{run_id}' not found in StateLedger.")
-        logger.info("Resuming pipeline run", run_id=run_id, slug=run_record.slug)
-        return self.engine.run(run_id)
+        # Apply Pydantic Validation if schema provided
+        if schema is not None and hasattr(schema, "model_validate"):
+            try:
+                validated_model = schema.model_validate(normalized)
+                normalized = validated_model.model_dump()
+            except Exception as val_err:
+                logger.warning("Schema validation warning: %s. Falling back to normalized dict.", val_err)
 
-    def get_status(self, run_id_or_slug: str) -> dict[str, Any]:
-        """Query execution status and progress for a run_id or slug."""
-        run_record = self.ledger.get_run(run_id_or_slug)
-        if run_record is None:
-            run_record = self.ledger.get_run_by_slug(run_id_or_slug)
-        if run_record is None:
-            return {"found": False, "query": run_id_or_slug}
+        self.params = normalized
+        return self.params
 
-        completed_steps = self.ledger.get_completed_steps(run_record.pipeline_run_id)
-        return {
-            "found": True,
-            "run_id": run_record.pipeline_run_id,
-            "slug": run_record.slug,
-            "status": run_record.status.value if hasattr(run_record.status, "value") else str(run_record.status),
-            "created_at": run_record.created_at,
-            "updated_at": run_record.updated_at,
-            "completed_steps": list(completed_steps.keys()),
-            "total_nodes": len(self.nodes),
-        }
+    def get_parameter(self, key: str, default: Any = None) -> Any:
+        """Safe parameter access with alias resolution fallback."""
+        if key in self.params:
+            return self.params[key]
 
-    def subscribe_event(self, event_type: type, listener: Any) -> None:
-        """Subscribe external listener to pipeline event bus."""
-        self.event_bus.subscribe(event_type, listener)
+        # Check if key is an alias
+        canonical = self.ALIAS_MAP.get(key)
+        if canonical and canonical in self.params:
+            return self.params[canonical]
+
+        # Check if any alias of key exists in params
+        for alias, can_name in self.ALIAS_MAP.items():
+            if can_name == key and alias in self.params:
+                return self.params[alias]
+
+        return default
+
+    def get_step_runtime(
+        self,
+        total_steps: int,
+        default_step_time: float = 1.0,
+        complexity_factor: float = 1.0,
+        min_step_time: float = 0.5,
+        max_step_time: float = 2.5,
+    ) -> float:
+        """Calculates dynamic runtime for an animation step based on step count and complexity."""
+        if total_steps <= 0:
+            return default_step_time
+
+        total_duration = float(self.get_parameter("duration", 5.0))
+        available_budget = max(0.5, total_duration * 0.8)
+        calculated_time = (available_budget / float(total_steps)) * complexity_factor
+        return max(min_step_time, min(calculated_time, max_step_time))
+
+    def animate_continuous_wait(
+        self,
+        duration: float = 1.0,
+        pulse_targets: Optional[List[Any]] = None,
+        rate_func: Any = None,
+    ) -> None:
+        """Generates continuous ambient micro-motion during wait holds to avoid freeze frames."""
+        if not MANIM_AVAILABLE:
+            return
+
+        targets = pulse_targets or []
+        if not targets and self.header_mobject is not None:
+            targets = [self.header_mobject]
+
+        if targets:
+            try:
+                rf = rate_func or there_and_back
+                # Perform subtle breathing scale micro-animation
+                animations = [t.animate.scale(1.015) for t in targets]
+                self.play(*animations, run_time=duration, rate_func=rf)
+                return
+            except Exception as err:
+                logger.debug("Ambient animation fallback due to error: %s", err)
+
+        # Standard fallback wait
+        self.wait(duration)
+
+    def setup(self) -> None:
+        """Manim setup lifecycle hook."""
+        if hasattr(super(), "setup"):
+            super().setup()
+        if not self.params:
+            self.load_parameters()
+
+    def construct(self) -> None:
+        """Standard Manim scene construct method called by Manim CLI."""
+        if not self.params:
+            self.load_parameters()
+        self.setup_scene_header()
+        self.construct_dsa_animation()
+
+    def render_with_params(self, params: Dict[str, Any]) -> None:
+        """Entry point called by dynamic wrapper script to pass parameters."""
+        self.load_parameters(params)
+        if MANIM_AVAILABLE:
+            self.setup_scene_header()
+            self.construct_dsa_animation()
+        else:
+            logger.info("Manim not installed: Skipping graphical construction.")
+
+    def setup_scene_header(self) -> None:
+        """Renders standard scene header title if present."""
+        if not MANIM_AVAILABLE:
+            return
+        title_text = self.get_parameter("title", "")
+
+        if title_text:
+            self.header_mobject = Text(title_text, font_size=28, color=self.theme.PRIMARY_ACCENT)
+            self.header_mobject.to_corner(UP + LEFT, buff=0.5)
+            self.add(self.header_mobject)
+
+    def construct_dsa_animation(self) -> None:
+        """Override in concrete scene subclasses to build visual animations."""
+        pass
 ```
 
 ---
 
-## 4. Master CLI Integration (`src/cli/ops.py`)
+## 6. Verification Plan & Migration Matrix
 
-To fulfill Requirement R1 in Phase 14 (`ops.py` Master CLI commands: `run`, `status`, `resume`, `health`):
-* `ops.py run --slug <slug>`: Calls `PipelineRunner.run_problem(slug)`.
-* `ops.py resume --run-id <run_id>`: Calls `PipelineRunner.resume_run(run_id)`.
-* `ops.py status [--run-id <id> / --slug <slug>]`: Invokes `PipelineRunner.get_status(...)`.
-* `ops.py health`: Checks SQLite connectivity, FFmpeg binary availability, Manim availability, and output directory write permissions.
-
----
-
-## 5. Summary of Recommended Implementation Actions for Milestone M1
-
-1. **Implement `PipelineRunner` in `src/core/orchestrator/pipeline_runner.py`**:
-   - Link nodes, handle `run_problem`, `resume_run`, `get_status`, and delegate execution to `WorkflowEngine`.
-2. **Update Master CLI (`src/cli/ops.py`)**:
-   - Add `run` and `resume` subparsers and connect `status` and `health` commands to real `StateLedger` and `PipelineRunner` calls.
-3. **Write E2E Integration Tests in `tests/production/test_pipeline_e2e.py`**:
-   - Test end-to-end execution across nodes.
-   - Test crash resumption idempotency (skipping completed steps).
-   - Test failure propagation and state ledger recording.
-4. **Draft Operational Documentation (`PromptBook/Phase14/01_Production_Orchestration.md`)**:
-   - Document CLI usage, runbook recovery procedures, and pipeline architecture.
+| Test Category | Target Subsystem | Verification Method | Expected Outcome |
+| :--- | :--- | :--- | :--- |
+| **Unit Test** | `load_parameters` & Pydantic Schema | Instantiate `BaseDSAScene`, call `load_parameters` with dict & JSON file. | `self.params` populated correctly with default/validated types. |
+| **Unit Test** | `ALIAS_MAP` & `get_parameter` | Call `get_parameter("array")` with `{"data": [1,2,3]}` in parameters. | Returns `[1, 2, 3]`. |
+| **Unit Test** | `get_step_runtime` | Call with `total_steps=10`, `duration=5.0`. | Returns `0.5s` (clamped min step budget). |
+| **Integration Test** | `animate_continuous_wait` | Render dummy scene with `animate_continuous_wait(2.0)`. Extract frames. | `max_delta > 0.001` (non-zero motion delta throughout wait). |
+| **Regression Test**| Existing Test Suite | Run `pytest tests/test_animation/test_manim_animation.py`. | 100% PASS across all 8 scene renderers. |

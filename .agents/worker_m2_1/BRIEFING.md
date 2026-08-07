@@ -1,60 +1,56 @@
-# BRIEFING — 2026-08-05T11:31:13Z
+# BRIEFING — 2026-08-07T15:17:20Z
 
 ## Mission
-Integrate and update `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py` according to Milestone 2 specs and ensure all pytest unit tests pass.
+Refactor TreeScene and GraphScene in Python Manim animation engine to support arbitrary binary tree structures/level-order lists, dynamic 2-pass tree layout, dynamic radius scaling, perimeter-buffered edges, subtree collapse, BFS/DFS traversal animations, continuous wait, deterministic graph layouts, directed/undirected edge rendering with weights, and update parameter schemas/aliases. Verify all pytest tests pass.
 
 ## 🔒 My Identity
 - Archetype: implementer, qa, specialist
 - Roles: implementer, qa, specialist
 - Working directory: /home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1
-- Original parent: fd0872c4-d4cc-4258-9539-09ef02c56d58
-- Milestone: Milestone 2 (Pipeline Node Integration - Voice Generator Node)
+- Original parent: 2c825a3d-c1f1-4c88-821f-75fdcd4d0113
+- Milestone: M2
 
 ## 🔒 Key Constraints
-- Inherit from Node contract.
-- Node name: "voice_generator".
-- Constructor: `__init__(self, provider: Optional[VoiceProviderProtocol] = None, output_dir: Optional[Union[str, Path]] = None)`. Default provider `KokoroVoiceProvider()`.
-- Validate `run_id` and `ledger` in `execute`.
-- Retrieve step output for `"script_generator"`.
-- Extract spoken narration text/sections from script payload.
-- Generate `data/audio/{slug}/master_audio.wav` using `provider.generate_segment(text, voice_id="af_sky", output_path=str(audio_file))`.
-- Verify audio file exists and size > 0.
-- Generate valid `data/audio/{slug}/subtitles.srt`.
-- Return payload dictionary with `slug`, `audio_path`, `subtitle_path`, `srt_content`, `duration_seconds`, `status: "completed"`.
-- Catch hardware/synthesis errors and raise `VoiceGenerationError`.
-- Genuine implementation — no hardcoding, no facades.
+- Minimal change principle, genuine logic (no hardcoding, no facade/dummy code).
+- Implement dynamic tree layout algorithm (2-pass in-order + parent centering) with dynamic node radius scaling ($R = \max(0.25, \min(0.4, 3.5/N))$) and perimeter-buffered parent-child edges (`Line(start, end, buff=radius)`).
+- Replace all static `self.wait(...)` calls with `self.animate_continuous_wait(...)` and `self.get_step_runtime(...)`.
+- Pass all unit tests in `pytest tests/test_animation/test_manim_animation.py`.
 
 ## Current Parent
-- Conversation ID: fd0872c4-d4cc-4258-9539-09ef02c56d58
-- Updated: 2026-08-05T11:31:13Z
+- Conversation ID: 2c825a3d-c1f1-4c88-821f-75fdcd4d0113
+- Updated: 2026-08-07T15:17:20Z
 
 ## Task Summary
-- **What to build**: Update `VoiceGeneratorNode` in `src/pipeline/nodes/voice_generator_node.py`
-- **Success criteria**: All tests in `tests/pipeline/test_voice_node.py` pass cleanly. Handoff report created.
-- **Interface contracts**: PROJECT.md / Node contract / VoiceProviderProtocol / VoiceGenerationError
-- **Code layout**: `src/pipeline/nodes/voice_generator_node.py` and `tests/pipeline/test_voice_node.py`
+- **What to build**: Full refactoring of TreeScene and GraphScene and schema support in base_scene.py / schema modules.
+- **Success criteria**: All requirements satisfied, clean code handling edge cases, 100% passing pytest suites.
+- **Interface contracts**: `/home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m2/SCOPE.md`
+- **Code layout**: `src/animation/scenes/tree_scene.py`, `src/animation/scenes/graph_scene.py`, `src/animation/scenes/base_scene.py`.
+
+## Key Decisions Made
+- Implemented 2-pass tree layout (in-order X positioning + post-order parent centering) with dynamic node radius scaling.
+- Implemented level-order array parser with `None` gap support and binary tree dictionary parser.
+- Added `action_delete` (target_node deletion & subtree collapse) and dynamic `action_insert` (`new_node`).
+- Refactored GraphScene with `normalize_graph_inputs`, `manim.DiGraph` / `manim.Graph` choice, deterministic positioning (`seed=42` for spring, native deterministic algorithms for kamada-kawai/circle/spectral), and midpoint weight labels.
+- Implemented `action_dijkstra` and `action_weighted_edges` for GraphScene.
+- Replaced all static waits with `animate_continuous_wait` and dynamic timing `get_step_runtime`.
+- Updated `GLOBAL_ALIAS_MAP`, `TreeSceneSchema`, and `GraphSceneSchema` in `base_scene.py`.
+- Added 8 Tier 2 test cases in `test_manim_animation.py`.
 
 ## Change Tracker
-- **Files modified**:
-  - `src/pipeline/nodes/voice_generator_node.py`: Implemented full `VoiceGeneratorNode` with provider injection, script extraction, PCM synthesis, subtitle formatting, and error handling.
-  - `tests/pipeline/test_voice_node.py`: Expanded test suite covering default provider, missing ledger, missing audio, pre-existing audio, script-driven TTS synthesis via ledger, provider error wrapping, and SRT timestamp formatting.
-- **Build status**: All tests passing (26 passed in test_voice_node.py + test_voice_core.py; 111 passed across full pipeline test suite).
-- **Pending issues**: None.
+- **Files modified**: `src/animation/scenes/tree_scene.py`, `src/animation/scenes/graph_scene.py`, `src/animation/scenes/base_scene.py`, `tests/test_animation/test_manim_animation.py`.
+- **Build status**: 100% PASS (18/18 tree/graph animation tests, 15/15 parameter schema tests).
+- **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS (111 pipeline tests passed cleanly, 0 failures).
-- **Lint status**: Clean (no style violations introduced).
-- **Tests added/modified**: Updated `tests/pipeline/test_voice_node.py` with 5 new unit tests.
+- **Build/test result**: PASS (100%)
+- **Lint status**: CLEAN
+- **Tests added/modified**: 8 new test cases added in `test_manim_animation.py`.
 
 ## Loaded Skills
 - None
 
-## Key Decisions Made
-- Initialized briefing and dispatch tracking.
-- Retained support for pre-existing audio file execution in `VoiceGeneratorNode` when upstream script output is absent, maintaining backward compatibility while enabling dynamic TTS synthesis when script output is present in `StateLedger`.
-
 ## Artifact Index
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/DISPATCH.md` — Dispatch log
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/BRIEFING.md` — Working memory briefing
-- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md` — Final handoff report
-
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/DISPATCH.md` — Dispatch prompt instructions
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/BRIEFING.md` — Situational awareness
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/changes.md` — Summary of code changes
+- `/home/adarsh/Documents/Youtube-Channel/.agents/worker_m2_1/handoff.md` — 5-component handoff report

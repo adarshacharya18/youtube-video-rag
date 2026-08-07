@@ -1,27 +1,20 @@
-## 2026-07-30T18:03:55+05:30
+## 2026-08-07T11:24:31Z
+You are Explorer 1 for Milestone M3 (Auxiliary & Educational Scene Renderers).
+Your Working Directory: /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_1
 
-You are explorer_m3_1 in working directory /home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_1.
-Your task is to explore and analyze the codebase to design the Rendering Boundaries, Scene Mapping, and CLI Invocation Strategies section for Milestone 3 documentation `PromptBook/Phase12/01_Animation_Production.md`.
+Mandatory files to read first:
+- Original Request: /home/adarsh/Documents/Youtube-Channel/.agents/ORIGINAL_REQUEST.md
+- Master Project Index: /home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_r1/PROJECT.md
+- Scope Document: /home/adarsh/Documents/Youtube-Channel/.agents/sub_orch_m3/SCOPE.md
 
-MANDATORY ASSIGNMENT:
-1. Read the following authoritative source files:
-   - `/home/adarsh/Documents/Youtube-Channel/ORIGINAL_REQUEST.md`
-   - `/home/adarsh/Documents/Youtube-Channel/PROJECT.md`
-   - `/home/adarsh/Documents/Youtube-Channel/src/pipeline/nodes/animation_generator_node.py`
-   - `/home/adarsh/Documents/Youtube-Channel/src/animation/renderer.py`
-   - `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/base_scene.py`
-   - `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/array_scene.py`
-   - `/home/adarsh/Documents/Youtube-Channel/src/animation/scenes/linkedlist_scene.py`
-   - `/home/adarsh/Documents/Youtube-Channel/tests/pipeline/test_animation_node.py`
-   - `/home/adarsh/Documents/Youtube-Channel/.agents/orchestrator_phase12/GATE_STATUS.md`
+Your Task:
+Investigate `src/animation/scenes/code_scene.py`, `src/animation/scenes/base_dsa_scene.py`, and related scene infrastructure.
+Analyze requirements for `CodeScene`:
+1. Dynamic Custom Input & Parameter Parsing (R1): Accept custom code strings, highlight lines, variable watch state dictionary via `BaseDSAScene` parameters.
+2. DSA Visualization & Refactoring (R2): Add live Variable Watcher side panel, natural language execution caption bar, continuous line highlight focus transitions without static wait pauses.
+3. Unconstrained Educational Timing & Continuous Animation (R3): Dynamic step duration scaling using `get_step_runtime()`, replace static `self.wait()` pauses with `animate_continuous_wait()` anti-freeze animation helper.
 
-2. Deeply analyze:
-   - Rendering Boundaries: How `AnimationGeneratorNode` accepts `YouTubeScript` and visual cues from SQLite StateLedger (`script_generator` step) and outputs `RenderSegment` dicts.
-   - Cue Extraction & Fallback: `_extract_visual_cues` logic scanning primary script cues vs fallback section dict scanning (`hook`, `context`, `solution`, `complexity`).
-   - Scene Template Mapping: The mapping of all 8 visual cue types (`array_highlight`, `tree_traversal`, `code_highlight`, `linkedlist_operation`, `graph_traversal`, `hashmap_operation`, `stack_queue_operation`, `complexity_chart`) to concrete Manim scene classes.
-   - CLI Invocation & Subprocess Execution: `ManimRenderer` subprocess execution parameters, Python script invocation vs Manim binary fallback, quality flags (`-ql`, `-qm`, `-qh`, `-qk`), resolution flags, parameters.json passing via `cwd`, and 120s timeout enforcement.
-   - High-quality Mermaid sequence and flowchart diagrams illustrating the entire flow from visual cue ingestion to CLI subprocess execution and result return.
-
-3. Write a comprehensive exploration report and detailed documentation blueprint to `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_1/analysis.md` and deliver `handoff.md` in your working directory summarizing your findings. Write progress updates to `progress.md` with timestamps.
-
-Send a completion message back to parent upon finishing.
+Examine existing codebase and tests. Produce:
+- `analysis.md` in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_1/analysis.md` with detailed code analysis and recommended implementation strategy.
+- `handoff.md` in `/home/adarsh/Documents/Youtube-Channel/.agents/explorer_m3_1/handoff.md` summarizing findings.
+Send a message to parent when finished.
