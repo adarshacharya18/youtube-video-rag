@@ -41,7 +41,100 @@ class MockLLMProvider:
 
 @pytest.fixture
 def valid_script_dict():
-    """Return a valid YouTube script dictionary."""
+    """Return a valid YouTube script dictionary with full section visual cues."""
+    cues_hook = [
+        {
+            "cue_id": "cue_h1",
+            "animation_type": "title_card",
+            "description": "Show Two Sum title card",
+            "timestamp_seconds": 0.0,
+            "parameters": {"title": "Two Sum", "duration": 5.0},
+        },
+        {
+            "cue_id": "cue_h2",
+            "animation_type": "title_card",
+            "description": "Show Problem Statement",
+            "timestamp_seconds": 5.0,
+            "parameters": {"topic": "Target Sum", "duration": 5.0},
+        },
+        {
+            "cue_id": "cue_h3",
+            "animation_type": "title_card",
+            "description": "Show Challenge Overview",
+            "timestamp_seconds": 10.0,
+            "parameters": {"difficulty": "Easy", "duration": 5.0},
+        },
+    ]
+    cues_ctx = [
+        {
+            "cue_id": "cue_c1",
+            "animation_type": "array_highlight",
+            "description": "Show Input Array",
+            "timestamp_seconds": 15.0,
+            "parameters": {"array": [2, 7, 11, 15], "duration": 10.0},
+        },
+        {
+            "cue_id": "cue_c2",
+            "animation_type": "array_highlight",
+            "description": "Show Target Pointer",
+            "timestamp_seconds": 25.0,
+            "parameters": {"array": [2, 7, 11, 15], "pointers": {"target": 9}, "duration": 10.0},
+        },
+        {
+            "cue_id": "cue_c3",
+            "animation_type": "array_highlight",
+            "description": "Highlight Candidate Pair",
+            "timestamp_seconds": 35.0,
+            "parameters": {"array": [2, 7], "duration": 10.0},
+        },
+    ]
+    cues_sol = [
+        {
+            "cue_id": "cue_s1",
+            "animation_type": "hashmap_operation",
+            "description": "Initialize HashMap",
+            "timestamp_seconds": 45.0,
+            "parameters": {"entries": {}, "action": "display", "duration": 15.0},
+        },
+        {
+            "cue_id": "cue_s2",
+            "animation_type": "hashmap_operation",
+            "description": "Insert Complements",
+            "timestamp_seconds": 60.0,
+            "parameters": {"entries": {"2": 0}, "action": "put", "duration": 15.0},
+        },
+        {
+            "cue_id": "cue_s3",
+            "animation_type": "code_walkthrough",
+            "description": "Execute Hash Lookup",
+            "timestamp_seconds": 75.0,
+            "parameters": {"code": "seen[n] = i", "lines": [1, 2], "duration": 15.0},
+        },
+    ]
+    cues_cx = [
+        {
+            "cue_id": "cue_x1",
+            "animation_type": "complexity_chart",
+            "description": "Show Time Complexity",
+            "timestamp_seconds": 90.0,
+            "parameters": {"time_complexity": "O(N)", "duration": 3.3},
+        },
+        {
+            "cue_id": "cue_x2",
+            "animation_type": "complexity_chart",
+            "description": "Show Space Complexity",
+            "timestamp_seconds": 93.3,
+            "parameters": {"space_complexity": "O(N)", "duration": 3.3},
+        },
+        {
+            "cue_id": "cue_x3",
+            "animation_type": "complexity_chart",
+            "description": "Summary Comparison",
+            "timestamp_seconds": 96.6,
+            "parameters": {"time_complexity": "O(N)", "space_complexity": "O(N)", "duration": 3.4},
+        },
+    ]
+    all_cues = cues_hook + cues_ctx + cues_sol + cues_cx
     return {
         "topic": "Two Sum",
         "slug": "two-sum",
@@ -49,28 +142,20 @@ def valid_script_dict():
         "hook": {
             "title": "Hook",
             "narration": "Can you solve Two Sum in linear time?",
-            "visual_cues": [
-                {
-                    "cue_id": "cue_01",
-                    "animation_type": "title_card",
-                    "description": "Show Two Sum title card",
-                    "timestamp_seconds": 0.0,
-                    "parameters": {},
-                }
-            ],
+            "visual_cues": cues_hook,
             "estimated_duration": 15.0,
         },
         "context": {
             "title": "Context",
             "narration": "Given an array of integers and a target sum, find two numbers that add up to target.",
-            "visual_cues": [],
+            "visual_cues": cues_ctx,
             "estimated_duration": 30.0,
         },
         "solution": {
             "title": "Solution",
             "narration": "Use a hash map to store complements for single-pass O(N) lookup.",
             "code_snippet": "def twoSum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i",
-            "visual_cues": [],
+            "visual_cues": cues_sol,
             "estimated_duration": 45.0,
         },
         "complexity": {
@@ -78,7 +163,7 @@ def valid_script_dict():
             "narration": "Time complexity is O(N) and space complexity is O(N).",
             "time_complexity": "O(N)",
             "space_complexity": "O(N)",
-            "visual_cues": [],
+            "visual_cues": cues_cx,
             "estimated_duration": 10.0,
         },
         "total_duration": 100.0,
@@ -88,15 +173,7 @@ def valid_script_dict():
             "Use a hash map to store complements for single-pass O(N) lookup.",
             "Time complexity is O(N) and space complexity is O(N).",
         ],
-        "visual_cues": [
-            {
-                "cue_id": "cue_01",
-                "animation_type": "title_card",
-                "description": "Show Two Sum title card",
-                "timestamp_seconds": 0.0,
-                "parameters": {},
-            }
-        ],
+        "visual_cues": all_cues,
     }
 
 

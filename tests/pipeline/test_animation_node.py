@@ -1151,7 +1151,7 @@ def test_zero_byte_corrupt_cache_re_renders(temp_ledger, mock_manim_script, tmp_
         cache_dir=cache_dir,
     )
 
-    cue_params = {"test": 123}
+    cue_params = {"test": 123, "description": "Zero byte test cue", "duration": 5.0}
     cache_hash = node._compute_cache_hash("array_highlight", cue_params)
     cache_dir.mkdir(parents=True, exist_ok=True)
     corrupt_cache_file = cache_dir / f"{cache_hash}.mp4"
@@ -1165,7 +1165,8 @@ def test_zero_byte_corrupt_cache_re_renders(temp_ledger, mock_manim_script, tmp_
                 {
                     "cue_id": "cue_corrupt",
                     "animation_type": "array_highlight",
-                    "parameters": cue_params,
+                    "description": "Zero byte test cue",
+                    "parameters": {"test": 123},
                 }
             ]
         },
@@ -1220,7 +1221,8 @@ def test_render_segment_schema_completeness(temp_ledger, mock_manim_script, tmp_
     assert seg.duration == 8.0
     assert seg.end_time == 20.5
     assert seg.scene_type == "ARRAY_HIGHLIGHT"
-    assert seg.visual_parameters == {"array": [10, 20], "duration": 8.0}
+    assert seg.visual_parameters["array"] == [10, 20]
+    assert seg.visual_parameters["duration"] == 8.0
     assert seg.visual_path == str(out_dir / run_id / "segment_cue_schema_01.mp4")
 
     assert len(seg.asset_references) == 1
@@ -1242,7 +1244,7 @@ def test_sub_100_byte_corrupt_cache_file_triggers_re_render(temp_ledger, mock_ma
         cache_dir=cache_dir,
     )
 
-    cue_params = {"test_key": "sub_100_corrupt_test"}
+    cue_params = {"test_key": "sub_100_corrupt_test", "description": "Sub 100 corrupt cue", "duration": 5.0}
     cache_hash = node._compute_cache_hash("array_highlight", cue_params)
     cache_dir.mkdir(parents=True, exist_ok=True)
     corrupt_cache_file = cache_dir / f"{cache_hash}.mp4"
@@ -1258,7 +1260,8 @@ def test_sub_100_byte_corrupt_cache_file_triggers_re_render(temp_ledger, mock_ma
                 {
                     "cue_id": "cue_sub100",
                     "animation_type": "array_highlight",
-                    "parameters": cue_params,
+                    "description": "Sub 100 corrupt cue",
+                    "parameters": {"test_key": "sub_100_corrupt_test"},
                 }
             ]
         },

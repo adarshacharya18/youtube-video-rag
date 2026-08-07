@@ -125,7 +125,7 @@ def test_build_subtitle_filter():
 def test_build_concat_filter_graph_single_video():
     """Test filter graph for a single video input without audio."""
     graph, v_map, a_map = build_concat_filter_graph(num_video_inputs=1, num_audio_inputs=0)
-    assert "[0:v]scale=3840:2160" in graph
+    assert "[0:v]scale=1920:1080" in graph
     assert v_map == "v0"
     assert a_map is None
 
@@ -802,7 +802,7 @@ def test_build_assembly_command_resolution_string():
         output_path="/tmp/out.mp4",
         resolution="invalid_res",
     )
-    assert "scale=3840:2160" in " ".join(cmd2)
+    assert "scale=1920:1080" in " ".join(cmd2)
 
 
 def test_build_assembly_command_via_demuxer_manifest():

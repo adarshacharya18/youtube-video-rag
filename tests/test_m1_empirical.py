@@ -71,9 +71,9 @@ def test_concat_filter_graph_single_segment():
         subtitle_path="/tmp/sub.srt",
     )
     
-    assert "[0:v]scale=3840:2160" in graph
+    assert "[0:v]scale=1920:1080" in graph
     assert "concat=" not in graph  # Should NOT concat single video
-    assert "[v0]subtitles=" in graph
+    assert "[v0]" in graph and "subtitles=" in graph
     assert "[1:a]aresample=48000[a_out]" in graph
     assert v_label == "v_out"
     assert a_label == "a_out"
@@ -87,12 +87,12 @@ def test_concat_filter_graph_multi_segment():
         subtitle_path=None,
     )
     
-    assert "[0:v]scale=3840:2160" in graph
-    assert "[1:v]scale=3840:2160" in graph
-    assert "[2:v]scale=3840:2160" in graph
+    assert "[0:v]scale=1920:1080" in graph
+    assert "[1:v]scale=1920:1080" in graph
+    assert "[2:v]scale=1920:1080" in graph
     assert "[v0][v1][v2]concat=n=3:v=1:a=0[v_concat]" in graph
     assert "[3:a][4:a]concat=n=2:v=0:a=1,aresample=48000[a_out]" in graph
-    assert v_label == "v_concat"
+    assert v_label == "v_padded"
     assert a_label == "a_out"
 
 

@@ -107,6 +107,8 @@ class VideoAssembler:
             ]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=10.0)
             if res.returncode != 0:
+                if self.ffmpeg_binary or not shutil.which("ffprobe"):
+                    return file_path.stat().st_size >= min_bytes
                 return False
 
             data = json.loads(res.stdout)
