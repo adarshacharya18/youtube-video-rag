@@ -207,14 +207,21 @@ class GraphScene(BaseDSAScene):
         duration = float(self.get_parameter("duration", default=5.0))
         graph, vertices, _, _, weight_labels_vg = self.create_graph()
 
-        anim_time = self.get_step_runtime(1, default_step_time=duration * 0.6)
-        self.play(Create(graph), FadeIn(weight_labels_vg), run_time=anim_time)
+        anim_time = self.get_step_runtime(1, default_step_time=duration * 0.5)
+        self.play(manim.Create(graph), manim.FadeIn(weight_labels_vg), run_time=anim_time)
 
         target_mobs = [graph.vertices[v] for v in vertices if v in graph.vertices]
+        if not target_mobs and hasattr(graph, "vertices"):
+            target_mobs = list(graph.vertices.values())
+        pulse_targets = target_mobs if target_mobs else [graph]
+
         wait_time = max(0.4, duration - anim_time)
-        self.animate_continuous_wait(
-            duration=wait_time, pulse_targets=[graph], scale_factor=1.06
-        )
+        pulse_ring = manim.Circle(radius=0.8, color=self.theme.HIGHLIGHT, stroke_width=4).move_to(graph.get_center())
+        self.play(manim.Create(pulse_ring), graph.animate.scale(1.2), run_time=wait_time * 0.45, rate_func=manim.smooth)
+        self.play(manim.FadeOut(pulse_ring), graph.animate.scale(1.0 / 1.2), run_time=wait_time * 0.45, rate_func=manim.smooth)
+        rem = wait_time * 0.1
+        if rem > 0.01:
+            self.wait(rem)
 
     def action_bfs(self) -> None:
         duration = float(self.get_parameter("duration", default=5.0))

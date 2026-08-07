@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
@@ -255,10 +256,14 @@ class BaseDSAScene(Scene):
                     logger.warning("Failed to parse scene parameters from %s: %s", path, e)
                     raw_data = {}
         else:
-            candidates = [
+            candidates = []
+            env_param = os.environ.get("PARAM_FILE")
+            if env_param:
+                candidates.append(Path(env_param))
+            candidates.extend([
                 Path("parameters.json"),
                 Path.cwd() / "parameters.json",
-            ]
+            ])
             for path in candidates:
                 if path.exists() and path.is_file():
                     try:

@@ -159,7 +159,8 @@ class TreeScene(BaseDSAScene):
     ]:
         """Builds Manim tree Mobjects (circles, text labels, and perimeter-buffered edge lines)."""
         if not root:
-            placeholder = Text("Empty Tree", color=self.theme.TEXT_MUTED, font_size=24)
+            text_sec = getattr(self.theme, "TEXT_SECONDARY", self.theme.PRIMARY_ACCENT)
+            placeholder = Text("Empty Tree", color=text_sec, font_size=24)
             return VGroup(placeholder), {}, []
 
         positions, radius = self.compute_tree_layout(root)
@@ -217,7 +218,7 @@ class TreeScene(BaseDSAScene):
 
         target_mobs = [v[0] for v in node_mobs.values()] if node_mobs else [tree_vg]
         wait_time = max(0.2, duration - anim_time)
-        self.animate_continuous_wait(duration=wait_time, pulse_targets=target_mobs, scale_factor=1.06)
+        self.animate_continuous_wait(duration=wait_time, pulse_targets=target_mobs, scale_factor=1.10)
 
     def action_bfs(self) -> None:
         raw_nodes = self.get_parameter("nodes", default=[1, 2, 3, 4, 5, 6, 7])

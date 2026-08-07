@@ -49,9 +49,12 @@ class ManimRenderer:
         output_dir.mkdir(parents=True, exist_ok=True)
         target_video = output_dir / output_filename
 
+        import os
+        env = dict(os.environ)
         if parameters is not None:
             params_file = output_dir / "parameters.json"
             params_file.write_text(json.dumps(parameters, indent=2), encoding="utf-8")
+            env["PARAM_FILE"] = str(params_file)
 
         q_flag = QUALITY_FLAGS.get(self.quality.lower(), "-qm")
         if self.manim_binary:
@@ -106,6 +109,7 @@ class ManimRenderer:
                 close_fds=True,
                 timeout=self.timeout,
                 cwd=str(output_dir),
+                env=env,
             )
             if result.returncode != 0:
                 raise AnimationError(
